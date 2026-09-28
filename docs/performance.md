@@ -77,14 +77,53 @@ same algorithm, and graph quality is essentially identical (recall matches at
 each `ef`). The difference is memory-system engineering, mainly batched
 prefetching and huge pages, which hnswlib and FAISS's HNSW don't use by default.
 
+## 8-bit scalar quantization (SQ8)
+
+After the memory-system work, the remaining cost was bytes moved per distance
+evaluation. SQ8 stores each node as uint8 codes, with a per-dimension affine
+map `x ≈ min + code × scale` learned by `train()`. A 128-d layer-0 record
+shrinks from 704 to 320 bytes, so traversal touches about half the cache
+lines.
+
+- **Asymmetric distance.** The query stays in float. Its dot product with a
+  dequantized node is `C + Σ wᵢ·codeᵢ`, where `wᵢ = qᵢ·scaleᵢ` and `C`
+  are computed once per query. The inner loop is therefore a single
+  uint8×float dot product (AVX2: `vpmovzxbd` → `vcvtdq2ps` → FMA; also
+  AVX-512, NEON and WASM SIMD128). For L2, the dequantized node's squared
+  norm is stored in the record.
+- **Exact re-ranking.** When full vectors are kept, the beam's candidates are
+  re-scored with float distances, so recall matches the float index. Without
+  them, the index stores about 4× less vector data and loses some recall.
+- **Construction** uses exact distances whenever full vectors exist, so the
+  graph itself doesn't degrade.
+
+SIFT1M, same machine and methodology (median of 5 interleaved runs):
+
+| Mode | Recall@10 at ef=80 | QPS at ef=80 | p99 | QPS at ef=200 | Snapshot |
+|---|---|---|---|---|---|
+| float | 0.9744 | 10,394 | 191 µs | 4,667 | 658 MB |
+| **SQ8 + re-rank** | **0.9744** | **15,365 (+48%)** | **118 µs** | **6,829 (+46%)** | 791 MB |
+| SQ8, codes only | 0.9666 | 17,015 (+64%) | 109 µs | 7,649 | **279 MB** |
+
+SIFT's components are small integers, so 8-bit codes are nearly lossless on
+it, which flatters SQ8. The honest check is real float embeddings: 28,825 CLIP
+ViT-B/32 image vectors (512-d, cosine) with 1,000 held-out queries:
+
+| Mode | Recall@10 at ef=64 | QPS at ef=64 | Best recall | Index |
+|---|---|---|---|---|
+| float | 0.9979 | 9,229 | 0.9997 | 64 MiB |
+| SQ8 + re-rank | 0.9981 | 11,570 (+25%) | 0.9999 | 78 MiB |
+| SQ8, codes only | 0.9879 | 13,364 (+45%) | 0.9890 | 22 MiB |
+
+With re-ranking, SQ8 is strictly better (same or higher recall, faster).
+Without it, codes-only trades a recall ceiling of about 0.989 for roughly 3×
+less memory.
+
 ## Next levers
 
-The remaining cost is bytes moved per distance evaluation, so the next wins are:
-
-1. **int8 scalar quantization** (milestone 7): 4× fewer bytes per vector, with
-   full-precision re-ranking of the top candidates.
-2. **Graph-parameter tuning** (M, efConstruction) for the best
+1. **Graph-parameter tuning** (M, efConstruction) for the best
    recall-vs-distance-computations trade-off.
+2. **Product quantization** for datasets where memory, not speed, is the limit.
 
 ## Reproduce
 
