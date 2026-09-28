@@ -192,6 +192,69 @@ TEST_F(DatabaseTest, BatchUpsertAndSq8Persist) {
   for (std::size_t i = 0; i < 1000; i += 50) EXPECT_EQ(db->search(row(i), 1, {.ef = 64})[0].label, i);
 }
 
+// ---------- Replication primitives ----------
+
+TEST_F(DatabaseTest, ReplicaMirrorsPrimaryLog) {
+  auto primary = Database::open((dir_ / "primary").string(), params());
+  auto replica = Database::open((dir_ / "replica").string(), params());
+  for (std::size_t i = 0; i < 200; ++i) replica->apply({primary->upsert(i, row(i))});
+  replica->apply({*primary->remove(7)});
+  std::vector<std::uint64_t> labels = {500, 501, 502};
+  replica->apply(primary->upsert_batch(labels.data(), row(500), labels.size()));
+
+  EXPECT_EQ(replica->last_lsn(), primary->last_lsn());
+  EXPECT_EQ(replica->size(), primary->size());
+  for (std::size_t q = 0; q < 20; ++q) {
+    const auto a = primary->search(data_.queries.row(q), 5, {.ef = 64});
+    const auto b = replica->search(data_.queries.row(q), 5, {.ef = 64});
+    ASSERT_EQ(a.size(), b.size());
+    for (std::size_t i = 0; i < a.size(); ++i) EXPECT_EQ(a[i].label, b[i].label);
+  }
+  // The replica's own log recovers it just like a primary's.
+  replica.reset();
+  replica = Database::open((dir_ / "replica").string(), params());
+  EXPECT_EQ(replica->last_lsn(), primary->last_lsn());
+}
+
+TEST_F(DatabaseTest, ReplicaRejectsGapsAndCatchesUp) {
+  auto primary = Database::open((dir_ / "primary").string(), params());
+  auto replica = Database::open((dir_ / "replica").string(), params());
+  replica->apply({primary->upsert(0, row(0))});
+  primary->upsert(1, row(1));                 // the replica misses this one
+  const auto third = primary->upsert(2, row(2));
+  EXPECT_THROW(replica->apply({third}), std::runtime_error);
+
+  // Catch up from the primary's log.
+  const auto missing = primary->records_since(replica->last_lsn());
+  ASSERT_TRUE(missing.has_value());
+  EXPECT_EQ(missing->size(), 2u);
+  replica->apply(*missing);
+  EXPECT_EQ(replica->last_lsn(), 3u);
+  EXPECT_TRUE(replica->index().contains(1));
+}
+
+TEST_F(DatabaseTest, SnapshotBootstrapsAReplicaPastACheckpoint) {
+  auto primary = Database::open((dir_ / "primary").string(), params());
+  for (std::size_t i = 0; i < 300; ++i) primary->upsert(i, row(i));
+  primary->checkpoint();
+  primary->upsert(300, row(300));
+  EXPECT_FALSE(primary->records_since(10).has_value());  // folded into the snapshot
+  EXPECT_EQ(primary->records_since(300)->size(), 1u);
+
+  auto replica = Database::open((dir_ / "replica").string(), params());
+  replica->upsert(9999, row(1999));  // stale state that must be discarded
+  const auto [lsn, bytes] = primary->export_snapshot();
+  replica->import_snapshot(lsn, bytes);
+  EXPECT_EQ(replica->last_lsn(), 301u);
+  EXPECT_FALSE(replica->index().contains(9999));
+  replica->apply({primary->upsert(301, row(301))});  // and then follows the live stream
+
+  replica.reset();  // the imported snapshot is this node's durable checkpoint now
+  replica = Database::open((dir_ / "replica").string(), params());
+  EXPECT_EQ(replica->size(), 302u);
+  EXPECT_EQ(replica->last_lsn(), 302u);
+}
+
 TEST(Crc32c, KnownVector) {
   // RFC 3720 test vector: CRC-32C of "123456789".
   EXPECT_EQ(crc32c("123456789", 9), 0xE3069283u);
