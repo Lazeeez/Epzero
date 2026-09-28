@@ -10,9 +10,15 @@ namespace oryx::detail {
 
 // Visited set for one search. Instead of clearing n entries per query, each query bumps an
 // epoch and a node counts as visited when its tag equals the current epoch. The array is
-// only cleared when the 16-bit epoch wraps, i.e. once every 65535 queries.
+// only cleared when the epoch wraps.
+//
+// Tags are 8-bit on purpose: for 1M nodes the array is 1 MiB and stays in L2, whereas 16-bit
+// tags (2 MiB) spill to L3 on every check. The extra full clear every 255 queries costs about
+// 0.1 us per query amortized.
 class VisitedList {
  public:
+  using Tag = std::uint8_t;
+
   explicit VisitedList(std::size_t capacity) : tags_(capacity, 0) {}
 
   void reset() {
@@ -30,8 +36,8 @@ class VisitedList {
   }
 
  private:
-  std::vector<std::uint16_t> tags_;
-  std::uint16_t epoch_ = 0;
+  std::vector<Tag> tags_;
+  Tag epoch_ = 0;
 };
 
 // Recycles VisitedLists across queries so steady-state search does no O(n) allocation.
