@@ -12,15 +12,20 @@ cluster.
 
 **[Live demo →](https://lazeeez.github.io/Oryx/)** The engine compiled to
 WebAssembly (SIMD128 + threads), running entirely in your browser:
-- **Explorer.** 29,825 Open Images photos embedded with CLIP, indexed live on
-  every core, and shown as a 3D stack of HNSW layers. **Type a description**
-  ("a red apple") or click any photo to search, and watch the query descend
-  the layers and fan out across the base layer. A CLIP text encoder (int8
-  ONNX, self-hosted) turns text into a vector in the browser. Every search is
-  checked against an exact scan, e.g. *75 µs, 10/10 same results, 45×
+- **[Landing page](https://lazeeez.github.io/Oryx/).** The engine indexes
+  the photo collection behind the hero and answers live queries, then a
+  scroll-driven explainer builds a small HNSW index (the real engine, in
+  WebAssembly) and replays a search layer by layer. Click to search it yourself.
+- **[Playground](https://lazeeez.github.io/Oryx/try).** 29,825 Open Images
+  photos embedded with CLIP, indexed live on every core, and shown as a 3D
+  stack of HNSW layers. Search by **description, uploaded photo or webcam**
+  (CLIP text and image encoders run in the browser), step through the search
+  hop by hop in a debugger, or race it against an exact scan. Every search is
+  checked against the exact answer, e.g. *75 µs, 12/12 same results, 45×
   faster*.
-- **[Benchmark lab](https://lazeeez.github.io/Oryx/lab.html).** Generates a
-  dataset, builds the graph and sweeps recall against QPS.
+- **[Benchmarks](https://lazeeez.github.io/Oryx/benchmarks).** Interactive
+  SIFT1M charts against hnswlib and FAISS, the optimization log, SQ8 results,
+  and a lab that benchmarks the engine on your own device.
 
 > **Status:** milestones 1–7 of 9 are done (engine, benchmarks, WebAssembly,
 > dataset pipeline, 3D explorer, text search, quantization and durability).
