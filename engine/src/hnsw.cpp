@@ -13,13 +13,14 @@
 #include <sys/mman.h>
 #endif
 
+#include "oryx/parallel.h"
 #include "visited_pool.h"
 
 namespace oryx {
 namespace {
 
 constexpr char kMagic[8] = {'O', 'R', 'Y', 'X', 'H', 'N', 'S', 'W'};
-constexpr std::uint32_t kFormatVersion = 1;
+constexpr std::uint32_t kFormatVersion = 2;  // v2: quantization + tombstones; v1 files still load
 constexpr int kMaxLevel = 31;
 
 std::size_t round_up(std::size_t value, std::size_t multiple) {
@@ -45,6 +46,26 @@ inline std::uint32_t load_link(const std::uint32_t& slot) noexcept {
 
 inline void store_link(std::uint32_t& slot, std::uint32_t value) noexcept {
   std::atomic_ref<std::uint32_t>(slot).store(value, std::memory_order_release);
+}
+
+// Large blocks are backed by 2 MiB transparent huge pages: search touches nodes at random, and
+// with 4 KiB pages nearly every node visit would also be a TLB miss. Measured on SIFT1M:
+// +10-15% QPS and -16% p99 latency. The block is zeroed (every neighbor count starts at 0).
+void* allocate_block(std::size_t bytes) {
+  constexpr std::size_t kHugePage = std::size_t{2} << 20;
+#if defined(__linux__) && !defined(__EMSCRIPTEN__)
+  const bool huge = bytes >= kHugePage;
+#else
+  const bool huge = false;  // no transparent huge pages to ask for; 2 MiB alignment would only waste memory
+#endif
+  bytes = round_up(std::max<std::size_t>(bytes, 64), huge ? kHugePage : 64);
+  void* block = std::aligned_alloc(huge ? kHugePage : 64, bytes);
+  if (block == nullptr) throw std::bad_alloc();
+#if defined(__linux__) && !defined(__EMSCRIPTEN__)
+  if (huge) madvise(block, bytes, MADV_HUGEPAGE);  // advisory; ignored if THP is disabled
+#endif
+  std::memset(block, 0, bytes);
+  return block;
 }
 
 // Snapshot I/O goes through 8 MiB chunks and memcpy. A 1M-node index is millions of small
@@ -148,12 +169,57 @@ class ChunkedWriter {
 
 }  // namespace
 
-void HnswIndex::AlignedFree::operator()(std::byte* p) const noexcept { std::free(p); }
+// Scores nodes against one query vector. With `adc` it reads only the node's SQ8 codes
+// (asymmetric distance: the query stays in float, its dot product with the dequantized node is
+// folded into per-dimension weights once); otherwise it uses full-precision vectors.
+//   dot(q, x^) = sum_i q_i * (min_i + code_i * scale_i) = C + sum_i w_i * code_i
+//   L2:  |q - x^|^2 = |q|^2 - 2 dot + |x^|^2      IP/cosine: 1 - dot
+class HnswIndex::Scorer {
+ public:
+  Scorer(const HnswIndex& index, const float* query, bool adc) : index_(index), query_(query), adc_(adc) {
+    if (!adc_) return;
+    const std::size_t dim = index.params_.dim;
+    weights_.resize(dim);
+    float c = 0.0f;
+    float qq = 0.0f;
+    for (std::size_t i = 0; i < dim; ++i) {
+      weights_[i] = query[i] * index.sq8_scale_[i];
+      c += query[i] * index.sq8_min_[i];
+      qq += query[i] * query[i];
+    }
+    l2_ = index.params_.metric == Metric::L2;
+    base_ = l2_ ? qq - 2.0f * c : 1.0f - c;
+  }
+
+  float operator()(id_t id) const noexcept {
+    if (adc_) {
+      const float dot = index_.sq8_dot_(weights_.data(), index_.codes_of(id), weights_.size());
+      return l2_ ? base_ + index_.code_norm(id) - 2.0f * dot : base_ - dot;
+    }
+    return index_.dist_(query_, index_.full_vector(id), index_.params_.dim);
+  }
+
+  // What the distance computation will read first, for prefetching.
+  const void* address(id_t id) const noexcept {
+    return adc_ ? static_cast<const void*>(index_.record(id)) : static_cast<const void*>(index_.full_vector(id));
+  }
+
+ private:
+  const HnswIndex& index_;
+  const float* query_;
+  bool adc_;
+  bool l2_ = false;
+  float base_ = 0.0f;
+  std::vector<float> weights_;
+};
+
+void HnswIndex::AlignedFree::operator()(void* p) const noexcept { std::free(p); }
 
 HnswIndex::HnswIndex(const HnswParams& params)
     : params_(params),
       simd_level_(active_simd_level()),
       dist_(get_distance_fn(params.metric, simd_level_)),
+      sq8_dot_(get_sq8_dot_fn(simd_level_)),
       max_links0_(2 * params.M),
       level_mult_(params.M > 1 ? 1.0 / std::log(static_cast<double>(params.M)) : 1.0),
       rng_(params.seed) {
@@ -164,13 +230,18 @@ HnswIndex::HnswIndex(const HnswParams& params)
   }
   if (params_.M < 2) throw std::invalid_argument("M must be >= 2");
 
-  links0_offset_ = params_.dim * sizeof(float);
+  // Record layout. None: [float x dim][links]. SQ8: [float norm][uint8 x dim][links].
+  links0_offset_ = sq8() ? round_up(sizeof(float) + params_.dim, sizeof(id_t)) : params_.dim * sizeof(float);
   node_stride_ = round_up(links0_offset_ + (1 + max_links0_) * sizeof(id_t), 64);
   level0_ = allocate_level0();
+  if (sq8() && params_.keep_vectors) {
+    full_.reset(static_cast<float*>(allocate_block(params_.max_elements * params_.dim * sizeof(float))));
+  }
 
   upper_links_.resize(params_.max_elements);
   levels_.resize(params_.max_elements, 0);
   labels_.resize(params_.max_elements, 0);
+  deleted_ = std::make_unique<std::uint8_t[]>(params_.max_elements);
   node_locks_ = std::make_unique<std::mutex[]>(params_.max_elements);
   visited_pool_ = std::make_unique<detail::VisitedPool>(params_.max_elements);
   label_to_id_.reserve(params_.max_elements);
@@ -179,24 +250,13 @@ HnswIndex::HnswIndex(const HnswParams& params)
 HnswIndex::~HnswIndex() = default;
 
 std::unique_ptr<std::byte[], HnswIndex::AlignedFree> HnswIndex::allocate_level0() const {
-  // Large graphs are backed by 2 MiB transparent huge pages: search touches nodes at random, and
-  // with 4 KiB pages nearly every node visit would also be a TLB miss. Measured on SIFT1M:
-  // +10-15% QPS and -16% p99 latency.
-  constexpr std::size_t kHugePage = std::size_t{2} << 20;
-  std::size_t bytes = node_stride_ * params_.max_elements;
-#if defined(__linux__) && !defined(__EMSCRIPTEN__)
-  const bool huge = bytes >= kHugePage;
-#else
-  const bool huge = false;  // no transparent huge pages to ask for; 2 MiB alignment would only waste memory
-#endif
-  if (huge) bytes = round_up(bytes, kHugePage);
-  auto* block = static_cast<std::byte*>(std::aligned_alloc(huge ? kHugePage : 64, bytes));
-  if (block == nullptr) throw std::bad_alloc();
-#if defined(__linux__) && !defined(__EMSCRIPTEN__)
-  if (huge) madvise(block, bytes, MADV_HUGEPAGE);  // advisory; ignored if THP is disabled
-#endif
-  std::memset(block, 0, bytes);  // every neighbor count starts at zero
-  return std::unique_ptr<std::byte[], AlignedFree>(block);
+  return std::unique_ptr<std::byte[], AlignedFree>(
+      static_cast<std::byte*>(allocate_block(node_stride_ * params_.max_elements)));
+}
+
+const float* HnswIndex::full_vector(id_t id) const noexcept {
+  if (!sq8()) return reinterpret_cast<const float*>(record(id));
+  return full_ ? full_.get() + static_cast<std::size_t>(id) * params_.dim : nullptr;
 }
 
 HnswIndex::id_t* HnswIndex::links_of(id_t id, int layer) noexcept {
@@ -207,6 +267,67 @@ HnswIndex::id_t* HnswIndex::links_of(id_t id, int layer) noexcept {
 const HnswIndex::id_t* HnswIndex::links_of(id_t id, int layer) const noexcept {
   return const_cast<HnswIndex*>(this)->links_of(id, layer);
 }
+
+bool HnswIndex::is_deleted(id_t id) const noexcept {
+  return std::atomic_ref<std::uint8_t>(deleted_[id]).load(std::memory_order_acquire) != 0;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Scalar quantization
+
+void HnswIndex::train(const float* data, std::size_t n) {
+  if (!sq8()) return;
+  if (size() > 0) throw std::logic_error("train() must be called before the first add()");
+  if (n == 0) throw std::invalid_argument("train() needs at least one vector");
+  const std::size_t dim = params_.dim;
+  std::vector<float> lo(dim, std::numeric_limits<float>::max());
+  std::vector<float> hi(dim, std::numeric_limits<float>::lowest());
+  std::vector<float> row(dim);
+  for (std::size_t r = 0; r < n; ++r) {
+    std::copy(data + r * dim, data + (r + 1) * dim, row.begin());
+    if (params_.metric == Metric::Cosine) normalize(row.data(), dim);  // train on what gets stored
+    for (std::size_t i = 0; i < dim; ++i) {
+      lo[i] = std::min(lo[i], row[i]);
+      hi[i] = std::max(hi[i], row[i]);
+    }
+  }
+  sq8_min_ = lo;
+  sq8_scale_.resize(dim);
+  for (std::size_t i = 0; i < dim; ++i) {
+    const float range = hi[i] - lo[i];
+    sq8_scale_[i] = range > 0.0f ? range / 255.0f : 1.0f;
+  }
+}
+
+void HnswIndex::encode(const float* v, std::uint8_t* codes, float* norm) const noexcept {
+  float sum = 0.0f;
+  for (std::size_t i = 0; i < params_.dim; ++i) {
+    const float q = std::nearbyint((v[i] - sq8_min_[i]) / sq8_scale_[i]);
+    const auto code = static_cast<std::uint8_t>(std::clamp(q, 0.0f, 255.0f));
+    codes[i] = code;
+    const float decoded = sq8_min_[i] + code * sq8_scale_[i];
+    sum += decoded * decoded;
+  }
+  *norm = sum;  // |x^|^2 of the dequantized vector, so ADC distances are self-consistent
+}
+
+void HnswIndex::decode(id_t id, float* out) const noexcept {
+  const std::uint8_t* codes = codes_of(id);
+  for (std::size_t i = 0; i < params_.dim; ++i) out[i] = sq8_min_[i] + codes[i] * sq8_scale_[i];
+}
+
+float HnswIndex::pair_distance(id_t a, id_t b) const noexcept {
+  if (has_full_vectors()) return dist_(full_vector(a), full_vector(b), params_.dim);
+  thread_local std::vector<float> va, vb;
+  va.resize(params_.dim);
+  vb.resize(params_.dim);
+  decode(a, va.data());
+  decode(b, vb.data());
+  return dist_(va.data(), vb.data(), params_.dim);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Graph
 
 int HnswIndex::random_level() {
   std::uniform_real_distribution<double> uniform(0.0, 1.0);
@@ -240,10 +361,10 @@ int HnswIndex::max_level() const noexcept {
   return static_cast<int>(entry >> 32) - 1;
 }
 
-HnswIndex::id_t HnswIndex::greedy_descend(const float* query, id_t entry, int from_layer, int to_layer,
+HnswIndex::id_t HnswIndex::greedy_descend(const Scorer& scorer, id_t entry, int from_layer, int to_layer,
                                           SearchStats& stats, SearchTrace* trace) const {
   id_t current = entry;
-  float current_dist = distance(query, vector_of(current));
+  float current_dist = scorer(current);
   ++stats.distance_computations;
 
   for (int layer = from_layer; layer > to_layer; --layer) {
@@ -256,13 +377,13 @@ HnswIndex::id_t HnswIndex::greedy_descend(const float* query, id_t entry, int fr
       ++stats.nodes_expanded;
       for (id_t i = 0; i < count; ++i) {
         const id_t neighbor = load_link(links[1 + i]);
-        const float d = distance(query, vector_of(neighbor));
+        const float d = scorer(neighbor);
         ++stats.distance_computations;
         const bool closer = d < current_dist;
         if (trace != nullptr) {
           trace->events.push_back({static_cast<std::uint32_t>(layer), labels_[expanding], labels_[neighbor], d, closer});
         }
-        if (closer) {
+        if (closer) {  // deleted nodes still route: they are only excluded from results
           current = neighbor;
           current_dist = d;
           improved = true;
@@ -273,17 +394,22 @@ HnswIndex::id_t HnswIndex::greedy_descend(const float* query, id_t entry, int fr
   return current;
 }
 
-std::vector<HnswIndex::Candidate> HnswIndex::search_layer(const float* query, id_t entry, std::size_t ef, int layer,
-                                                          SearchStats& stats, SearchTrace* trace) const {
+std::vector<HnswIndex::Candidate> HnswIndex::search_layer(const Scorer& scorer, id_t entry, std::size_t ef,
+                                                          int layer, SearchStats& stats, SearchTrace* trace) const {
   auto visited = visited_pool_->acquire();
   std::priority_queue<Candidate, std::vector<Candidate>, CloserFirst> candidates;  // closest on top
   std::priority_queue<Candidate, std::vector<Candidate>, FartherFirst> best;       // farthest on top
+  // Tombstoned nodes are explored (they keep the graph connected) but never kept as results, so
+  // with deletions the beam must fill up before it may stop.
+  const bool has_deletions = deleted_count_.load(std::memory_order_relaxed) > 0;
+  constexpr float kInfinity = std::numeric_limits<float>::infinity();
 
-  const float entry_dist = distance(query, vector_of(entry));
+  const float entry_dist = scorer(entry);
   ++stats.distance_computations;
   visited->test_and_set(entry);
   candidates.push({entry_dist, entry});
-  best.push({entry_dist, entry});
+  if (!has_deletions || !is_deleted(entry)) best.push({entry_dist, entry});
+  float bound = best.empty() ? kInfinity : best.top().distance;
 
   // Scratch space for one node's unvisited neighbors; the largest list is layer 0's.
   std::vector<id_t> batch(max_links0_);
@@ -291,7 +417,7 @@ std::vector<HnswIndex::Candidate> HnswIndex::search_layer(const float* query, id
   while (!candidates.empty()) {
     const Candidate current = candidates.top();
     // Every remaining candidate is farther than the worst result we keep: the beam has converged.
-    if (current.distance > best.top().distance) break;
+    if (current.distance > bound && (best.size() >= ef || !has_deletions)) break;
     candidates.pop();
 
     const id_t* links = links_of(current.id, layer);
@@ -307,21 +433,24 @@ std::vector<HnswIndex::Candidate> HnswIndex::search_layer(const float* query, id
       const id_t neighbor = load_link(links[1 + i]);
       if (visited->test_and_set(neighbor)) continue;
       batch[pending++] = neighbor;
-      prefetch(vector_of(neighbor));
+      prefetch(scorer.address(neighbor));
     }
 
     for (std::size_t j = 0; j < pending; ++j) {
       const id_t neighbor = batch[j];
-      const float d = distance(query, vector_of(neighbor));
+      const float d = scorer(neighbor);
       ++stats.distance_computations;
-      const bool accepted = best.size() < ef || d < best.top().distance;
+      const bool accepted = best.size() < ef || d < bound;
       if (trace != nullptr) {
         trace->events.push_back({static_cast<std::uint32_t>(layer), labels_[current.id], labels_[neighbor], d, accepted});
       }
       if (accepted) {
         candidates.push({d, neighbor});
-        best.push({d, neighbor});
-        if (best.size() > ef) best.pop();
+        if (!has_deletions || !is_deleted(neighbor)) {
+          best.push({d, neighbor});
+          if (best.size() > ef) best.pop();
+        }
+        bound = best.empty() ? kInfinity : best.top().distance;
       }
     }
   }
@@ -345,7 +474,7 @@ std::vector<HnswIndex::Candidate> HnswIndex::select_neighbors(std::vector<Candid
   for (const Candidate& candidate : candidates) {
     bool diverse = true;
     for (const Candidate& k : kept) {
-      if (distance(vector_of(candidate.id), vector_of(k.id)) < candidate.distance) {
+      if (pair_distance(candidate.id, k.id) < candidate.distance) {
         diverse = false;
         break;
       }
@@ -370,7 +499,7 @@ void HnswIndex::connect(id_t id, const std::vector<Candidate>& neighbors, int la
     std::vector<Candidate> merged = neighbors;
     for (const id_t e : existing) {
       const bool duplicate = std::any_of(merged.begin(), merged.end(), [&](const Candidate& c) { return c.id == e; });
-      if (!duplicate) merged.push_back({distance(vector_of(id), vector_of(e)), e});
+      if (!duplicate) merged.push_back({pair_distance(id, e), e});
     }
     write_links(id, layer, select_neighbors(std::move(merged), capacity));
   }
@@ -386,16 +515,16 @@ void HnswIndex::connect(id_t id, const std::vector<Candidate>& neighbors, int la
       continue;
     }
     // The neighbor is full: re-run the heuristic over its current links plus the new node.
-    const float* base = vector_of(neighbor.id);
     std::vector<Candidate> pool;
     pool.reserve(existing.size() + 1);
     pool.push_back({neighbor.distance, id});
-    for (const id_t e : existing) pool.push_back({distance(base, vector_of(e)), e});
+    for (const id_t e : existing) pool.push_back({pair_distance(neighbor.id, e), e});
     write_links(neighbor.id, layer, select_neighbors(std::move(pool), capacity));
   }
 }
 
 void HnswIndex::add(std::uint64_t label, const float* vector) {
+  if (!trained()) throw std::logic_error("an SQ8 index must be trained before add()");
   id_t id;
   {
     std::lock_guard lock(label_lock_);
@@ -408,11 +537,20 @@ void HnswIndex::add(std::uint64_t label, const float* vector) {
   }
 
   // Everything below is written before the node becomes reachable. Other threads only reach it
-  // through a neighbor list, which they read under that neighbor's lock, so these writes are
-  // visible to them (the lock release/acquire orders them).
-  float* stored = vector_of(id);
-  std::memcpy(stored, vector, params_.dim * sizeof(float));
-  if (params_.metric == Metric::Cosine) normalize(stored, params_.dim);
+  // through a neighbor list slot, published with a release store (see load_link / store_link).
+  std::vector<float> normalized;
+  if (params_.metric == Metric::Cosine) {
+    normalized.assign(vector, vector + params_.dim);
+    normalize(normalized.data(), params_.dim);
+    vector = normalized.data();
+  }
+  if (sq8()) {
+    auto* codes = reinterpret_cast<std::uint8_t*>(record(id) + sizeof(float));
+    encode(vector, codes, reinterpret_cast<float*>(record(id)));
+    if (full_) std::memcpy(full_.get() + static_cast<std::size_t>(id) * params_.dim, vector, params_.dim * sizeof(float));
+  } else {
+    std::memcpy(record(id), vector, params_.dim * sizeof(float));
+  }
   labels_[id] = label;
   const int level = random_level();
   levels_[id] = static_cast<std::int8_t>(level);
@@ -428,14 +566,17 @@ void HnswIndex::add(std::uint64_t label, const float* vector) {
     }
   }
 
+  // Build with exact distances whenever full-precision vectors exist: a better graph costs
+  // nothing at query time.
+  const Scorer scorer(*this, vector, /*adc=*/!has_full_vectors());
   id_t entry_point = static_cast<id_t>(entry & 0xffffffffu);
   const int top_level = static_cast<int>(entry >> 32) - 1;
   SearchStats unused;
-  if (level < top_level) entry_point = greedy_descend(stored, entry_point, top_level, level, unused, nullptr);
+  if (level < top_level) entry_point = greedy_descend(scorer, entry_point, top_level, level, unused, nullptr);
 
   for (int layer = std::min(level, top_level); layer >= 0; --layer) {
     std::vector<Candidate> candidates =
-        search_layer(stored, entry_point, params_.ef_construction, layer, unused, nullptr);
+        search_layer(scorer, entry_point, params_.ef_construction, layer, unused, nullptr);
     // A concurrent insert may have linked to us already, making us reachable from our own search.
     std::erase_if(candidates, [id](const Candidate& c) { return c.id == id; });
     if (candidates.empty()) continue;
@@ -447,6 +588,20 @@ void HnswIndex::add(std::uint64_t label, const float* vector) {
     std::lock_guard lock(entry_lock_);
     if (level > max_level()) entry_.store(pack_entry(id, level), std::memory_order_release);
   }
+}
+
+bool HnswIndex::remove(std::uint64_t label) {
+  id_t id;
+  {
+    std::lock_guard lock(label_lock_);
+    const auto it = label_to_id_.find(label);
+    if (it == label_to_id_.end()) return false;
+    id = it->second;
+    label_to_id_.erase(it);
+  }
+  std::atomic_ref<std::uint8_t>(deleted_[id]).store(1, std::memory_order_release);
+  deleted_count_.fetch_add(1, std::memory_order_acq_rel);
+  return true;
 }
 
 std::vector<SearchResult> HnswIndex::search(const float* query, std::size_t k, const SearchOptions& options) const {
@@ -470,8 +625,22 @@ std::vector<SearchResult> HnswIndex::search(const float* query, std::size_t k, c
   }
 
   SearchStats stats;
-  const id_t start = greedy_descend(query, entry_point, top_level, 0, stats, trace);
-  const std::vector<Candidate> candidates = search_layer(query, start, std::max(options.ef, k), 0, stats, trace);
+  const Scorer scorer(*this, query, /*adc=*/sq8());
+  const id_t start = greedy_descend(scorer, entry_point, top_level, 0, stats, trace);
+  std::vector<Candidate> candidates = search_layer(scorer, start, std::max(options.ef, k), 0, stats, trace);
+
+  // SQ8: the beam ran on approximate distances; re-score the best candidates exactly.
+  if (sq8() && full_ && !candidates.empty()) {
+    std::size_t rerank = options.rerank == 0 ? candidates.size() : std::max(options.rerank, k);
+    rerank = std::min(rerank, candidates.size());
+    for (std::size_t i = 0; i < rerank; ++i) prefetch(full_vector(candidates[i].id));
+    for (std::size_t i = 0; i < rerank; ++i) {
+      candidates[i].distance = dist_(query, full_vector(candidates[i].id), params_.dim);
+    }
+    stats.distance_computations += rerank;
+    std::sort(candidates.begin(), candidates.begin() + static_cast<std::ptrdiff_t>(rerank),
+              [](const Candidate& a, const Candidate& b) { return a.distance < b.distance; });
+  }
 
   std::vector<SearchResult> results;
   results.reserve(std::min(k, candidates.size()));
@@ -480,6 +649,33 @@ std::vector<SearchResult> HnswIndex::search(const float* query, std::size_t k, c
   }
   if (options.stats != nullptr) *options.stats = stats;
   return results;
+}
+
+std::unique_ptr<HnswIndex> HnswIndex::compacted(std::size_t threads) const {
+  auto out = std::make_unique<HnswIndex>(params_);
+  out->sq8_min_ = sq8_min_;
+  out->sq8_scale_ = sq8_scale_;
+  std::vector<id_t> live;
+  live.reserve(live_count());
+  for (id_t id = 0; id < size(); ++id) {
+    if (!is_deleted(id)) live.push_back(id);
+  }
+  parallel_for(0, live.size(), threads, [&](std::size_t i) {
+    const id_t id = live[i];
+    if (has_full_vectors()) {
+      out->add(labels_[id], full_vector(id));
+    } else {
+      std::vector<float> v(params_.dim);
+      decode(id, v.data());
+      out->add(labels_[id], v.data());
+    }
+  });
+  return out;
+}
+
+bool HnswIndex::contains(std::uint64_t label) const {
+  std::lock_guard lock(label_lock_);
+  return label_to_id_.contains(label);
 }
 
 int HnswIndex::level_of(std::uint64_t label) const {
@@ -508,8 +704,9 @@ std::vector<std::uint64_t> HnswIndex::neighbors_of(std::uint64_t label, int laye
 
 std::size_t HnswIndex::memory_bytes() const noexcept {
   std::size_t bytes = node_stride_ * params_.max_elements;
-  bytes += params_.max_elements * (sizeof(std::uint64_t) + sizeof(std::int8_t) + sizeof(std::mutex) +
-                                   sizeof(std::unique_ptr<id_t[]>));
+  if (full_) bytes += params_.max_elements * params_.dim * sizeof(float);
+  bytes += params_.max_elements * (sizeof(std::uint64_t) + sizeof(std::int8_t) + sizeof(std::uint8_t) +
+                                   sizeof(std::mutex) + sizeof(std::unique_ptr<id_t[]>));
   const std::size_t count = size();
   for (std::size_t i = 0; i < count; ++i) {
     bytes += static_cast<std::size_t>(levels_[i]) * (1 + params_.M) * sizeof(id_t);
@@ -519,9 +716,15 @@ std::size_t HnswIndex::memory_bytes() const noexcept {
   return bytes;
 }
 
-// File format (little-endian): magic, version, params, count, entry, then per node:
-// vector, layer-0 links, label, level, upper-layer links. The format is independent of
-// in-memory padding so it survives layout changes.
+// ---------------------------------------------------------------------------------------------
+// Snapshots
+//
+// v2 (little-endian): magic, version, dim, metric, max_elements, M, ef_construction, seed,
+// quantization, keep_vectors, count, entry, deleted_count, [SQ8: trained, min[], scale[]], then
+// per node: vector payload (floats, or SQ8 norm + codes), layer-0 links, label, level, deleted
+// flag, upper-layer links, [SQ8 + keep_vectors: full floats]. The format does not depend on
+// in-memory padding. v1 (no quantization, no tombstones) is still readable.
+
 void HnswIndex::save(const std::string& path) const {
   ChunkedWriter out(path);
   out.write(kMagic, sizeof(kMagic));
@@ -532,17 +735,34 @@ void HnswIndex::save(const std::string& path) const {
   out.pod<std::uint64_t>(params_.M);
   out.pod<std::uint64_t>(params_.ef_construction);
   out.pod<std::uint64_t>(params_.seed);
+  out.pod<std::uint32_t>(static_cast<std::uint32_t>(params_.quantization));
+  out.pod<std::uint8_t>(params_.keep_vectors ? 1 : 0);
   const std::size_t count = size();
   out.pod<std::uint64_t>(count);
   out.pod<std::uint64_t>(entry_.load(std::memory_order_acquire));
+  out.pod<std::uint64_t>(deleted_count());
+  if (sq8()) {
+    out.pod<std::uint8_t>(sq8_scale_.empty() ? 0 : 1);
+    if (!sq8_scale_.empty()) {
+      out.array(sq8_min_.data(), params_.dim);
+      out.array(sq8_scale_.data(), params_.dim);
+    }
+  }
 
   for (id_t id = 0; id < count; ++id) {
     std::lock_guard lock(node_locks_[id]);
-    out.array(vector_of(id), params_.dim);
+    if (sq8()) {
+      out.pod(code_norm(id));
+      out.array(codes_of(id), params_.dim);
+    } else {
+      out.array(full_vector(id), params_.dim);
+    }
     out.array(links_of(id, 0), 1 + max_links0_);
     out.pod(labels_[id]);
     out.pod(levels_[id]);
+    out.pod<std::uint8_t>(is_deleted(id) ? 1 : 0);
     if (levels_[id] > 0) out.array(upper_links_[id].get(), static_cast<std::size_t>(levels_[id]) * (1 + params_.M));
+    if (full_) out.array(full_vector(id), params_.dim);
   }
   out.finish();
 }
@@ -552,7 +772,8 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path) {
   char magic[sizeof(kMagic)];
   in.read(magic, sizeof(magic));
   if (std::memcmp(magic, kMagic, sizeof(kMagic)) != 0) throw std::runtime_error(path + " is not an Oryx index");
-  if (in.pod<std::uint32_t>() != kFormatVersion) throw std::runtime_error(path + ": unsupported format version");
+  const auto version = in.pod<std::uint32_t>();
+  if (version != 1 && version != 2) throw std::runtime_error(path + ": unsupported format version");
 
   HnswParams params;
   params.dim = in.pod<std::uint64_t>();
@@ -561,17 +782,38 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path) {
   params.M = in.pod<std::uint64_t>();
   params.ef_construction = in.pod<std::uint64_t>();
   params.seed = in.pod<std::uint64_t>();
+  if (version >= 2) {
+    const auto quantization = in.pod<std::uint32_t>();
+    if (quantization > static_cast<std::uint32_t>(Quantization::SQ8)) throw std::runtime_error(path + ": bad quantization");
+    params.quantization = static_cast<Quantization>(quantization);
+    params.keep_vectors = in.pod<std::uint8_t>() != 0;
+  }
   const std::size_t count = in.pod<std::uint64_t>();
   const std::uint64_t entry = in.pod<std::uint64_t>();
-  if (count > params.max_elements) throw std::runtime_error(path + ": corrupt node count");
+  if (version >= 2) (void)in.pod<std::uint64_t>();  // deleted count, recomputed from the flags
+  if (params.dim == 0 || params.dim > (1u << 20) || count > params.max_elements) {
+    throw std::runtime_error(path + ": corrupt header");
+  }
 
   auto index = std::make_unique<HnswIndex>(params);
+  if (index->sq8() && in.pod<std::uint8_t>() != 0) {
+    index->sq8_min_.resize(params.dim);
+    index->sq8_scale_.resize(params.dim);
+    in.array(index->sq8_min_.data(), params.dim);
+    in.array(index->sq8_scale_.data(), params.dim);
+  }
+  std::size_t deleted = 0;
   for (id_t id = 0; id < count; ++id) {
-    in.array(index->vector_of(id), params.dim);
+    if (index->sq8()) {
+      in.read(index->record(id), sizeof(float) + params.dim);
+    } else {
+      in.array(reinterpret_cast<float*>(index->record(id)), params.dim);
+    }
     id_t* links0 = index->links_of(id, 0);
     in.array(links0, 1 + index->max_links0_);
     index->labels_[id] = in.pod<std::uint64_t>();
     const auto level = in.pod<std::int8_t>();
+    const bool is_deleted = version >= 2 && in.pod<std::uint8_t>() != 0;
     if (level < 0 || level > kMaxLevel || links0[0] > index->max_links0_) {
       throw std::runtime_error(path + ": corrupt node record");
     }
@@ -581,7 +823,13 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path) {
       index->upper_links_[id] = std::make_unique<id_t[]>(n);
       in.array(index->upper_links_[id].get(), n);
     }
-    index->label_to_id_.emplace(index->labels_[id], id);
+    if (index->full_) in.array(index->full_.get() + static_cast<std::size_t>(id) * params.dim, params.dim);
+    if (is_deleted) {
+      index->deleted_[id] = 1;
+      ++deleted;
+    } else if (!index->label_to_id_.emplace(index->labels_[id], id).second) {
+      throw std::runtime_error(path + ": duplicate live label");
+    }
   }
 
   // Reject any link that points outside the loaded nodes, so a corrupt file cannot cause
@@ -601,6 +849,7 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path) {
     throw std::runtime_error(path + ": corrupt entry point");
   }
 
+  index->deleted_count_.store(deleted, std::memory_order_release);
   index->count_.store(count, std::memory_order_release);
   index->entry_.store(entry, std::memory_order_release);
   return index;
