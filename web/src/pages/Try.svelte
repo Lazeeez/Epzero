@@ -20,8 +20,17 @@
   const initialText = params.get("q") ?? "";
   const initialPhoto = params.has("photo") ? Number(params.get("photo")) : null;
 
+  let searchError = $state("");
+
   async function search(query: Query) {
-    const result = await engine.search(query, ef);
+    let result: SearchOutcome;
+    try {
+      result = await engine.search(query, ef);
+    } catch (error) {
+      searchError = error instanceof Error ? error.message : String(error);
+      return;
+    }
+    searchError = "";
     outcome = result;
     encodeMs = query.kind === "vector" ? (query.source === "text" ? textEncoder.lastMs : imageEncoder.lastMs) : null;
     sceneController.scene?.play(result.trace);
@@ -48,7 +57,12 @@
     if (engine.status !== "ready" || started) return;
     started = true;
     if (initialPhoto !== null && initialPhoto >= 0 && initialPhoto < engine.count) searchId(initialPhoto);
-    else if (initialText) textEncoder.encode(initialText).then((vector) => search({ kind: "vector", source: "text", text: initialText, vector }));
+    else if (initialText)
+      textEncoder.encode(initialText).then(
+        (vector) => search({ kind: "vector", source: "text", text: initialText, vector }),
+        () => surprise(),
+      );
+    else if (engine.last && engine.last.query.kind === "vector") search(engine.last.query); // back from another page
     else surprise();
   });
 
@@ -95,6 +109,8 @@
 
     <SearchBox onsearch={search} onsurprise={surprise} disabled={engine.status !== "ready"} {initialText} />
 
+    {#if searchError}<p class="search-error" role="alert">Search failed: {searchError}</p>{/if}
+
     {#if outcome}
       <SearchStats {outcome} {encodeMs} />
       <ResultsGrid {outcome} onpick={searchId} />
@@ -103,7 +119,7 @@
 
   <div class="knobs card" role="group" aria-label="Search settings">
     <label class="ef">
-      <span>Beam width <code>ef</code></span>
+      <span><span class="wide-only">Beam width&nbsp;</span><code>ef</code></span>
       <input type="range" min="16" max="256" step="16" value={ef} oninput={(e) => onEf(Number((e.currentTarget as HTMLInputElement).value))} />
       <output class="num">{ef}</output>
     </label>
@@ -129,6 +145,7 @@
       {#if engine.status === "error"}
         <strong>Something went wrong</strong>
         <p>{engine.error}</p>
+        <button class="btn btn-primary retry" onclick={() => engine.retry()}>Try again</button>
       {:else}
         <strong>{engine.stage || "Starting the engine"}</strong>
         <div class="meter"><i style:width="{(engine.progress * 100).toFixed(1)}%"></i></div>
@@ -253,6 +270,14 @@
     background: var(--glass);
     transform: translate(-50%, -50%);
   }
+  .retry {
+    justify-self: start;
+  }
+  .search-error {
+    margin: 0;
+    color: var(--warn);
+    font-size: 13px;
+  }
   .loading p {
     margin: 0;
     color: var(--text-2);
@@ -270,6 +295,14 @@
     border-radius: 99px;
     background: linear-gradient(90deg, var(--accent), var(--accent-2));
     transition: width 0.25s var(--ease);
+  }
+  @media (max-width: 480px) {
+    .wide-only {
+      display: none;
+    }
+  }
+  .panel > :global(*) {
+    min-width: 0;
   }
   .hovercard {
     position: fixed;
@@ -320,7 +353,13 @@
       padding: 8px 10px;
     }
     .ef input {
-      width: 90px;
+      flex: 1;
+      width: auto;
+      min-width: 60px;
+    }
+    .ef {
+      flex: 1;
+      min-width: 0;
     }
     .buttons .btn:not(.icon-only) {
       font-size: 0;
