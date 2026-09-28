@@ -8,6 +8,8 @@
 #include <cerrno>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <functional>
 #include <stdexcept>
 
 #include "oryx/parallel.h"
@@ -17,10 +19,8 @@ namespace {
 
 namespace fs = std::filesystem;
 
-constexpr std::uint8_t kUpsert = 1;
-constexpr std::uint8_t kRemove = 2;
-constexpr std::size_t kHeaderBytes = 8;                    // u32 length + u32 crc
-constexpr std::size_t kFixedPayload = 1 + 8 + 8;           // type + lsn + label
+constexpr std::size_t kHeaderBytes = 8;           // u32 length + u32 crc
+constexpr std::size_t kFixedPayload = 1 + 8 + 8;  // type + lsn + label
 
 std::array<std::uint32_t, 256> make_crc_table() {
   std::array<std::uint32_t, 256> table{};
@@ -42,7 +42,7 @@ void write_all(int fd, const void* data, std::size_t size) {
     const ssize_t n = ::write(fd, p, size);
     if (n < 0) {
       if (errno == EINTR) continue;
-      fail("write-ahead log write failed");
+      fail("write failed");
     }
     p += n;
     size -= static_cast<std::size_t>(n);
@@ -65,32 +65,86 @@ void sync_path(const fs::path& path, bool directory) {
   if (result != 0) fail("fsync " + path.string());
 }
 
+// Writes `bytes` to `path` crash-safely: temporary file, fsync, rename, fsync the directory.
+void write_file_atomically(const fs::path& path, const void* bytes, std::size_t size) {
+  const fs::path temp = path.string() + ".tmp";
+  const int fd = ::open(temp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  if (fd < 0) fail("open " + temp.string());
+  write_all(fd, bytes, size);
+  sync_fd(fd);
+  ::close(fd);
+  fs::rename(temp, path);
+  sync_path(path.parent_path(), true);
+}
+
+std::vector<std::uint8_t> read_file(int fd, std::size_t size, const std::string& name) {
+  std::vector<std::uint8_t> bytes(size);
+  for (std::size_t done = 0; done < size;) {
+    const ssize_t n = ::pread(fd, bytes.data() + done, size - done, static_cast<off_t>(done));
+    if (n <= 0) fail("read " + name);
+    done += static_cast<std::size_t>(n);
+  }
+  return bytes;
+}
+
 template <typename T>
 void put(std::vector<std::uint8_t>& out, const T& value) {
   const auto* p = reinterpret_cast<const std::uint8_t*>(&value);
   out.insert(out.end(), p, p + sizeof(T));
 }
 
-// Appends one framed record: [u32 payload length][u32 crc32c(payload)][payload].
-void frame(std::vector<std::uint8_t>& out, std::uint8_t type, std::uint64_t lsn, std::uint64_t label,
-           const float* vector, std::size_t dim) {
+// Appends one framed record: [u32 payload length][u32 crc32c(payload)][type][lsn][label][vector].
+void frame(std::vector<std::uint8_t>& out, const LogRecord& record) {
   const std::size_t start = out.size();
-  const auto length = static_cast<std::uint32_t>(kFixedPayload + (vector ? dim * sizeof(float) : 0));
+  const auto length = static_cast<std::uint32_t>(kFixedPayload + record.vector.size() * sizeof(float));
   put(out, length);
   put(out, std::uint32_t{0});  // crc, filled in below
-  put(out, type);
-  put(out, lsn);
-  put(out, label);
-  if (vector) {
-    const auto* p = reinterpret_cast<const std::uint8_t*>(vector);
-    out.insert(out.end(), p, p + dim * sizeof(float));
-  }
+  put(out, static_cast<std::uint8_t>(record.type));
+  put(out, record.lsn);
+  put(out, record.label);
+  const auto* p = reinterpret_cast<const std::uint8_t*>(record.vector.data());
+  out.insert(out.end(), p, p + record.vector.size() * sizeof(float));
   const std::uint32_t crc = crc32c(out.data() + start + kHeaderBytes, length);
   std::memcpy(out.data() + start + 4, &crc, sizeof(crc));
 }
 
+// Parses records from the start of `bytes` until the first torn or corrupt one, calling
+// `on_record` for each good record. Returns the length of the good prefix.
+std::size_t parse_log(const std::vector<std::uint8_t>& bytes, std::size_t dim,
+                      const std::function<void(LogRecord&&)>& on_record) {
+  const std::size_t upsert_payload = kFixedPayload + dim * sizeof(float);
+  std::size_t pos = 0;
+  while (pos + kHeaderBytes <= bytes.size()) {
+    std::uint32_t length, crc;
+    std::memcpy(&length, bytes.data() + pos, 4);
+    std::memcpy(&crc, bytes.data() + pos + 4, 4);
+    if (length < kFixedPayload || length > upsert_payload || pos + kHeaderBytes + length > bytes.size()) break;
+    const std::uint8_t* payload = bytes.data() + pos + kHeaderBytes;
+    if (crc32c(payload, length) != crc) break;
+    LogRecord record;
+    record.type = static_cast<LogRecord::Type>(payload[0]);
+    std::memcpy(&record.lsn, payload + 1, 8);
+    std::memcpy(&record.label, payload + 9, 8);
+    const bool upsert = record.type == LogRecord::Type::Upsert && length == upsert_payload;
+    if (!upsert && !(record.type == LogRecord::Type::Remove && length == kFixedPayload)) break;
+    if (upsert) {
+      record.vector.resize(dim);
+      std::memcpy(record.vector.data(), payload + kFixedPayload, dim * sizeof(float));
+    }
+    on_record(std::move(record));
+    pos += kHeaderBytes + length;
+  }
+  return pos;
+}
+
 fs::path snapshot_path(const fs::path& dir, std::uint64_t lsn) {
   return dir / ("snapshot-" + std::to_string(lsn) + ".oryx");
+}
+
+void remove_other_snapshots(const fs::path& dir, const fs::path& keep) {
+  for (const auto& entry : fs::directory_iterator(dir)) {
+    if (entry.path().filename().string().starts_with("snapshot-") && entry.path() != keep) fs::remove(entry.path());
+  }
 }
 
 }  // namespace
@@ -141,56 +195,28 @@ void Database::recover() {
   } else {
     index_ = std::make_unique<HnswIndex>(params_);
   }
-  lsn_ = snapshot_lsn;
+  lsn_ = checkpoint_lsn_ = snapshot_lsn;
 
   // 2. Replay the log past the snapshot, stopping at the first torn or corrupt record.
   const fs::path wal = dir / "wal.log";
   wal_fd_ = ::open(wal.c_str(), O_RDWR | O_CREAT, 0644);
   if (wal_fd_ < 0) fail("open " + wal.string());
-  std::vector<std::uint8_t> bytes(static_cast<std::size_t>(fs::file_size(wal)));
-  for (std::size_t done = 0; done < bytes.size();) {
-    const ssize_t n = ::pread(wal_fd_, bytes.data() + done, bytes.size() - done, static_cast<off_t>(done));
-    if (n <= 0) fail("read " + wal.string());
-    done += static_cast<std::size_t>(n);
-  }
-
-  const std::size_t max_payload = kFixedPayload + params_.dim * sizeof(float);
-  std::size_t pos = 0;
-  while (pos + kHeaderBytes <= bytes.size()) {
-    std::uint32_t length, crc;
-    std::memcpy(&length, bytes.data() + pos, 4);
-    std::memcpy(&crc, bytes.data() + pos + 4, 4);
-    if (length < kFixedPayload || length > max_payload || pos + kHeaderBytes + length > bytes.size()) break;
-    const std::uint8_t* payload = bytes.data() + pos + kHeaderBytes;
-    if (crc32c(payload, length) != crc) break;
-    const std::uint8_t type = payload[0];
-    std::uint64_t lsn, label;
-    std::memcpy(&lsn, payload + 1, 8);
-    std::memcpy(&label, payload + 9, 8);
-    const bool upsert = type == kUpsert && length == max_payload;
-    if (!upsert && !(type == kRemove && length == kFixedPayload)) break;
-    if (lsn > snapshot_lsn) {
-      if (upsert) {
-        std::vector<float> vector(params_.dim);
-        std::memcpy(vector.data(), payload + kFixedPayload, params_.dim * sizeof(float));
-        apply_upsert(label, vector.data());
-      } else {
-        index_->remove(label);
-      }
-      ++recovery_.replayed;
-      lsn_ = std::max(lsn_, lsn);
-    }
-    pos += kHeaderBytes + length;
-  }
+  const auto bytes = read_file(wal_fd_, static_cast<std::size_t>(fs::file_size(wal)), wal.string());
+  const std::size_t good = parse_log(bytes, params_.dim, [&](LogRecord&& record) {
+    if (record.lsn <= snapshot_lsn) return;  // already in the snapshot
+    apply_record(record);
+    ++recovery_.replayed;
+    lsn_ = std::max(lsn_, record.lsn);
+  });
 
   // 3. Drop the torn tail so new records are appended after the last good one.
-  if (pos < bytes.size()) {
-    recovery_.truncated_bytes = bytes.size() - pos;
-    if (::ftruncate(wal_fd_, static_cast<off_t>(pos)) != 0) fail("truncate " + wal.string());
+  if (good < bytes.size()) {
+    recovery_.truncated_bytes = bytes.size() - good;
+    if (::ftruncate(wal_fd_, static_cast<off_t>(good)) != 0) fail("truncate " + wal.string());
     sync_fd(wal_fd_);
   }
-  if (::lseek(wal_fd_, static_cast<off_t>(pos), SEEK_SET) < 0) fail("seek " + wal.string());
-  wal_bytes_ = pos;
+  if (::lseek(wal_fd_, static_cast<off_t>(good), SEEK_SET) < 0) fail("seek " + wal.string());
+  wal_bytes_ = good;
 }
 
 void Database::append(const std::vector<std::uint8_t>& bytes, bool sync) {
@@ -221,17 +247,29 @@ void Database::apply_upsert(std::uint64_t label, const float* vector) {
   index_->add(label, vector);
 }
 
-void Database::upsert(std::uint64_t label, const float* vector) {
+void Database::apply_record(const LogRecord& record) {
+  if (record.type == LogRecord::Type::Upsert) {
+    apply_upsert(record.label, record.vector.data());
+  } else {
+    std::shared_lock lock(index_lock_);
+    index_->remove(record.label);
+  }
+}
+
+LogRecord Database::upsert(std::uint64_t label, const float* vector) {
   std::lock_guard lock(write_lock_);
-  std::vector<std::uint8_t> record;
-  frame(record, kUpsert, lsn_ + 1, label, vector, params_.dim);
-  append(record, options_.sync == SyncMode::Always);
+  LogRecord record{LogRecord::Type::Upsert, lsn_ + 1, label, std::vector<float>(vector, vector + params_.dim)};
+  std::vector<std::uint8_t> bytes;
+  frame(bytes, record);
+  append(bytes, options_.sync == SyncMode::Always);
   ++lsn_;
   apply_upsert(label, vector);
   maybe_checkpoint();
+  return record;
 }
 
-void Database::upsert_batch(const std::uint64_t* labels, const float* vectors, std::size_t n, std::size_t threads) {
+std::vector<LogRecord> Database::upsert_batch(const std::uint64_t* labels, const float* vectors, std::size_t n,
+                                              std::size_t threads) {
   std::lock_guard lock(write_lock_);
   {
     std::shared_lock shared(index_lock_);
@@ -239,10 +277,15 @@ void Database::upsert_batch(const std::uint64_t* labels, const float* vectors, s
   }
   if (index_->size() + n > params_.max_elements) compact_if_needed(/*force=*/true);
 
-  std::vector<std::uint8_t> records;
-  records.reserve(n * (kHeaderBytes + kFixedPayload + params_.dim * sizeof(float)));
-  for (std::size_t i = 0; i < n; ++i) frame(records, kUpsert, lsn_ + 1 + i, labels[i], vectors + i * params_.dim, params_.dim);
-  append(records, options_.sync != SyncMode::None);  // one write, one fsync for the whole batch
+  std::vector<LogRecord> records(n);
+  std::vector<std::uint8_t> bytes;
+  bytes.reserve(n * (kHeaderBytes + kFixedPayload + params_.dim * sizeof(float)));
+  for (std::size_t i = 0; i < n; ++i) {
+    const float* v = vectors + i * params_.dim;
+    records[i] = {LogRecord::Type::Upsert, lsn_ + 1 + i, labels[i], std::vector<float>(v, v + params_.dim)};
+    frame(bytes, records[i]);
+  }
+  append(bytes, options_.sync != SyncMode::None);  // one write, one fsync for the whole batch
   lsn_ += n;
 
   std::shared_lock shared(index_lock_);
@@ -250,24 +293,85 @@ void Database::upsert_batch(const std::uint64_t* labels, const float* vectors, s
   parallel_for(0, n, threads, [&](std::size_t i) { index_->add(labels[i], vectors + i * params_.dim); });
   shared.unlock();
   maybe_checkpoint();
+  return records;
 }
 
-bool Database::remove(std::uint64_t label) {
+std::optional<LogRecord> Database::remove(std::uint64_t label) {
   std::lock_guard lock(write_lock_);
   {
     std::shared_lock shared(index_lock_);
-    if (!index_->contains(label)) return false;
+    if (!index_->contains(label)) return std::nullopt;
   }
-  std::vector<std::uint8_t> record;
-  frame(record, kRemove, lsn_ + 1, label, nullptr, params_.dim);
-  append(record, options_.sync == SyncMode::Always);
+  LogRecord record{LogRecord::Type::Remove, lsn_ + 1, label, {}};
+  std::vector<std::uint8_t> bytes;
+  frame(bytes, record);
+  append(bytes, options_.sync == SyncMode::Always);
   ++lsn_;
-  {
-    std::shared_lock shared(index_lock_);
-    index_->remove(label);
-  }
+  apply_record(record);
   maybe_checkpoint();
-  return true;
+  return record;
+}
+
+void Database::apply(const std::vector<LogRecord>& records) {
+  if (records.empty()) return;
+  std::lock_guard lock(write_lock_);
+  std::vector<std::uint8_t> bytes;
+  for (std::size_t i = 0; i < records.size(); ++i) {
+    if (records[i].lsn != lsn_ + 1 + i) {
+      throw std::runtime_error("replica out of sync: expected lsn " + std::to_string(lsn_ + 1 + i) + ", got " +
+                               std::to_string(records[i].lsn));
+    }
+    if (records[i].type == LogRecord::Type::Upsert && records[i].vector.size() != params_.dim) {
+      throw std::invalid_argument("replicated vector has the wrong dimension");
+    }
+    frame(bytes, records[i]);
+  }
+  append(bytes, options_.sync != SyncMode::None);
+  for (const LogRecord& record : records) apply_record(record);
+  lsn_ += records.size();
+  maybe_checkpoint();
+}
+
+std::optional<std::vector<LogRecord>> Database::records_since(std::uint64_t lsn) const {
+  std::lock_guard lock(write_lock_);
+  if (lsn < checkpoint_lsn_) return std::nullopt;  // folded into the snapshot; ship that instead
+  std::vector<LogRecord> out;
+  if (lsn >= lsn_) return out;
+  const auto bytes = read_file(wal_fd_, wal_bytes_, "wal.log");
+  parse_log(bytes, params_.dim, [&](LogRecord&& record) {
+    if (record.lsn > lsn) out.push_back(std::move(record));
+  });
+  return out;
+}
+
+std::pair<std::uint64_t, std::string> Database::export_snapshot() {
+  std::lock_guard lock(write_lock_);
+  checkpoint_locked();
+  std::ifstream in(snapshot_path(dir_, lsn_), std::ios::binary);
+  std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  if (!in.good() && !in.eof()) throw std::runtime_error("cannot read snapshot");
+  return {lsn_, std::move(bytes)};
+}
+
+void Database::import_snapshot(std::uint64_t lsn, const std::string& bytes) {
+  std::lock_guard lock(write_lock_);
+  const fs::path dir(dir_);
+  const fs::path snapshot = snapshot_path(dir, lsn);
+  write_file_atomically(snapshot, bytes.data(), bytes.size());
+  auto loaded = HnswIndex::load(snapshot.string());  // validates before anything is replaced
+  write_checkpoint_file(lsn);
+
+  if (::ftruncate(wal_fd_, 0) != 0) fail("truncate wal.log");
+  if (::lseek(wal_fd_, 0, SEEK_SET) < 0) fail("seek wal.log");
+  sync_fd(wal_fd_);
+  wal_bytes_ = 0;
+  {
+    std::unique_lock exclusive(index_lock_);
+    index_ = std::move(loaded);
+    params_ = index_->params();
+  }
+  lsn_ = checkpoint_lsn_ = lsn;
+  remove_other_snapshots(dir, snapshot);
 }
 
 std::vector<SearchResult> Database::search(const float* query, std::size_t k, const SearchOptions& options) const {
@@ -297,6 +401,14 @@ void Database::compact_if_needed(bool force) {
   index_ = std::move(compacted);
 }
 
+void Database::write_checkpoint_file(std::uint64_t lsn) {
+  std::uint8_t buffer[12];
+  std::memcpy(buffer, &lsn, 8);
+  const std::uint32_t crc = crc32c(buffer, 8);
+  std::memcpy(buffer + 8, &crc, 4);
+  write_file_atomically(fs::path(dir_) / "CHECKPOINT", buffer, sizeof(buffer));
+}
+
 void Database::checkpoint_locked() {
   compact_if_needed(/*force=*/false);
   const fs::path dir(dir_);
@@ -315,30 +427,15 @@ void Database::checkpoint_locked() {
 
   // 2. Atomically point CHECKPOINT at it. Before this rename a crash recovers from the old
   //    snapshot + full log; after it, from the new snapshot, skipping records it contains.
-  std::uint8_t buffer[12];
-  std::memcpy(buffer, &lsn, 8);
-  const std::uint32_t crc = crc32c(buffer, 8);
-  std::memcpy(buffer + 8, &crc, 4);
-  const fs::path checkpoint_temp = dir / "CHECKPOINT.tmp";
-  {
-    const int fd = ::open(checkpoint_temp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (fd < 0) fail("open CHECKPOINT.tmp");
-    write_all(fd, buffer, sizeof(buffer));
-    sync_fd(fd);
-    ::close(fd);
-  }
-  fs::rename(checkpoint_temp, dir / "CHECKPOINT");
-  sync_path(dir, true);
+  write_checkpoint_file(lsn);
+  checkpoint_lsn_ = lsn;
 
   // 3. The log is now redundant: truncate it, and drop older snapshots.
   if (::ftruncate(wal_fd_, 0) != 0) fail("truncate wal.log");
   if (::lseek(wal_fd_, 0, SEEK_SET) < 0) fail("seek wal.log");
   sync_fd(wal_fd_);
   wal_bytes_ = 0;
-  for (const auto& entry : fs::directory_iterator(dir)) {
-    const std::string name = entry.path().filename().string();
-    if (name.starts_with("snapshot-") && entry.path() != snapshot) fs::remove(entry.path());
-  }
+  remove_other_snapshots(dir, snapshot);
 }
 
 std::uint64_t Database::last_lsn() const {
