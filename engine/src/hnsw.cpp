@@ -184,7 +184,11 @@ std::unique_ptr<std::byte[], HnswIndex::AlignedFree> HnswIndex::allocate_level0(
   // +10-15% QPS and -16% p99 latency.
   constexpr std::size_t kHugePage = std::size_t{2} << 20;
   std::size_t bytes = node_stride_ * params_.max_elements;
+#if defined(__linux__) && !defined(__EMSCRIPTEN__)
   const bool huge = bytes >= kHugePage;
+#else
+  const bool huge = false;  // no transparent huge pages to ask for; 2 MiB alignment would only waste memory
+#endif
   if (huge) bytes = round_up(bytes, kHugePage);
   auto* block = static_cast<std::byte*>(std::aligned_alloc(huge ? kHugePage : 64, bytes));
   if (block == nullptr) throw std::bad_alloc();
