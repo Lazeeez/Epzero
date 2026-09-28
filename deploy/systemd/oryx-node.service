@@ -1,0 +1,24 @@
+[Unit]
+Description=Oryx data node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=oryx
+Group=oryx
+EnvironmentFile=/etc/oryx/node.env
+ExecStart=/opt/oryx/bin/oryx-node --listen 0.0.0.0:7000 --advertise ${ORYX_ADVERTISE} --name ${ORYX_NAME} \
+    --data /var/lib/oryx/data --dim 512 --metric cosine --max 60000 --token-file /etc/oryx/token --sync always
+# A crash (including the chaos endpoint) is recovered from the write-ahead log on restart.
+Restart=always
+RestartSec=8
+LimitNOFILE=65536
+# Hardening: the node only needs its data directory.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/oryx
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
