@@ -195,6 +195,159 @@ TEST_F(HnswTest, SaveLoadRoundTrip) {
   EXPECT_THROW(loaded->add(0, data_.base.row(0)), std::invalid_argument);  // label map restored
 }
 
+// ---------- SQ8 quantization ----------
+
+HnswParams sq8_params(Metric metric, bool keep_vectors, std::size_t max_elements = kBase) {
+  HnswParams p = params_for(metric, max_elements);
+  p.quantization = Quantization::SQ8;
+  p.keep_vectors = keep_vectors;
+  return p;
+}
+
+TEST_F(HnswTest, Sq8RequiresTraining) {
+  HnswIndex index(sq8_params(Metric::L2, true));
+  EXPECT_FALSE(index.trained());
+  EXPECT_THROW(index.add(0, data_.base.row(0)), std::logic_error);
+  index.train(data_.base.data.data(), 500);
+  EXPECT_TRUE(index.trained());
+  index.add(0, data_.base.row(0));
+  EXPECT_THROW(index.train(data_.base.data.data(), 500), std::logic_error);  // only before adds
+}
+
+TEST_F(HnswTest, Sq8WithRerankKeepsHighRecall) {
+  HnswIndex index(sq8_params(Metric::L2, true));
+  index.train(data_.base.data.data(), kBase);
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  EXPECT_GE(measure_recall(index, data_, 100, Metric::L2), 0.95);
+  // Re-ranked distances are exact.
+  const auto results = index.search(data_.queries.row(0), kK, {.ef = 100});
+  const auto exact = brute_force_search(data_.base.data.data(), kBase, kDim, data_.queries.row(0), 1, Metric::L2);
+  EXPECT_EQ(results[0].label, exact[0].label);
+  EXPECT_NEAR(results[0].distance, exact[0].distance, 1e-3f);
+}
+
+TEST_F(HnswTest, Sq8WithoutVectorsStillSearchesWell) {
+  HnswIndex index(sq8_params(Metric::L2, false));
+  index.train(data_.base.data.data(), kBase);
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  EXPECT_GE(measure_recall(index, data_, 100, Metric::L2), 0.85);
+  HnswIndex full(params_for(Metric::L2));
+  EXPECT_LT(index.memory_bytes(), full.memory_bytes());
+}
+
+TEST_F(HnswTest, Sq8CosineFindsItself) {
+  HnswIndex index(sq8_params(Metric::Cosine, true));
+  index.train(data_.base.data.data(), kBase);
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  for (std::size_t i = 0; i < 50; ++i) {
+    EXPECT_EQ(index.search(data_.base.row(i), 1, {.ef = 64})[0].label, i);
+  }
+}
+
+TEST_F(HnswTest, Sq8SaveLoadRoundTrip) {
+  HnswIndex index(sq8_params(Metric::L2, true));
+  index.train(data_.base.data.data(), kBase);
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  const auto path = (std::filesystem::temp_directory_path() / "oryx_sq8.idx").string();
+  index.save(path);
+  const auto loaded = HnswIndex::load(path);
+  std::filesystem::remove(path);
+  EXPECT_EQ(loaded->params().quantization, Quantization::SQ8);
+  for (std::size_t q = 0; q < 50; ++q) {
+    const auto a = index.search(data_.queries.row(q), kK, {.ef = 64});
+    const auto b = loaded->search(data_.queries.row(q), kK, {.ef = 64});
+    ASSERT_EQ(a.size(), b.size());
+    for (std::size_t i = 0; i < a.size(); ++i) EXPECT_EQ(a[i].label, b[i].label);
+  }
+}
+
+// ---------- Deletes ----------
+
+TEST_F(HnswTest, RemovedLabelsAreNeverReturned) {
+  HnswIndex index(params_for(Metric::L2, kBase + 10));
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  // Delete every third vector, then check results against exact search over the survivors.
+  std::vector<float> live;
+  std::vector<std::uint64_t> live_labels;
+  for (std::size_t i = 0; i < kBase; ++i) {
+    if (i % 3 == 0) {
+      EXPECT_TRUE(index.remove(i));
+    } else {
+      live.insert(live.end(), data_.base.row(i), data_.base.row(i) + kDim);
+      live_labels.push_back(i);
+    }
+  }
+  EXPECT_FALSE(index.remove(0));  // already gone
+  EXPECT_FALSE(index.contains(0));
+  EXPECT_EQ(index.live_count(), live_labels.size());
+
+  std::vector<std::vector<SearchResult>> results;
+  std::vector<std::vector<std::uint32_t>> truth;
+  for (std::size_t q = 0; q < kQueries; ++q) {
+    auto r = index.search(data_.queries.row(q), kK, {.ef = 100});
+    ASSERT_EQ(r.size(), kK);
+    for (const auto& hit : r) EXPECT_NE(hit.label % 3, 0u) << "deleted label returned";
+    results.push_back(std::move(r));
+    std::vector<std::uint32_t> t;
+    for (const auto& e : brute_force_search(live.data(), live_labels.size(), kDim, data_.queries.row(q), kK, Metric::L2)) {
+      t.push_back(static_cast<std::uint32_t>(live_labels[e.label]));
+    }
+    truth.push_back(std::move(t));
+  }
+  EXPECT_GE(recall_at_k(results, truth, kK), 0.95);
+
+  // A removed label can be inserted again (as a new node).
+  index.add(0, data_.base.row(0));
+  EXPECT_EQ(index.search(data_.base.row(0), 1, {.ef = 64})[0].label, 0u);
+}
+
+TEST_F(HnswTest, TombstonesSurviveSaveAndCompaction) {
+  HnswIndex index(params_for(Metric::L2));
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  for (std::size_t i = 0; i < kBase; i += 2) index.remove(i);
+
+  const auto path = (std::filesystem::temp_directory_path() / "oryx_tombstones.idx").string();
+  index.save(path);
+  const auto loaded = HnswIndex::load(path);
+  std::filesystem::remove(path);
+  EXPECT_EQ(loaded->deleted_count(), index.deleted_count());
+  EXPECT_FALSE(loaded->contains(0));
+  EXPECT_TRUE(loaded->contains(1));
+
+  const auto compact = loaded->compacted(4);
+  EXPECT_EQ(compact->size(), kBase / 2);
+  EXPECT_EQ(compact->deleted_count(), 0u);
+  for (std::size_t q = 0; q < 20; ++q) {
+    for (const auto& hit : compact->search(data_.queries.row(q), kK, {.ef = 64})) EXPECT_EQ(hit.label % 2, 1u);
+  }
+}
+
+TEST_F(HnswTest, ConcurrentInsertRemoveAndSearch) {
+  HnswIndex index(params_for(Metric::L2));
+  std::atomic<std::size_t> next{0};
+  std::atomic<bool> done{false};
+  std::vector<std::thread> threads;
+  for (int t = 0; t < 6; ++t) {
+    threads.emplace_back([&] {
+      for (std::size_t i = next++; i < kBase; i = next++) {
+        index.add(i, data_.base.row(i));
+        if (i % 5 == 0 && i > 0) index.remove(i - 1);
+      }
+    });
+  }
+  std::thread reader([&] {
+    while (!done) {
+      for (const auto& hit : index.search(data_.queries.row(0), kK, {.ef = 32})) (void)hit;
+    }
+  });
+  for (auto& t : threads) t.join();
+  done = true;
+  reader.join();
+  EXPECT_EQ(index.size(), kBase);
+  EXPECT_GT(index.deleted_count(), 0u);
+  for (const auto& hit : index.search(data_.queries.row(1), kK, {.ef = 64})) EXPECT_TRUE(index.contains(hit.label));
+}
+
 TEST(Hnsw, LoadRejectsGarbage) {
   const auto path = (std::filesystem::temp_directory_path() / "oryx_garbage.idx").string();
   {
