@@ -1,28 +1,12 @@
-import "./styles.css";
+import "../shared/base.css";
+import "./lab.css";
+import { initTheme } from "../shared/theme";
 import { formatQps, formatUs, RecallChart } from "./chart";
 import type { EngineInfo, FromWorker, KernelRow, LabConfig, StageId, SweepRow } from "./protocol";
 
 const $ = <T extends Element>(selector: string) => document.querySelector<T>(selector)!;
 
-// ---------- Theme (per-viewer convenience; storage may be unavailable) ----------
-const root = document.documentElement;
-try {
-  const saved = localStorage.getItem("oryx-theme");
-  if (saved === "light" || saved === "dark") root.dataset.theme = saved;
-} catch {
-  /* storage blocked: follow the OS setting */
-}
-$("button.theme-toggle").addEventListener("click", () => {
-  const dark = root.dataset.theme
-    ? root.dataset.theme === "dark"
-    : window.matchMedia("(prefers-color-scheme: dark)").matches;
-  root.dataset.theme = dark ? "light" : "dark";
-  try {
-    localStorage.setItem("oryx-theme", root.dataset.theme);
-  } catch {
-    /* ignore */
-  }
-});
+initTheme($<HTMLButtonElement>("button.theme-toggle"));
 
 // ---------- State ----------
 const form = $<HTMLFormElement>("#config");
