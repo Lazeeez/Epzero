@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <shared_mutex>
 #include <string>
 #include <vector>
@@ -24,6 +25,15 @@ struct DatabaseOptions {
   std::size_t checkpoint_bytes = std::size_t{256} << 20;
   // Rebuild without tombstones at a checkpoint once this fraction of slots is deleted.
   double compact_ratio = 0.25;
+};
+
+// One logged write. Replication ships these verbatim, so a replica's log is the primary's log.
+struct LogRecord {
+  enum class Type : std::uint8_t { Upsert = 1, Remove = 2 };
+  Type type = Type::Upsert;
+  std::uint64_t lsn = 0;
+  std::uint64_t label = 0;
+  std::vector<float> vector;  // empty for Remove
 };
 
 struct RecoveryInfo {
@@ -62,13 +72,27 @@ class Database {
   // and are persisted by an immediate checkpoint).
   void train(const float* data, std::size_t n);
 
-  // Inserts or replaces the vector for `label`.
-  void upsert(std::uint64_t label, const float* vector);
+  // Inserts or replaces the vector for `label`; returns the logged record (for replication).
+  LogRecord upsert(std::uint64_t label, const float* vector);
   // Many upserts with one log write and one fsync, applied on `threads` threads. Labels must be
-  // distinct within the batch.
-  void upsert_batch(const std::uint64_t* labels, const float* vectors, std::size_t n, std::size_t threads = 0);
-  // Returns false if `label` is not present (nothing is logged).
-  bool remove(std::uint64_t label);
+  // distinct within the batch. Returns the logged records.
+  std::vector<LogRecord> upsert_batch(const std::uint64_t* labels, const float* vectors, std::size_t n,
+                                      std::size_t threads = 0);
+  // Returns nothing if `label` is not present (nothing is logged).
+  std::optional<LogRecord> remove(std::uint64_t label);
+
+  // --- Replication ---
+  // Replica side: applies records written by a primary, keeping their LSNs. Each batch must
+  // continue exactly where this log ends (first lsn == last_lsn() + 1); a gap means this replica
+  // missed writes and must be re-seeded with import_snapshot(). Durable per the sync mode.
+  void apply(const std::vector<LogRecord>& records);
+  // Primary side: every record after `lsn`, if the log still holds all of them (a checkpoint may
+  // have folded older ones into the snapshot); otherwise nothing, and a snapshot must be shipped.
+  std::optional<std::vector<LogRecord>> records_since(std::uint64_t lsn) const;
+  // Checkpoints and returns the snapshot bytes and the LSN they contain.
+  std::pair<std::uint64_t, std::string> export_snapshot();
+  // Replaces all state with a snapshot taken on another node (installs it as this node's checkpoint).
+  void import_snapshot(std::uint64_t lsn, const std::string& bytes);
 
   std::vector<SearchResult> search(const float* query, std::size_t k, const SearchOptions& options = {}) const;
 
@@ -85,6 +109,8 @@ class Database {
   void recover();
   void append(const std::vector<std::uint8_t>& bytes, bool sync);
   void apply_upsert(std::uint64_t label, const float* vector);
+  void apply_record(const LogRecord& record);
+  void write_checkpoint_file(std::uint64_t lsn);
   void maybe_checkpoint();
   void checkpoint_locked();
   void compact_if_needed(bool force);
@@ -96,6 +122,7 @@ class Database {
   int wal_fd_ = -1;
   std::size_t wal_bytes_ = 0;
   std::uint64_t lsn_ = 0;
+  std::uint64_t checkpoint_lsn_ = 0;  // everything <= this is in the snapshot, not the log
   RecoveryInfo recovery_;
   mutable std::mutex write_lock_;          // serializes writers: log order == apply order
   mutable std::shared_mutex index_lock_;   // exclusive only to swap in a compacted index
