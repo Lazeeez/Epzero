@@ -331,9 +331,6 @@ main {
     padding-left: 16px;
     padding-right: 16px;
   }
-  .topnav a:first-child {
-    display: none;
-  }
   .card {
     padding: 18px;
   }
