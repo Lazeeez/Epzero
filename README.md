@@ -11,11 +11,17 @@ servers), WebAssembly (a live, in-browser 3D demo) and a sharded, replicated
 cluster.
 
 **[Live demo →](https://lazeeez.github.io/Oryx/)** The engine compiled to
-WebAssembly (SIMD128 + threads). It generates a dataset, builds the graph on
-every core and benchmarks it, all in your browser.
+WebAssembly (SIMD128 + threads), running entirely in your browser:
+- **Explorer.** 29,825 Open Images photos embedded with CLIP, indexed live on
+  every core, and shown as a 3D stack of HNSW layers. Click any photo to
+  search, and watch the query descend the layers and fan out across the base
+  layer. Every search is checked against an exact scan, e.g. *75 µs, 10/10
+  same results, 45× faster*.
+- **[Benchmark lab](https://lazeeez.github.io/Oryx/lab.html).** Generates a
+  dataset, builds the graph and sweeps recall against QPS.
 
-> **Status:** milestones 1–3 of 9 are done (engine core, benchmarks and
-> profiling, WebAssembly demo). See the [roadmap](#roadmap).
+> **Status:** milestones 1–5 of 9 are done (engine, benchmarks, WebAssembly,
+> dataset pipeline, 3D explorer). See the [roadmap](#roadmap).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/sift1m-recall-qps-dark.svg">
@@ -134,6 +140,26 @@ npx playwright test                   # full benchmark in headless Chromium
 The page runs the engine in a Web Worker, so the UI never blocks while every
 core builds the graph.
 
+## Demo dataset
+
+[`pipeline/build_dataset.py`](pipeline/build_dataset.py) builds the
+explorer's data. It takes the Open Images V7 validation photos that are still
+online (29,825 of 35,479), embeds them with CLIP ViT-B/32 on the GPU (92 s on
+an RTX 4050), lays them out in 2-D with UMAP, and exports compact binaries:
+- **int8 vectors** with per-dimension scales: 15 MB instead of 61 MB, with
+  recall@10 of 0.994 against float vectors;
+- a 16-bit layout;
+- metadata with each photo's author, license and source link.
+
+Photos are CC BY 2.0 and hotlinked from Flickr with attribution, and labels
+are CC BY 4.0. (Unsplash Lite was evaluated and rejected: its terms forbid
+publishing any portion of the data.)
+
+```bash
+pip install torch transformers umap-learn pillow
+python pipeline/build_dataset.py --work data/openimages --out web/public/data/openimages
+```
+
 ## Build and test
 
 Linux or WSL2, CMake ≥ 3.20, GCC ≥ 13 or Clang ≥ 17.
@@ -161,8 +187,8 @@ configurations, the Python tests, and the test suite as WebAssembly under Node.
 1. ✅ Engine core: HNSW, SIMD kernels, concurrency, snapshots, recall harness, CI
 2. ✅ Head-to-head benchmarks against hnswlib and FAISS; profiling-driven optimization; Python bindings
 3. ✅ WebAssembly build (SIMD128 + threads) and an in-browser benchmark lab on GitHub Pages
-4. Offline dataset pipeline: CLIP image embeddings, UMAP layout, int8 export
-5. 3D visualizer: layered graph, search replay, recall/QPS explorer
+4. ✅ Offline dataset pipeline: CLIP image embeddings, UMAP layout, int8 export
+5. ✅ 3D explorer: layered graph, animated search replay, exact-scan comparison
 6. In-browser text-to-image search (ONNX Runtime Web)
 7. Deletes, write-ahead log, crash recovery; int8 scalar quantization
 8. Cluster: Go router, sharded C++ nodes, replication, chaos testing (Oracle Cloud Ampere A1)
