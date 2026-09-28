@@ -58,6 +58,18 @@ class Engine {
     return this.started;
   }
 
+  /** After a failed load (e.g. the network dropped mid-download), starts over. */
+  retry(): Promise<void> {
+    if (this.status !== "error") return this.start();
+    this.worker?.terminate();
+    this.worker = null;
+    this.started = null;
+    this.error = "";
+    this.progress = 0;
+    this.built = 0;
+    return this.start();
+  }
+
   private async load() {
     this.status = "loading";
     this.stage = "Loading the dataset";
@@ -112,7 +124,11 @@ class Engine {
             break;
           }
           case "error":
-            if (this.status !== "ready") {
+            if (message.seq !== undefined) {
+              // One query failed; the others are unaffected.
+              this.pending.get(message.seq)?.reject(new Error(message.message));
+              this.pending.delete(message.seq);
+            } else if (this.status !== "ready") {
               this.fail(message.message);
               resolve();
             } else {
