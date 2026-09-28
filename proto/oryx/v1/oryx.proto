@@ -1,0 +1,140 @@
+// Oryx cluster protocol: the router talks to data nodes, and each shard's primary talks to its
+// replica. Every shard lives on two nodes (primary + replica); an epoch per shard, bumped on
+// every failover, fences off stale primaries.
+syntax = "proto3";
+
+package oryx.v1;
+
+option go_package = "github.com/Lazeeez/Oryx/cluster/gen/oryxv1;oryxv1";
+
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_PRIMARY = 1;
+  ROLE_REPLICA = 2;
+}
+
+message Record {
+  uint32 type = 1;  // 1 = upsert, 2 = remove (matches oryx::LogRecord::Type)
+  uint64 lsn = 2;
+  uint64 label = 3;
+  repeated float vector = 4;
+}
+
+message Hit {
+  uint64 label = 1;
+  float distance = 2;
+}
+
+// ---- Router -> primary ----
+
+message UpsertRequest {
+  uint32 shard = 1;
+  uint64 epoch = 2;
+  repeated uint64 labels = 3;
+  repeated float vectors = 4;  // labels.size() * dim, row-major
+}
+
+message RemoveRequest {
+  uint32 shard = 1;
+  uint64 epoch = 2;
+  uint64 label = 3;
+}
+
+message WriteReply {
+  uint64 lsn = 1;
+  bool replicated = 2;  // false: acknowledged by the primary only (replica down or catching up)
+}
+
+// ---- Router -> any in-sync copy ----
+
+message SearchRequest {
+  uint32 shard = 1;
+  repeated float query = 2;
+  uint32 k = 3;
+  uint32 ef = 4;
+}
+
+message SearchReply {
+  repeated Hit hits = 1;
+  uint64 micros = 2;
+  uint64 distance_computations = 3;
+}
+
+// ---- Primary -> replica ----
+
+message ReplicateRequest {
+  uint32 shard = 1;
+  uint64 epoch = 2;
+  repeated Record records = 3;
+}
+
+message ReplicateReply {
+  uint64 lsn = 1;
+}
+
+// Replica -> primary when (re)joining: everything after `after_lsn`, as log records if the
+// primary's log still has them, otherwise a snapshot. The primary starts forwarding new writes to
+// the caller atomically with this reply.
+message FetchRequest {
+  uint32 shard = 1;
+  uint64 epoch = 2;
+  uint64 after_lsn = 3;
+  string replica_address = 4;
+  bool force_snapshot = 5;  // a rejoining ex-primary may hold writes nobody else has: start over
+}
+
+message FetchReply {
+  repeated Record records = 1;
+  bool has_snapshot = 2;
+  uint64 snapshot_lsn = 3;
+  bytes snapshot = 4;
+}
+
+// ---- Router -> node control plane ----
+
+message AssignRequest {
+  uint32 shard = 1;
+  uint64 epoch = 2;
+  Role role = 3;
+  string peer = 4;  // primary: its replica ("" = none); replica: its primary
+}
+
+message AssignReply {}
+
+message StatusRequest {}
+
+message ShardStatus {
+  uint32 shard = 1;
+  Role role = 2;
+  uint64 epoch = 3;
+  uint64 lsn = 4;
+  uint64 vectors = 5;
+  string peer = 6;
+  bool in_sync = 7;  // primary: replica is receiving writes; replica: caught up with its primary
+}
+
+message StatusReply {
+  string node = 1;
+  uint64 started_unix_ms = 2;
+  repeated ShardStatus shards = 3;
+  string simd = 4;
+}
+
+message CrashRequest {
+  string token = 1;
+}
+
+message CrashReply {}
+
+service Node {
+  rpc Upsert(UpsertRequest) returns (WriteReply);
+  rpc Remove(RemoveRequest) returns (WriteReply);
+  rpc Search(SearchRequest) returns (SearchReply);
+  rpc Replicate(ReplicateRequest) returns (ReplicateReply);
+  rpc Fetch(FetchRequest) returns (FetchReply);
+  rpc Assign(AssignRequest) returns (AssignReply);
+  rpc Status(StatusRequest) returns (StatusReply);
+  // Chaos testing: the node acknowledges, then dies abruptly (no clean shutdown). systemd brings it
+  // back, and it recovers from its write-ahead log.
+  rpc Crash(CrashRequest) returns (CrashReply);
+}
