@@ -11,7 +11,7 @@ enum class Metric {
   Cosine,        // vectors are normalized on insert/query, then scored as InnerProduct
 };
 
-enum class SimdLevel { Scalar, AVX2, AVX512, NEON };
+enum class SimdLevel { Scalar, AVX2, AVX512, NEON, WasmSimd128 };
 
 // All kernels return a distance where smaller means closer.
 using DistanceFn = float (*)(const float* a, const float* b, std::size_t dim) noexcept;
@@ -22,7 +22,7 @@ std::string_view to_string(SimdLevel level) noexcept;
 // True if the kernel for `level` was compiled in and the running CPU supports it.
 bool simd_level_supported(SimdLevel level) noexcept;
 
-// Best supported level, detected once per process. Setting ORYX_SIMD=scalar|avx2|avx512|neon
+// Best supported level, detected once per process. Setting ORYX_SIMD=scalar|avx2|avx512|neon|wasm
 // forces a specific (supported) level, which is how the benchmarks measure SIMD speedups.
 SimdLevel active_simd_level() noexcept;
 
