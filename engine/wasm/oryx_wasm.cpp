@@ -215,6 +215,31 @@ val trace_to_js(const oryx::SearchTrace& trace, const std::vector<oryx::SearchRe
   return out;
 }
 
+// Top level of every node (0 = base layer only) and each layer's links as a flat
+// [a0, b0, a1, b1, ...] list with every undirected edge once.
+val levels_of(const oryx::HnswIndex& index, std::size_t n) {
+  std::vector<std::uint8_t> out(n);
+  for (std::size_t i = 0; i < n; ++i) out[i] = static_cast<std::uint8_t>(index.level_of(i));
+  return copy_to_js("Uint8Array", out);
+}
+
+val edges_of(const oryx::HnswIndex& index, std::size_t n, int layer) {
+  std::vector<std::uint32_t> pairs;
+  for (std::size_t i = 0; i < n; ++i) {
+    if (index.level_of(i) < layer) continue;
+    for (const std::uint64_t j : index.neighbors_of(i, layer)) {
+      // Keep an edge once: from the lower id, or from either end if the link is one-way.
+      const auto back = index.neighbors_of(j, layer);
+      const bool mutual = std::find(back.begin(), back.end(), i) != back.end();
+      if (!mutual || i < j) {
+        pairs.push_back(static_cast<std::uint32_t>(i));
+        pairs.push_back(static_cast<std::uint32_t>(j));
+      }
+    }
+  }
+  return copy_to_js("Uint32Array", pairs);
+}
+
 // A real dataset for the visualizer: int8 vectors with per-dimension scales (as exported by
 // pipeline/build_dataset.py), indexed with cosine distance. Labels are row numbers. The
 // dequantized, normalized vectors are kept so every search can also be checked against an exact
@@ -249,30 +274,14 @@ class Collection {
     return built_;
   }
 
-  // Top level of every node (0 = base layer only).
   val levels() const {
     require_index();
-    std::vector<std::uint8_t> out(built_);
-    for (std::size_t i = 0; i < built_; ++i) out[i] = static_cast<std::uint8_t>(index_->level_of(i));
-    return copy_to_js("Uint8Array", out);
+    return levels_of(*index_, built_);
   }
 
-  // Edges of one layer as a flat [a0, b0, a1, b1, ...] list, each undirected edge once.
   val edges(int layer) const {
     require_index();
-    std::vector<std::uint32_t> pairs;
-    for (std::size_t i = 0; i < built_; ++i) {
-      for (const std::uint64_t j : index_->neighbors_of(i, layer)) {
-        // Keep an edge once: from the lower id, or from either end if the link is one-way.
-        const auto back = index_->neighbors_of(j, layer);
-        const bool mutual = std::find(back.begin(), back.end(), i) != back.end();
-        if (!mutual || i < j) {
-          pairs.push_back(static_cast<std::uint32_t>(i));
-          pairs.push_back(static_cast<std::uint32_t>(j));
-        }
-      }
-    }
-    return copy_to_js("Uint32Array", pairs);
+    return edges_of(*index_, built_, layer);
   }
 
   val search(const val& query, std::size_t k, std::size_t ef) const {
@@ -343,9 +352,58 @@ class Collection {
   std::size_t built_ = 0;
 };
 
+// A small float index for the landing page's "how it works" demo: 2-D points, L2, few links per
+// node, so every layer, link and decision of a search is visible on screen.
+class Toy {
+ public:
+  void build(const val& points, std::size_t dim, std::size_t M, std::size_t ef_construction, double seed) {
+    data_ = emscripten::convertJSArrayToNumberVector<float>(points);
+    if (dim == 0 || data_.size() % dim != 0) throw std::invalid_argument("bad points");
+    dim_ = dim;
+    n_ = data_.size() / dim;
+    index_ = std::make_unique<oryx::HnswIndex>(oryx::HnswParams{.dim = dim, .metric = oryx::Metric::L2, .max_elements = n_,
+                                                                .M = M, .ef_construction = ef_construction,
+                                                                .seed = static_cast<std::uint64_t>(seed)});
+    for (std::size_t i = 0; i < n_; ++i) index_->add(i, data_.data() + i * dim);
+  }
+
+  val levels() const { return levels_of(*index_, n_); }
+  val edges(int layer) const { return edges_of(*index_, n_, layer); }
+  int max_level() const { return index_->max_level(); }
+
+  val trace(const val& query, std::size_t k, std::size_t ef) const {
+    const auto q = emscripten::convertJSArrayToNumberVector<float>(query);
+    if (q.size() != dim_) throw std::invalid_argument("query has the wrong dimension");
+    oryx::SearchTrace trace;
+    oryx::SearchStats stats;
+    const auto results = index_->search(q.data(), k, {.ef = ef, .stats = &stats, .trace = &trace});
+    val out = trace_to_js(trace, results, stats, 0);
+    std::vector<std::uint32_t> exact;
+    for (const auto& r : oryx::brute_force_search(data_.data(), n_, dim_, q.data(), k, oryx::Metric::L2)) {
+      exact.push_back(static_cast<std::uint32_t>(r.label));
+    }
+    out.set("exact", copy_to_js("Uint32Array", exact));
+    out.set("exactMicros", 0);
+    return out;
+  }
+
+ private:
+  std::vector<float> data_;
+  std::size_t dim_ = 0;
+  std::size_t n_ = 0;
+  std::unique_ptr<oryx::HnswIndex> index_;
+};
+
 }  // namespace
 
 EMSCRIPTEN_BINDINGS(oryx) {
+  emscripten::class_<Toy>("Toy")
+      .constructor<>()
+      .function("build", &Toy::build)
+      .function("levels", &Toy::levels)
+      .function("edges", &Toy::edges)
+      .function("maxLevel", &Toy::max_level)
+      .function("trace", &Toy::trace);
   emscripten::class_<Collection>("Collection")
       .constructor<>()
       .function("load", &Collection::load)
