@@ -17,7 +17,7 @@
   let hnswCanvas: HTMLCanvasElement | undefined = $state();
   let elapsed = $state(0);
   let frame = 0;
-  let dialog: HTMLDivElement | undefined = $state();
+  let dialog: HTMLDialogElement | undefined = $state();
 
   const exactDone = $derived(elapsed >= EXACT_MS);
   const hnswDone = $derived(elapsed >= hnswMs);
@@ -109,22 +109,33 @@
     frame = requestAnimationFrame(tick);
   }
 
+  // A native modal dialog: focus is trapped inside, the page behind is inert, Escape closes it.
+  // Declared before the race effect: the canvases have no size until the dialog is open.
+  $effect(() => {
+    if (!dialog) return;
+    dialog.showModal();
+    return () => dialog?.close();
+  });
+
   $effect(() => {
     void outcome;
     if (exactCanvas && hnswCanvas) start();
     return () => cancelAnimationFrame(frame);
   });
-
-  $effect(() => {
-    dialog?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onclose();
-    addEventListener("keydown", onKey);
-    return () => removeEventListener("keydown", onKey);
-  });
 </script>
 
-<div class="backdrop" onclick={onclose} role="presentation"></div>
-<div class="race card" role="dialog" aria-modal="true" aria-labelledby="race-title" tabindex="-1" bind:this={dialog}>
+<dialog
+  class="race card"
+  aria-labelledby="race-title"
+  bind:this={dialog}
+  onclose={onclose}
+  onclick={(e) => {
+    // A click on the backdrop lands on the dialog element itself, outside its box.
+    const box = dialog!.getBoundingClientRect();
+    const outside = e.clientX < box.left || e.clientX > box.right || e.clientY < box.top || e.clientY > box.bottom;
+    if (e.target === dialog && outside) onclose();
+  }}
+>
   <header>
     <div>
       <h2 id="race-title">HNSW vs. an exact scan, same query</h2>
@@ -163,31 +174,26 @@
     </p>
     <button class="btn btn-ghost" onclick={start}>Replay</button>
   </footer>
-</div>
+</dialog>
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 80;
-    background: rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(6px);
-    animation: fade 0.25s var(--ease);
-  }
   .race {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    z-index: 81;
     display: grid;
     gap: 18px;
     width: min(1020px, 100% - 32px);
+    max-width: none;
     max-height: calc(100dvh - 32px);
+    margin: auto;
     overflow: auto;
     padding: 24px;
     background: var(--surface-solid);
-    transform: translate(-50%, -50%);
+    color: var(--text);
     animation: pop 0.35s var(--ease);
+  }
+  .race::backdrop {
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(6px);
+    animation: fade 0.25s var(--ease);
   }
   header {
     display: flex;
@@ -284,7 +290,7 @@
   @keyframes pop {
     from {
       opacity: 0;
-      transform: translate(-50%, -48%) scale(0.98);
+      transform: translateY(8px) scale(0.98);
     }
   }
   @media (max-width: 640px) {
