@@ -1,0 +1,60 @@
+name: engine
+
+on:
+  push:
+    branches: [main]
+    paths: ["engine/**", ".github/workflows/engine.yml"]
+  pull_request:
+    paths: ["engine/**", ".github/workflows/engine.yml"]
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / ${{ matrix.compiler }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, compiler: gcc, cxx: g++ }
+          - { os: ubuntu-24.04, compiler: clang, cxx: clang++ }
+          # AArch64 runner exercises the NEON kernels, matching the Oracle Ampere A1 deploy target.
+          - { os: ubuntu-24.04-arm, compiler: gcc, cxx: g++ }
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y ninja-build
+      - name: Configure
+        run: cmake -S engine -B build -G Ninja -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Kernel microbenchmark
+        run: build/bench_distance
+      - name: Recall smoke benchmark
+        run: build/bench_recall --synthetic --n 20000 --queries 500 --json bench-${{ matrix.os }}-${{ matrix.compiler }}.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-${{ matrix.os }}-${{ matrix.compiler }}
+          path: bench-*.json
+
+  sanitizers:
+    name: sanitizer / ${{ matrix.sanitizer }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: ["address,undefined", "thread"]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y ninja-build
+      # TSan cannot map its shadow memory with the kernel's default 32-bit mmap randomization.
+      - run: sudo sysctl vm.mmap_rnd_bits=28
+      - name: Configure
+        run: cmake -S engine -B build -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=RelWithDebInfo -DORYX_SANITIZE=${{ matrix.sanitizer }} -DORYX_BUILD_BENCH=OFF
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        env:
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+          TSAN_OPTIONS: halt_on_error=1
+        run: ctest --test-dir build --output-on-failure
