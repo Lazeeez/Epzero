@@ -22,8 +22,9 @@ WebAssembly (SIMD128 + threads), running entirely in your browser:
 - **[Benchmark lab](https://lazeeez.github.io/Oryx/lab.html).** Generates a
   dataset, builds the graph and sweeps recall against QPS.
 
-> **Status:** milestones 1–6 of 9 are done (engine, benchmarks, WebAssembly,
-> dataset pipeline, 3D explorer, text search). See the [roadmap](#roadmap).
+> **Status:** milestones 1–7 of 9 are done (engine, benchmarks, WebAssembly,
+> dataset pipeline, 3D explorer, text search, quantization and durability).
+> See the [roadmap](#roadmap).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/sift1m-recall-qps-dark.svg">
@@ -99,6 +100,20 @@ accumulators.
 - **Tracing.** Searches can optionally record every hop (layer, from, to,
   distance, accepted). This feeds the 3D visualizer and costs nothing when
   disabled.
+- **8-bit scalar quantization (SQ8).** Nodes are stored as uint8 codes with
+  per-dimension scales, scored against the float query by asymmetric distance
+  (a single uint8×float dot product), then re-ranked exactly. On SIFT1M this
+  gives **+48% QPS at identical recall**, or 58% less memory without the float
+  vectors. See the [performance log](docs/performance.md#8-bit-scalar-quantization-sq8).
+- **Deletes.** Tombstones that keep routing searches but are never returned or
+  linked to again; `compacted()` rebuilds the index without them.
+- **Durability.** `Database` adds a write-ahead log: CRC32C-framed records,
+  fsync per write or group commit, and atomic checkpoints (the snapshot is
+  written, fsynced and renamed before `CHECKPOINT` switches to it). Recovery
+  replays newer records and truncates a torn tail. Tests cut the last record
+  at every byte offset, corrupt records in the middle of the log, and
+  `kill -9` a writer process at random moments; every acknowledged write
+  survives.
 - **Persistence.** A versioned binary snapshot format that doesn't depend on
   the in-memory layout. Every link is validated on load, so a corrupt file
   can't cause out-of-bounds reads.
@@ -117,6 +132,16 @@ index.add(vectors, threads=12)                  # labels default to 0..n-1
 labels, distances = index.search(queries, k=10, ef=80, threads=1)
 trace = index.trace(queries[0], k=10, ef=80)    # every hop, for visualization
 index.save("sift.oryx"); index = oryx.Index.load("sift.oryx")
+
+# 8-bit quantization: train on a sample, then add as usual
+sq8 = oryx.Index(dim=128, quantization="sq8")
+sq8.train(vectors[:100_000]); sq8.add(vectors, threads=12)
+
+# Durable collection with a write-ahead log and crash recovery
+db = oryx.Database.open("./vectors.db", dim=128, sync="always")
+db.upsert(vectors[:1000], labels=ids)           # one log write + fsync per batch
+db.remove(42)
+print(db.recovery())                            # what the last open() replayed or truncated
 ```
 
 Batch calls release the GIL and run on C++ threads.
@@ -192,6 +217,6 @@ configurations, the Python tests, and the test suite as WebAssembly under Node.
 4. ✅ Offline dataset pipeline: CLIP image embeddings, UMAP layout, int8 export
 5. ✅ 3D explorer: layered graph, animated search replay, exact-scan comparison
 6. ✅ In-browser text-to-image search (CLIP text encoder on ONNX Runtime Web, self-hosted)
-7. Deletes, write-ahead log, crash recovery; int8 scalar quantization
+7. ✅ Deletes, write-ahead log, crash recovery; 8-bit scalar quantization
 8. Cluster: Go router, sharded C++ nodes, replication, chaos testing (Oracle Cloud Ampere A1)
 9. Filtered search, observability, write-ups
