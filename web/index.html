@@ -47,11 +47,19 @@
       </p>
 
       <form class="search" id="search" autocomplete="off" hidden>
-        <input id="query" type="search" placeholder="Describe a photo, e.g. “a dog on the beach”" aria-label="Search photos by description" />
-        <button type="submit" aria-label="Search">
+        <input id="query" type="search" placeholder="Loading the text model…" aria-label="Search photos by description" disabled />
+        <kbd aria-hidden="true">/</kbd>
+        <button type="submit" aria-label="Search" disabled>
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
         </button>
       </form>
+      <div class="examples" id="examples" hidden>
+        <button type="button">a dog on the beach</button>
+        <button type="button">snowy mountains</button>
+        <button type="button">city lights at night</button>
+        <button type="button">a bowl of fruit</button>
+        <button type="button">vintage black and white photo</button>
+      </div>
       <div class="actions">
         <button class="ghost" id="surprise" type="button" disabled>Surprise me</button>
         <label class="ef">
