@@ -10,8 +10,12 @@ The same engine is being built for three targets: native (benchmarks and
 servers), WebAssembly (a live, in-browser 3D demo) and a sharded, replicated
 cluster.
 
-> **Status:** milestones 1–2 of 9 are done (engine core, benchmarks and
-> profiling). See the [roadmap](#roadmap).
+**[Live demo →](https://lazeeez.github.io/Oryx/)** The engine compiled to
+WebAssembly (SIMD128 + threads). It generates a dataset, builds the graph on
+every core and benchmarks it, all in your browser.
+
+> **Status:** milestones 1–3 of 9 are done (engine core, benchmarks and
+> profiling, WebAssembly demo). See the [roadmap](#roadmap).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/sift1m-recall-qps-dark.svg">
@@ -109,6 +113,27 @@ index.save("sift.oryx"); index = oryx.Index.load("sift.oryx")
 
 Batch calls release the GIL and run on C++ threads.
 
+## WebAssembly
+
+The same C++ core compiles to WebAssembly with a SIMD128 kernel as one more
+dispatch level. Two modules are shipped:
+- a **threaded** build, which runs builds and exact search on every core via
+  Web Workers sharing memory;
+- a **single-threaded** fallback, for pages that aren't cross-origin isolated.
+
+GitHub Pages can't send the isolation headers, so a service worker adds them.
+The whole C++ test suite also runs as WebAssembly under Node in CI.
+
+```bash
+source emsdk/emsdk_env.sh
+scripts/build_wasm.sh                 # -> web/public/wasm/{mt,st}
+cd web && npm install && npm run dev  # http://localhost:5173/Oryx/
+npx playwright test                   # full benchmark in headless Chromium
+```
+
+The page runs the engine in a Web Worker, so the UI never blocks while every
+core builds the graph.
+
 ## Build and test
 
 Linux or WSL2, CMake ≥ 3.20, GCC ≥ 13 or Clang ≥ 17.
@@ -129,13 +154,13 @@ python bench/compare_libs.py --data data/sift --cache data/indexes --out bench/r
 
 Sanitizers: `-DORYX_SANITIZE=thread` or `-DORYX_SANITIZE=address,undefined`.
 CI runs GCC and Clang on x86-64, GCC on AArch64 (NEON), both sanitizer
-configurations, and the Python tests.
+configurations, the Python tests, and the test suite as WebAssembly under Node.
 
 ## Roadmap
 
 1. ✅ Engine core: HNSW, SIMD kernels, concurrency, snapshots, recall harness, CI
 2. ✅ Head-to-head benchmarks against hnswlib and FAISS; profiling-driven optimization; Python bindings
-3. WebAssembly build (SIMD128) plus a minimal in-browser search page
+3. ✅ WebAssembly build (SIMD128 + threads) and an in-browser benchmark lab on GitHub Pages
 4. Offline dataset pipeline: CLIP image embeddings, UMAP layout, int8 export
 5. 3D visualizer: layered graph, search replay, recall/QPS explorer
 6. In-browser text-to-image search (ONNX Runtime Web)
