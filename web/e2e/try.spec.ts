@@ -9,6 +9,7 @@ test.use({
 });
 
 test("searches 29,825 photos by text, photo and camera, with the debugger and race", async ({ page, request }) => {
+  test.setTimeout(420_000); // downloads both CLIP models (156 MB) on a cold cache
   const errors: string[] = [];
   page.on("console", (message) => message.type() === "error" && errors.push(message.text()));
   page.on("pageerror", (error) => errors.push(error.message));
