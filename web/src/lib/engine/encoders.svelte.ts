@@ -19,6 +19,7 @@ class ImageEncoder {
     if (this.worker) return;
     this.status = "loading";
     this.worker = new Worker(new URL("./image.worker.ts", import.meta.url), { type: "module" });
+    this.worker.onerror = (event) => this.fail(event.message || "The encoder worker failed to start.");
     this.worker.onmessage = (event: MessageEvent<FromImage>) => {
       const message = event.data;
       switch (message.type) {
@@ -41,18 +42,23 @@ class ImageEncoder {
             this.pending.get(message.seq)?.reject(new Error(message.message));
             this.pending.delete(message.seq);
           } else {
-            this.status = "error";
-            this.error = message.message;
-            for (const waiter of this.pending.values()) waiter.reject(new Error(message.message));
-            this.pending.clear();
+            this.fail(message.message);
           }
           break;
       }
     };
   }
 
+  private fail(message: string) {
+    this.status = "error";
+    this.error = message;
+    for (const waiter of this.pending.values()) waiter.reject(new Error(message));
+    this.pending.clear();
+  }
+
   encode(image: Blob): Promise<Float32Array> {
     this.start();
+    if (this.status === "error") return Promise.reject(new Error(this.error));
     const seq = ++this.seq;
     return new Promise((resolve, reject) => {
       this.pending.set(seq, { resolve, reject });
@@ -78,6 +84,7 @@ class TextEncoder {
     if (this.worker) return;
     this.status = "loading";
     this.worker = new Worker(new URL("./text.worker.ts", import.meta.url), { type: "module" });
+    this.worker.onerror = (event) => this.fail(event.message || "The encoder worker failed to start.");
     this.worker.onmessage = (event: MessageEvent<FromText>) => {
       const message = event.data;
       switch (message.type) {
@@ -96,19 +103,27 @@ class TextEncoder {
           break;
         }
         case "error":
-          if (this.status !== "ready") {
-            this.status = "error";
-            this.error = message.message;
+          if (message.seq !== undefined) {
+            this.pending.get(message.seq)?.reject(new Error(message.message));
+            this.pending.delete(message.seq);
+          } else {
+            this.fail(message.message);
           }
-          for (const waiter of this.pending.values()) waiter.reject(new Error(message.message));
-          this.pending.clear();
           break;
       }
     };
   }
 
+  private fail(message: string) {
+    this.status = "error";
+    this.error = message;
+    for (const waiter of this.pending.values()) waiter.reject(new Error(message));
+    this.pending.clear();
+  }
+
   encode(text: string): Promise<Float32Array> {
     this.start();
+    if (this.status === "error") return Promise.reject(new Error(this.error));
     const seq = ++this.seq;
     return new Promise((resolve, reject) => {
       this.pending.set(seq, { resolve, reject });
