@@ -3,18 +3,20 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Oryx · Vector search in your browser</title>
+    <title>Oryx · Explore a vector database in 3D</title>
     <meta
       name="description"
-      content="Oryx is an HNSW vector search engine written from scratch in C++20. This page runs it as WebAssembly: it generates a dataset, builds the graph on every core and benchmarks it, all in your browser."
+      content="Oryx is an HNSW vector search engine written from scratch in C++20, running here as WebAssembly. Explore 30,000+ photos through its search graph in 3D and watch every query traverse the layers."
     />
     <meta name="color-scheme" content="light dark" />
     <link rel="icon" href="%BASE_URL%favicon.svg" type="image/svg+xml" />
     <!-- Makes the page cross-origin isolated on hosts that cannot send COOP/COEP headers. -->
     <script src="%BASE_URL%coi-serviceworker.js"></script>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/explorer/main.ts"></script>
   </head>
-  <body>
+  <body class="explorer">
+    <div class="stage" id="stage"></div>
+
     <header class="topbar">
       <a class="brand" href="./" aria-label="Oryx home">
         <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
@@ -27,7 +29,7 @@
         <span>Oryx</span>
       </a>
       <nav class="topnav">
-        <a href="https://github.com/Lazeeez/Oryx/blob/main/docs/performance.md">Performance log</a>
+        <a href="lab.html">Benchmark lab</a>
         <a href="https://github.com/Lazeeez/Oryx">GitHub</a>
         <button class="theme-toggle" type="button" aria-label="Toggle color theme">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z" /></svg>
@@ -35,116 +37,51 @@
       </nav>
     </header>
 
-    <main>
-      <section class="hero">
-        <p class="eyebrow">C++20 · WebAssembly SIMD · Multithreaded</p>
-        <h1>A vector database,<br />running in your browser.</h1>
-        <p class="lede">
-          Oryx is an HNSW nearest-neighbor engine written from scratch in C++. This page talks to no server: it
-          generates a dataset, builds the search graph on every core, and benchmarks it against exact search,
-          right here in this tab.
-        </p>
-        <ul class="chips" id="env" aria-label="Runtime capabilities">
-          <li class="chip" data-state="pending">Loading engine…</li>
-        </ul>
-      </section>
+    <aside class="panel" aria-label="Search">
+      <p class="eyebrow">C++20 HNSW · WebAssembly · CLIP</p>
+      <h1>Watch a vector database think.</h1>
+      <p class="panel-lede">
+        <span id="dataset-count">Thousands of</span> photos, embedded with CLIP and indexed by Oryx's HNSW graph,
+        built live in your browser. Each disc is a graph layer; click any point to search for similar photos
+        and watch the query descend.
+      </p>
 
-      <section class="card controls" aria-labelledby="controls-title">
-        <div class="card-head">
-          <h2 id="controls-title">Benchmark setup</h2>
-          <p class="hint">Clustered synthetic vectors, exact ground truth, then an <code>ef</code> sweep.</p>
-        </div>
-        <form id="config">
-          <fieldset class="segmented" data-key="n">
-            <legend>Vectors</legend>
-            <label><input type="radio" name="n" value="20000" /><span>20k</span></label>
-            <label><input type="radio" name="n" value="50000" /><span>50k</span></label>
-            <label><input type="radio" name="n" value="100000" checked /><span>100k</span></label>
-            <label><input type="radio" name="n" value="200000" /><span>200k</span></label>
-          </fieldset>
-          <fieldset class="segmented" data-key="dim">
-            <legend>Dimensions</legend>
-            <label><input type="radio" name="dim" value="64" /><span>64</span></label>
-            <label><input type="radio" name="dim" value="128" checked /><span>128</span></label>
-            <label><input type="radio" name="dim" value="256" /><span>256</span></label>
-          </fieldset>
-          <fieldset class="segmented" data-key="M">
-            <legend>Graph degree M</legend>
-            <label><input type="radio" name="M" value="8" /><span>8</span></label>
-            <label><input type="radio" name="M" value="16" checked /><span>16</span></label>
-            <label><input type="radio" name="M" value="32" /><span>32</span></label>
-          </fieldset>
-          <fieldset class="segmented" data-key="efConstruction">
-            <legend>efConstruction</legend>
-            <label><input type="radio" name="efConstruction" value="64" /><span>64</span></label>
-            <label><input type="radio" name="efConstruction" value="128" checked /><span>128</span></label>
-            <label><input type="radio" name="efConstruction" value="256" /><span>256</span></label>
-          </fieldset>
-          <button class="run" type="submit" disabled>
-            <span class="run-label">Run benchmark</span>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-          </button>
-        </form>
-      </section>
+      <form class="search" id="search" autocomplete="off" hidden>
+        <input id="query" type="search" placeholder="Describe a photo, e.g. “a dog on the beach”" aria-label="Search photos by description" />
+        <button type="submit" aria-label="Search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+        </button>
+      </form>
+      <div class="actions">
+        <button class="ghost" id="surprise" type="button" disabled>Surprise me</button>
+        <label class="ef">
+          <span>ef</span>
+          <input id="ef" type="range" min="16" max="256" step="16" value="64" aria-label="Search beam width (ef)" />
+          <output id="ef-value">64</output>
+        </label>
+        <button class="ghost" id="replay" type="button" disabled aria-label="Replay the last search">Replay</button>
+      </div>
 
-      <section class="card pipeline" aria-labelledby="pipeline-title" hidden>
-        <div class="card-head">
-          <h2 id="pipeline-title">Pipeline</h2>
-          <p class="hint" id="pipeline-note"></p>
-        </div>
-        <ol class="stages" aria-live="polite">
-          <li data-stage="generate"><span class="dot"></span><span class="name">Generate vectors</span><span class="detail"></span><span class="ms"></span></li>
-          <li data-stage="truth"><span class="dot"></span><span class="name">Exact ground truth</span><span class="detail"></span><span class="ms"></span></li>
-          <li data-stage="build">
-            <span class="dot"></span><span class="name">Build HNSW graph</span><span class="detail"></span><span class="ms"></span>
-            <div class="bar" role="progressbar" aria-label="Build progress" aria-valuemin="0" aria-valuemax="100"><i></i></div>
-          </li>
-          <li data-stage="baseline"><span class="dot"></span><span class="name">Brute-force baseline</span><span class="detail"></span><span class="ms"></span></li>
-          <li data-stage="sweep"><span class="dot"></span><span class="name">Recall / speed sweep</span><span class="detail"></span><span class="ms"></span></li>
-          <li data-stage="kernel"><span class="dot"></span><span class="name">SIMD kernel check</span><span class="detail"></span><span class="ms"></span></li>
-        </ol>
-      </section>
+      <div class="loading" id="loading" role="status" aria-live="polite">
+        <div class="loading-row"><span id="loading-text">Loading the engine…</span><span id="loading-pct"></span></div>
+        <div class="meter"><i id="loading-bar"></i></div>
+      </div>
 
-      <section class="tiles" id="tiles" aria-label="Headline results" hidden></section>
+      <section class="stats" id="stats" hidden aria-live="polite"></section>
+      <ol class="results" id="results" aria-label="Search results"></ol>
+      <p class="credits">
+        Photos: <a href="https://storage.googleapis.com/openimages/web/index.html">Open Images</a> (CC BY 2.0, via
+        Flickr); hover a photo for its author.
+      </p>
+    </aside>
 
-      <section class="card" id="chart-card" aria-labelledby="chart-title" hidden>
-        <div class="card-head">
-          <h2 id="chart-title">Queries per second vs. recall</h2>
-          <p class="hint">One search thread. Each point is one <code>ef</code> setting; hover for details.</p>
-        </div>
-        <div class="chart" id="chart"></div>
-        <details class="table-view">
-          <summary>Show data table</summary>
-          <table id="sweep-table">
-            <thead>
-              <tr><th>ef</th><th>Recall@10</th><th>QPS</th><th>p50</th><th>p99</th><th>Distances / query</th><th>vs. exact</th></tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </details>
-      </section>
+    <div class="legend" aria-hidden="true">
+      <span><i class="swatch entry"></i>Entry point</span>
+      <span><i class="swatch beam"></i>Beam (kept)</span>
+      <span><i class="swatch seen"></i>Scored, rejected</span>
+      <span><i class="swatch hit"></i>Results</span>
+    </div>
 
-      <section class="card" id="kernel-card" aria-labelledby="kernel-title" hidden>
-        <div class="card-head">
-          <h2 id="kernel-title">WebAssembly SIMD vs. scalar</h2>
-          <p class="hint">Time per L2 distance, 128-bit SIMD kernel vs. the same loop in scalar code.</p>
-        </div>
-        <div class="kernels" id="kernels"></div>
-      </section>
-
-      <section class="native">
-        <h2>On a native server</h2>
-        <p>
-          The same C++ core, compiled natively with AVX2 and 2 MiB huge pages, serves
-          <strong>1.46× the queries per second of hnswlib</strong> and <strong>1.40× FAISS</strong> at equal
-          recall on SIFT1M (1M vectors).
-          <a href="https://github.com/Lazeeez/Oryx#results">See the benchmarks →</a>
-        </p>
-      </section>
-    </main>
-
-    <footer class="footer">
-      <p>Built from scratch by Lazeeez · C++20, Emscripten, TypeScript · No data leaves this tab.</p>
-    </footer>
+    <div class="hovercard" id="hovercard" hidden></div>
   </body>
 </html>
