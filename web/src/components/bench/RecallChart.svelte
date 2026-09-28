@@ -210,6 +210,9 @@
 <style>
   .chart {
     position: relative;
+    /* The measured width drives the SVG's width; without containment the SVG would hold its grid
+       cell open, so the chart could grow on resize but never shrink (e.g. rotating a tablet). */
+    contain: inline-size;
   }
   .legend {
     display: flex;
