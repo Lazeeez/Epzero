@@ -23,6 +23,7 @@ std::string_view to_string(SimdLevel level) noexcept {
     case SimdLevel::AVX2: return "avx2";
     case SimdLevel::AVX512: return "avx512";
     case SimdLevel::NEON: return "neon";
+    case SimdLevel::WasmSimd128: return "wasm";
   }
   return "unknown";
 }
@@ -37,6 +38,9 @@ bool simd_level_supported(SimdLevel level) noexcept {
 #if defined(__aarch64__)
     case SimdLevel::NEON: return true;
 #endif
+#if defined(__wasm_simd128__)
+    case SimdLevel::WasmSimd128: return true;
+#endif
     default: return false;
   }
 }
@@ -46,11 +50,12 @@ namespace {
 SimdLevel detect_simd_level() noexcept {
   if (const char* forced = std::getenv("ORYX_SIMD")) {
     const std::string_view name(forced);
-    for (SimdLevel level : {SimdLevel::Scalar, SimdLevel::AVX2, SimdLevel::AVX512, SimdLevel::NEON}) {
+    for (SimdLevel level :
+         {SimdLevel::Scalar, SimdLevel::AVX2, SimdLevel::AVX512, SimdLevel::NEON, SimdLevel::WasmSimd128}) {
       if (name == to_string(level) && simd_level_supported(level)) return level;
     }
   }
-  for (SimdLevel level : {SimdLevel::AVX512, SimdLevel::AVX2, SimdLevel::NEON}) {
+  for (SimdLevel level : {SimdLevel::AVX512, SimdLevel::AVX2, SimdLevel::NEON, SimdLevel::WasmSimd128}) {
     if (simd_level_supported(level)) return level;
   }
   return SimdLevel::Scalar;
@@ -75,6 +80,9 @@ DistanceFn get_distance_fn(Metric metric, SimdLevel level) noexcept {
 #endif
 #if defined(__aarch64__)
     case SimdLevel::NEON: return l2 ? kernels::l2_neon : kernels::ip_neon;
+#endif
+#if defined(__wasm_simd128__)
+    case SimdLevel::WasmSimd128: return l2 ? kernels::l2_wasm : kernels::ip_wasm;
 #endif
     default: return nullptr;
   }
