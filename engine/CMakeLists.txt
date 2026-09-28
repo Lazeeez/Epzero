@@ -12,6 +12,7 @@ endif()
 
 option(ORYX_BUILD_TESTS "Build unit tests" ON)
 option(ORYX_BUILD_BENCH "Build benchmarks" ON)
+option(ORYX_BUILD_PYTHON "Build the Python module (normally via pip install ./engine)" OFF)
 set(ORYX_SANITIZE "" CACHE STRING "Sanitizer to enable: address, thread, or undefined")
 
 if(ORYX_SANITIZE)
@@ -31,6 +32,7 @@ add_library(oryx_engine
 target_include_directories(oryx_engine PUBLIC include PRIVATE src)
 target_link_libraries(oryx_engine PUBLIC Threads::Threads)
 target_compile_options(oryx_engine PRIVATE -Wall -Wextra -Wpedantic)
+set_target_properties(oryx_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # SIMD kernels get ISA flags per file; the rest of the library stays baseline so the binary
 # runs on any CPU of the architecture and picks the best kernel at runtime.
@@ -62,4 +64,13 @@ if(ORYX_BUILD_BENCH)
   target_link_libraries(bench_distance PRIVATE oryx_engine)
   add_executable(bench_recall bench/bench_recall.cpp)
   target_link_libraries(bench_recall PRIVATE oryx_engine)
+endif()
+
+if(ORYX_BUILD_PYTHON)
+  find_package(Python REQUIRED COMPONENTS Interpreter Development.Module)
+  find_package(pybind11 CONFIG REQUIRED)
+  pybind11_add_module(oryx_python python/oryx_py.cpp)
+  set_target_properties(oryx_python PROPERTIES OUTPUT_NAME oryx)
+  target_link_libraries(oryx_python PRIVATE oryx_engine)
+  install(TARGETS oryx_python DESTINATION .)
 endif()
