@@ -34,6 +34,11 @@ jobs:
       - name: Install web dependencies
         working-directory: web
         run: npm ci && npx playwright install --with-deps chromium
+      # The CLIP text encoder (67 MB) is self-hosted with the site; fetch it once and reuse it.
+      - uses: actions/cache@v4
+        with:
+          path: web/public/models
+          key: clip-vit-base-patch32-text-q8-v1
       - name: Build site
         working-directory: web
         run: npm run build
