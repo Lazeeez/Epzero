@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="366" viewBox="0 0 760 366" role="img" aria-labelledby="t d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+<title id="t">Search throughput after each optimization</title>
+<desc id="d">Baseline: 7,706 QPS; + Lock-free reads: 7,879 QPS; + Batched prefetch: 9,052 QPS; + Huge pages: 10,189 QPS; + 8-bit visited tags: 10,069 QPS</desc>
+<rect x="0.5" y="0.5" width="759" height="365" rx="12" fill="#1a1a19" stroke="rgba(255,255,255,0.10)"/>
+<text x="24.0" y="38.0" font-size="17" font-weight="600" fill="#ffffff" text-anchor="start" >Search throughput after each optimization</text>
+<text x="24.0" y="60.0" font-size="12.5" font-weight="400" fill="#c3c2b7" text-anchor="start" >SIFT1M, ef=80 (recall@10 = 0.974, identical at every step), 1 thread, median of 7 interleaved runs</text>
+<text x="196.0" y="111.5" font-size="13" font-weight="400" fill="#c3c2b7" text-anchor="end" >Baseline</text>
+<path d="M210.0,96.0 H508.5 Q512.5,96.0 512.5,100.0 V114.0 Q512.5,118.0 508.5,118.0 H210.0 Z" fill="#3987e5"/>
+<text x="522.5" y="111.5" font-size="13" font-weight="500" fill="#ffffff" style="font-variant-numeric: tabular-nums">7,706 QPS</text>
+<text x="196.0" y="155.5" font-size="13" font-weight="400" fill="#c3c2b7" text-anchor="end" >+ Lock-free reads</text>
+<path d="M210.0,140.0 H515.3 Q519.3,140.0 519.3,144.0 V158.0 Q519.3,162.0 515.3,162.0 H210.0 Z" fill="#3987e5"/>
+<text x="529.3" y="155.5" font-size="13" font-weight="500" fill="#ffffff" style="font-variant-numeric: tabular-nums">7,879 QPS<tspan dx="10" fill="#c3c2b7" font-weight="400">+2%</tspan></text>
+<text x="196.0" y="199.5" font-size="13" font-weight="400" fill="#c3c2b7" text-anchor="end" >+ Batched prefetch</text>
+<path d="M210.0,184.0 H561.4 Q565.4,184.0 565.4,188.0 V202.0 Q565.4,206.0 561.4,206.0 H210.0 Z" fill="#3987e5"/>
+<text x="575.4" y="199.5" font-size="13" font-weight="500" fill="#ffffff" style="font-variant-numeric: tabular-nums">9,052 QPS<tspan dx="10" fill="#c3c2b7" font-weight="400">+17%</tspan></text>
+<text x="196.0" y="243.5" font-size="13" font-weight="400" fill="#c3c2b7" text-anchor="end" >+ Huge pages</text>
+<path d="M210.0,228.0 H606.0 Q610.0,228.0 610.0,232.0 V246.0 Q610.0,250.0 606.0,250.0 H210.0 Z" fill="#3987e5"/>
+<text x="620.0" y="243.5" font-size="13" font-weight="500" fill="#ffffff" style="font-variant-numeric: tabular-nums">10,189 QPS<tspan dx="10" fill="#c3c2b7" font-weight="400">+32%</tspan></text>
+<text x="196.0" y="287.5" font-size="13" font-weight="400" fill="#c3c2b7" text-anchor="end" >+ 8-bit visited tags</text>
+<path d="M210.0,272.0 H601.3 Q605.3,272.0 605.3,276.0 V290.0 Q605.3,294.0 601.3,294.0 H210.0 Z" fill="#3987e5"/>
+<text x="615.3" y="287.5" font-size="13" font-weight="500" fill="#ffffff" style="font-variant-numeric: tabular-nums">10,069 QPS<tspan dx="10" fill="#c3c2b7" font-weight="400">+31%</tspan></text>
+<line x1="210" y1="86" x2="210" y2="304" stroke="#383835" stroke-width="1"/>
+<text x="24.0" y="348.0" font-size="11.5" font-weight="400" fill="#898781" text-anchor="start" >Changes under ~3% are within run-to-run noise. Recall is identical at every step.</text>
+</svg>
