@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string_view>
 
 namespace oryx {
@@ -29,6 +30,12 @@ SimdLevel active_simd_level() noexcept;
 // Returns nullptr if `level` is not supported on this machine.
 DistanceFn get_distance_fn(Metric metric, SimdLevel level) noexcept;
 DistanceFn get_distance_fn(Metric metric) noexcept;
+
+// Asymmetric-distance kernel for 8-bit scalar quantization: returns sum_i w[i] * codes[i].
+// The quantizer folds its per-dimension scales and offsets into `w` once per query, so scoring a
+// node reads only `dim` bytes. Returns nullptr if `level` is not supported.
+using Sq8DotFn = float (*)(const float* w, const std::uint8_t* codes, std::size_t dim) noexcept;
+Sq8DotFn get_sq8_dot_fn(SimdLevel level) noexcept;
 
 // Scales `v` to unit length in place. Zero vectors are left unchanged.
 void normalize(float* v, std::size_t dim) noexcept;
