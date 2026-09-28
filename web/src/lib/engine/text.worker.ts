@@ -9,7 +9,7 @@ export type FromText =
   | { type: "progress"; loaded: number; total: number }
   | { type: "ready"; ms: number }
   | { type: "embedding"; seq: number; text: string; vector: Float32Array; ms: number }
-  | { type: "error"; message: string };
+  | { type: "error"; seq?: number; message: string };
 
 const post = (message: FromText, transfer: Transferable[] = []) =>
   (self as unknown as Worker).postMessage(message, transfer);
@@ -79,6 +79,6 @@ self.onmessage = async (event: MessageEvent<ToText>) => {
     for (let i = 0; i < vector.length; i++) vector[i] /= norm;
     post({ type: "embedding", seq, text, vector, ms: performance.now() - start }, [vector.buffer]);
   } catch (error) {
-    post({ type: "error", message: String(error) });
+    post({ type: "error", seq, message: String(error) });
   }
 };
