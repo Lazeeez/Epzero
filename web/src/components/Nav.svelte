@@ -87,6 +87,7 @@
   }
   .link {
     padding: 7px 12px;
+    white-space: nowrap;
     border-radius: 9px;
     color: var(--text-2);
     font-size: 14.5px;
@@ -161,6 +162,15 @@
     .overlay .inner {
       width: calc(100% - 32px);
       gap: 12px;
+    }
+  }
+  @media (max-width: 359px) {
+    .link {
+      padding: 7px 8px;
+    }
+    .inner,
+    .overlay .inner {
+      gap: 6px;
     }
   }
 </style>
