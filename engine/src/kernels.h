@@ -22,4 +22,9 @@ float l2_neon(const float* a, const float* b, std::size_t dim) noexcept;
 float ip_neon(const float* a, const float* b, std::size_t dim) noexcept;
 #endif
 
+#if defined(__wasm_simd128__)
+float l2_wasm(const float* a, const float* b, std::size_t dim) noexcept;
+float ip_wasm(const float* a, const float* b, std::size_t dim) noexcept;
+#endif
+
 }  // namespace oryx::kernels
