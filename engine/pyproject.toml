@@ -1,0 +1,20 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.13"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "oryx"
+version = "0.1.0"
+description = "HNSW vector search engine with SIMD kernels, built from scratch in C++20"
+requires-python = ">=3.9"
+dependencies = ["numpy"]
+
+[tool.scikit-build]
+build-dir = "build/{wheel_tag}"
+cmake.build-type = "Release"
+wheel.packages = []
+
+[tool.scikit-build.cmake.define]
+ORYX_BUILD_TESTS = "OFF"
+ORYX_BUILD_BENCH = "OFF"
+ORYX_BUILD_PYTHON = "ON"
