@@ -22,4 +22,12 @@ float ip_scalar(const float* a, const float* b, std::size_t dim) noexcept {
   return 1.0f - dot;
 }
 
+float sq8_dot_scalar(const float* w, const std::uint8_t* codes, std::size_t dim) noexcept {
+  float dot = 0.0f;
+  for (std::size_t i = 0; i < dim; ++i) {
+    dot += w[i] * static_cast<float>(codes[i]);
+  }
+  return dot;
+}
+
 }  // namespace oryx::kernels
