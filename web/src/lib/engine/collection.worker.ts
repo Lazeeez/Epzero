@@ -94,6 +94,7 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
       post({ type: "result", seq: message.seq, query, trace });
     }
   } catch (error) {
-    post({ type: "error", message: error instanceof Error ? error.message : String(error) });
+    const seq = message.type === "search" ? message.seq : undefined;
+    post({ type: "error", seq, message: error instanceof Error ? error.message : String(error) });
   }
 };
