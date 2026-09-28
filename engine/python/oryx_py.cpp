@@ -215,7 +215,7 @@ class Database {
 
   bool remove(std::uint64_t label) {
     py::gil_scoped_release release;
-    return db_->remove(label);
+    return db_->remove(label).has_value();
   }
 
   py::tuple search(const FloatArray& queries, std::size_t k, std::size_t ef, std::size_t rerank, std::size_t threads) const {
