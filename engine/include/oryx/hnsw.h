@@ -18,6 +18,11 @@ namespace detail {
 class VisitedPool;
 }
 
+enum class Quantization {
+  None,  // full-precision float vectors in the graph
+  SQ8,   // 8-bit scalar quantization: uint8 codes with per-dimension affine scales (call train() first)
+};
+
 struct HnswParams {
   std::size_t dim = 0;
   Metric metric = Metric::L2;
@@ -25,6 +30,10 @@ struct HnswParams {
   std::size_t M = 16;                  // max links per node on layers >= 1 (layer 0 allows 2*M)
   std::size_t ef_construction = 200;   // beam width while building
   std::uint64_t seed = 42;             // makes level assignment reproducible
+  Quantization quantization = Quantization::None;
+  // SQ8 only: also keep full-precision vectors, used to build a better graph and to re-rank the
+  // final candidates exactly. Without them the index stores ~4x less vector data.
+  bool keep_vectors = true;
 };
 
 struct SearchResult {
@@ -56,14 +65,17 @@ struct SearchTrace {
 
 struct SearchOptions {
   std::size_t ef = 64;              // beam width on layer 0; clamped to at least k
+  // SQ8 with kept vectors: how many of the best approximate candidates to re-score exactly
+  // (0 = all ef of them). Ignored otherwise.
+  std::size_t rerank = 0;
   SearchStats* stats = nullptr;     // optional
   SearchTrace* trace = nullptr;     // optional; costs nothing when null
 };
 
 // Hierarchical Navigable Small World index (Malkov & Yashunin, 2016).
 //
-// Thread safety: add() and search() may be called concurrently from any number of threads.
-// save() must not run concurrently with add().
+// Thread safety: add(), remove() and search() may be called concurrently from any number of
+// threads. train(), save() and compacted() must not run concurrently with add() or remove().
 //
 // Concurrency: search is lock-free. Neighbor-list slots are atomics written with release
 // stores and read with acquire loads, so a reader that sees a node id also sees that node's
@@ -71,6 +83,9 @@ struct SearchOptions {
 // thread never holds more than one node lock at a time, which rules out lock-order deadlocks.
 // The entry point (node id + top level) is packed into one atomic word so readers always see
 // a consistent pair.
+//
+// Deletes are tombstones: a removed node keeps routing searches through the graph but is never
+// returned or linked to again. compacted() rebuilds the index without them.
 class HnswIndex {
  public:
   explicit HnswIndex(const HnswParams& params);
@@ -79,19 +94,35 @@ class HnswIndex {
   HnswIndex(const HnswIndex&) = delete;
   HnswIndex& operator=(const HnswIndex&) = delete;
 
+  // SQ8 only: learns per-dimension ranges from a representative sample. Must be called before
+  // the first add(); values outside the sampled range are clamped.
+  void train(const float* data, std::size_t n);
+  bool trained() const noexcept { return params_.quantization == Quantization::None || !sq8_scale_.empty(); }
+
   // Inserts a vector of params().dim floats. Throws std::length_error when the index is full
-  // and std::invalid_argument when `label` already exists.
+  // and std::invalid_argument when `label` is already present.
   void add(std::uint64_t label, const float* vector);
 
-  // Returns up to k nearest neighbors, closest first.
+  // Tombstones `label`; returns false if it is not present. The label may be added again.
+  bool remove(std::uint64_t label);
+
+  // Returns up to k nearest live neighbors, closest first.
   std::vector<SearchResult> search(const float* query, std::size_t k,
                                    const SearchOptions& options = {}) const;
+
+  // A fresh index holding only the live vectors (same parameters), for reclaiming the space of
+  // deleted nodes. Requires full-precision vectors (always true unless SQ8 without keep_vectors,
+  // where the decoded approximations are used instead).
+  std::unique_ptr<HnswIndex> compacted(std::size_t threads = 0) const;
 
   void save(const std::string& path) const;
   static std::unique_ptr<HnswIndex> load(const std::string& path);
 
   // Introspection, used by tests, benchmarks and the topology export for the visualizer.
-  std::size_t size() const noexcept { return count_.load(std::memory_order_acquire); }
+  std::size_t size() const noexcept { return count_.load(std::memory_order_acquire); }  // slots used
+  std::size_t deleted_count() const noexcept { return deleted_count_.load(std::memory_order_acquire); }
+  std::size_t live_count() const noexcept { return size() - deleted_count(); }
+  bool contains(std::uint64_t label) const;
   const HnswParams& params() const noexcept { return params_; }
   SimdLevel simd_level() const noexcept { return simd_level_; }
   int max_level() const noexcept;
@@ -111,6 +142,7 @@ class HnswIndex {
   struct FartherFirst {
     bool operator()(const Candidate& a, const Candidate& b) const noexcept { return a.distance < b.distance; }
   };
+  class Scorer;
 
   // Entry point packing: high 32 bits = top level + 1 (0 means empty), low 32 bits = node id.
   static constexpr std::uint64_t kEmpty = 0;
@@ -118,24 +150,33 @@ class HnswIndex {
     return (static_cast<std::uint64_t>(level + 1) << 32) | id;
   }
 
-  const float* vector_of(id_t id) const noexcept {
-    return reinterpret_cast<const float*>(level0_.get() + id * node_stride_);
+  bool sq8() const noexcept { return params_.quantization == Quantization::SQ8; }
+  std::byte* record(id_t id) const noexcept { return level0_.get() + id * node_stride_; }
+  // Full-precision vector: inside the layer-0 record (None) or in full_ (SQ8 + keep_vectors).
+  const float* full_vector(id_t id) const noexcept;
+  bool has_full_vectors() const noexcept { return !sq8() || params_.keep_vectors; }
+  const std::uint8_t* codes_of(id_t id) const noexcept {
+    return reinterpret_cast<const std::uint8_t*>(record(id) + sizeof(float));
   }
-  float* vector_of(id_t id) noexcept { return reinterpret_cast<float*>(level0_.get() + id * node_stride_); }
+  float code_norm(id_t id) const noexcept { return *reinterpret_cast<const float*>(record(id)); }
+  void encode(const float* v, std::uint8_t* codes, float* norm) const noexcept;
+  void decode(id_t id, float* out) const noexcept;
+  bool is_deleted(id_t id) const noexcept;
+
   // Layout of a neighbor list: [count, id_0, id_1, ..., id_{capacity-1}].
   id_t* links_of(id_t id, int layer) noexcept;
   const id_t* links_of(id_t id, int layer) const noexcept;
   std::size_t max_links(int layer) const noexcept { return layer == 0 ? max_links0_ : params_.M; }
 
-  float distance(const float* a, const float* b) const noexcept { return dist_(a, b, params_.dim); }
+  float pair_distance(id_t a, id_t b) const noexcept;
   int random_level();
   void copy_links(id_t id, int layer, std::vector<id_t>& out) const;
   // Caller must hold node_locks_[id].
   void write_links(id_t id, int layer, const std::vector<Candidate>& neighbors) noexcept;
 
-  id_t greedy_descend(const float* query, id_t entry, int from_layer, int to_layer, SearchStats& stats,
+  id_t greedy_descend(const Scorer& scorer, id_t entry, int from_layer, int to_layer, SearchStats& stats,
                       SearchTrace* trace) const;
-  std::vector<Candidate> search_layer(const float* query, id_t entry, std::size_t ef, int layer,
+  std::vector<Candidate> search_layer(const Scorer& scorer, id_t entry, std::size_t ef, int layer,
                                       SearchStats& stats, SearchTrace* trace) const;
   // The neighbor-selection heuristic (Algorithm 4 in the paper): keep a candidate only if it is
   // closer to the base point than to every neighbor already kept. This keeps links pointing in
@@ -145,22 +186,33 @@ class HnswIndex {
 
   HnswParams params_;
   SimdLevel simd_level_;
-  DistanceFn dist_;  std::size_t max_links0_;
+  DistanceFn dist_;
+  Sq8DotFn sq8_dot_;
+  std::size_t max_links0_;
   double level_mult_;
 
-  // Layer 0 is one contiguous, 64-byte-aligned block. Each node's record holds its vector
-  // followed by its layer-0 neighbor list, so expanding a node touches adjacent cache lines.
+  // Layer 0 is one contiguous block (2 MiB huge pages when large). Each node's record holds its
+  // vector (floats, or SQ8 norm + codes) followed by its layer-0 neighbor list, so expanding a
+  // node touches adjacent cache lines.
   std::size_t links0_offset_;
-  std::size_t node_stride_;  struct AlignedFree {
-    void operator()(std::byte* p) const noexcept;
+  std::size_t node_stride_;
+  struct AlignedFree {
+    void operator()(void* p) const noexcept;
   };
   std::unique_ptr<std::byte[], AlignedFree> allocate_level0() const;
   std::unique_ptr<std::byte[], AlignedFree> level0_;
+
+  // SQ8: per-dimension x = min + code * scale, and the kept full-precision vectors.
+  std::vector<float> sq8_min_;
+  std::vector<float> sq8_scale_;
+  std::unique_ptr<float[], AlignedFree> full_;
 
   // Upper layers are sparse (~1/M of nodes reach layer 1), so they are stored per node.
   std::vector<std::unique_ptr<id_t[]>> upper_links_;
   std::vector<std::int8_t> levels_;
   std::vector<std::uint64_t> labels_;
+  std::unique_ptr<std::uint8_t[]> deleted_;  // tombstones, accessed atomically
+  std::atomic<std::size_t> deleted_count_{0};
 
   std::unique_ptr<std::mutex[]> node_locks_;
   std::mutex entry_lock_;
