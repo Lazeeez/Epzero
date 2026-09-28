@@ -22,6 +22,16 @@ test("builds the graph in the browser and replays searches in 3D", async ({ page
   await page.locator("#results .result").nth(3).click();
   await expect(page.locator("#results .rank").first()).toHaveText("query");
 
+  // Text search: the in-browser CLIP text encoder must land in the same space as the offline image
+  // embeddings, so a description finds matching photos.
+  const query = page.locator("#query");
+  await expect(query).toBeEnabled({ timeout: 120_000 });
+  await query.fill("a red apple");
+  await query.press("Enter");
+  await expect(page.locator("#stats")).toContainText("CLIP text vector");
+  const captions = await page.locator("#results .caption").allTextContents();
+  expect(captions.filter((c) => /apple/i.test(c)).length).toBeGreaterThanOrEqual(3);
+
   // Changing ef re-runs the query live.
   await page.locator("#ef").fill("96");
   await expect(page.locator("#ef-value")).toHaveText("96");
