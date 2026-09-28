@@ -47,10 +47,21 @@ const ready = (async () => {
     // measure against the known size of the model files instead.
     post({ type: "progress", loaded, total: Math.max(total, EXPECTED_BYTES) });
   };
-  const tokenizer = await AutoTokenizer.from_pretrained(MODEL, { progress_callback });
-  const model = await CLIPTextModelWithProjection.from_pretrained(MODEL, { dtype: "q8", device: "wasm", progress_callback });
-  post({ type: "ready", ms: performance.now() - started });
-  return { tokenizer, model };
+  // A 67 MB download can be cut off mid-stream (flaky Wi-Fi, a proxy, the service worker that
+  // adds the isolation headers). Retry with backoff; files that already finished come from the
+  // browser cache, so a retry only redoes the part that failed.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const tokenizer = await AutoTokenizer.from_pretrained(MODEL, { progress_callback });
+      const model = await CLIPTextModelWithProjection.from_pretrained(MODEL, { dtype: "q8", device: "wasm", progress_callback });
+      post({ type: "ready", ms: performance.now() - started });
+      return { tokenizer, model };
+    } catch (error) {
+      if (attempt >= 4) throw error;
+      files.clear();
+      await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** (attempt - 1)));
+    }
+  }
 })();
 ready.catch((error) => post({ type: "error", message: `Text model failed to load: ${error}` }));
 
