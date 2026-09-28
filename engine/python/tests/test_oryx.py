@@ -62,6 +62,51 @@ def test_save_load_round_trip(tmp_path, data):
     np.testing.assert_array_equal(index.search(queries, k=5)[0], loaded.search(queries, k=5)[0])
 
 
+def test_sq8_matches_float_recall(data):
+    base, queries = data
+    index = oryx.Index(dim=24, max_elements=len(base), quantization="sq8")
+    with pytest.raises(Exception, match="trained"):
+        index.add(base[:1])
+    index.train(base)
+    index.add(base, threads=4)
+    labels, _ = index.search(queries, k=10, ef=100)
+    truth = exact_knn(base, queries, 10)
+    assert np.mean([len(set(l) & set(t)) / 10 for l, t in zip(labels, truth)]) >= 0.95
+
+
+def test_remove_and_compact(data):
+    base, queries = data
+    index = oryx.Index(dim=24, max_elements=len(base))
+    index.add(base, threads=4)
+    for label in range(0, len(base), 2):
+        assert index.remove(label)
+    assert not index.remove(0)
+    assert 0 not in index and 1 in index
+    assert len(index) == len(base) // 2 and index.deleted_count == len(base) // 2
+    labels, _ = index.search(queries, k=10, ef=64)
+    assert np.all(labels % 2 == 1)
+    compacted = index.compact(threads=4)
+    assert len(compacted) == len(base) // 2 and compacted.deleted_count == 0
+
+
+def test_database_recovers_after_reopen(tmp_path, data):
+    base, _ = data
+    path = str(tmp_path / "db")
+    db = oryx.Database.open(path, dim=24, max_elements=5000, sync="batch")
+    db.upsert(base[:1000], threads=4)
+    db.remove(5)
+    db.flush()
+    del db  # no checkpoint: recovery must replay the write-ahead log
+
+    db = oryx.Database.open(path, dim=24, max_elements=5000)
+    assert db.recovery()["replayed"] == 1001
+    assert len(db) == 999 and 5 not in db and 6 in db
+    labels, distances = db.search(base[6], k=1)
+    assert labels[0, 0] == 6 and distances[0, 0] == pytest.approx(0.0, abs=1e-5)
+    db.checkpoint()
+    assert oryx.Database.open(path, dim=24).recovery()["loaded_snapshot"]
+
+
 def test_errors_are_python_exceptions(data):
     base, _ = data
     index = oryx.Index(dim=24, max_elements=2)
