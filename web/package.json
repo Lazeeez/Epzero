@@ -5,8 +5,9 @@
   "type": "module",
   "description": "In-browser benchmark lab for the Oryx vector search engine (C++ compiled to WebAssembly).",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "assets": "node scripts/fetch-assets.mjs",
+    "dev": "npm run assets && vite",
+    "build": "npm run assets && tsc --noEmit && vite build",
     "preview": "vite preview",
     "test:e2e": "playwright test"
   },
@@ -17,6 +18,7 @@
     "vite": "^7.1.7"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.3.0",
     "three": "^0.186.1"
   }
 }
