@@ -146,40 +146,6 @@ class Lab {
     return out;
   }
 
-  // Full traversal of one query, as columns (struct of arrays) for cheap transfer to JS.
-  val trace(std::size_t query, std::size_t k, std::size_t ef) const {
-    require_index();
-    if (query >= queries_.n) throw std::out_of_range("query index out of range");
-    oryx::SearchTrace trace;
-    oryx::SearchStats stats;
-    const auto results = index_->search(queries_.row(query), k, {.ef = ef, .stats = &stats, .trace = &trace});
-    const std::size_t n = trace.events.size();
-    std::vector<std::uint8_t> layer(n), accepted(n);
-    std::vector<std::uint32_t> from(n), to(n);
-    std::vector<float> distance(n);
-    for (std::size_t i = 0; i < n; ++i) {
-      const auto& e = trace.events[i];
-      layer[i] = static_cast<std::uint8_t>(e.layer);
-      from[i] = static_cast<std::uint32_t>(e.from);
-      to[i] = static_cast<std::uint32_t>(e.to);
-      distance[i] = e.distance;
-      accepted[i] = e.accepted ? 1 : 0;
-    }
-    std::vector<std::uint32_t> result_labels;
-    for (const auto& r : results) result_labels.push_back(static_cast<std::uint32_t>(r.label));
-    val out = val::object();
-    out.set("entryLabel", static_cast<std::uint32_t>(trace.entry_label));
-    out.set("entryLayer", trace.entry_layer);
-    out.set("layer", copy_to_js("Uint8Array", layer));
-    out.set("from", copy_to_js("Uint32Array", from));
-    out.set("to", copy_to_js("Uint32Array", to));
-    out.set("distance", copy_to_js("Float32Array", distance));
-    out.set("accepted", copy_to_js("Uint8Array", accepted));
-    out.set("results", copy_to_js("Uint32Array", result_labels));
-    out.set("distanceComputations", stats.distance_computations);
-    return out;
-  }
-
   val info() const {
     val out = val::object();
     out.set("simd", std::string(oryx::to_string(oryx::active_simd_level())));
@@ -213,9 +179,184 @@ class Lab {
   double build_ms_ = 0.0;
 };
 
+// Converts a search trace into columns (struct of arrays) plus results, for cheap transfer to JS.
+val trace_to_js(const oryx::SearchTrace& trace, const std::vector<oryx::SearchResult>& results,
+                const oryx::SearchStats& stats, double micros) {
+  const std::size_t n = trace.events.size();
+  std::vector<std::uint8_t> layer(n), accepted(n);
+  std::vector<std::uint32_t> from(n), to(n);
+  std::vector<float> distance(n);
+  for (std::size_t i = 0; i < n; ++i) {
+    const auto& e = trace.events[i];
+    layer[i] = static_cast<std::uint8_t>(e.layer);
+    from[i] = static_cast<std::uint32_t>(e.from);
+    to[i] = static_cast<std::uint32_t>(e.to);
+    distance[i] = e.distance;
+    accepted[i] = e.accepted ? 1 : 0;
+  }
+  std::vector<std::uint32_t> labels;
+  std::vector<float> scores;
+  for (const auto& r : results) {
+    labels.push_back(static_cast<std::uint32_t>(r.label));
+    scores.push_back(r.distance);
+  }
+  val out = val::object();
+  out.set("entryLabel", static_cast<std::uint32_t>(trace.entry_label));
+  out.set("entryLayer", trace.entry_layer);
+  out.set("layer", copy_to_js("Uint8Array", layer));
+  out.set("from", copy_to_js("Uint32Array", from));
+  out.set("to", copy_to_js("Uint32Array", to));
+  out.set("distance", copy_to_js("Float32Array", distance));
+  out.set("accepted", copy_to_js("Uint8Array", accepted));
+  out.set("results", copy_to_js("Uint32Array", labels));
+  out.set("resultDistances", copy_to_js("Float32Array", scores));
+  out.set("distanceComputations", stats.distance_computations);
+  out.set("micros", micros);
+  return out;
+}
+
+// A real dataset for the visualizer: int8 vectors with per-dimension scales (as exported by
+// pipeline/build_dataset.py), indexed with cosine distance. Labels are row numbers. The
+// dequantized, normalized vectors are kept so every search can also be checked against an exact
+// scan, which the page shows next to the HNSW result.
+class Collection {
+ public:
+  void load(const val& int8_vectors, const val& scales, std::size_t dim) {
+    const auto codes = emscripten::convertJSArrayToNumberVector<std::int8_t>(int8_vectors);
+    const auto scale = emscripten::convertJSArrayToNumberVector<float>(scales);
+    if (dim == 0 || scale.size() != dim || codes.size() % dim != 0) throw std::invalid_argument("bad vector data");
+    dim_ = dim;
+    n_ = codes.size() / dim;
+    floats_.resize(codes.size());
+    for (std::size_t i = 0; i < codes.size(); ++i) floats_[i] = codes[i] * (scale[i % dim] / 127.0f);
+    for (std::size_t i = 0; i < n_; ++i) oryx::normalize(floats_.data() + i * dim_, dim_);
+    index_.reset();
+    built_ = 0;
+  }
+
+  void begin_build(std::size_t M, std::size_t ef_construction) {
+    if (n_ == 0) throw std::logic_error("load() first");
+    index_ = std::make_unique<oryx::HnswIndex>(oryx::HnswParams{
+        .dim = dim_, .metric = oryx::Metric::Cosine, .max_elements = n_, .M = M, .ef_construction = ef_construction});
+    built_ = 0;
+  }
+
+  std::size_t build_step(std::size_t count, std::size_t threads) {
+    if (!index_) throw std::logic_error("begin_build() first");
+    const std::size_t end = std::min(n_, built_ + count);
+    oryx::parallel_for(built_, end, threads, [&](std::size_t i) { index_->add(i, vector(i)); });
+    built_ = end;
+    return built_;
+  }
+
+  // Top level of every node (0 = base layer only).
+  val levels() const {
+    require_index();
+    std::vector<std::uint8_t> out(built_);
+    for (std::size_t i = 0; i < built_; ++i) out[i] = static_cast<std::uint8_t>(index_->level_of(i));
+    return copy_to_js("Uint8Array", out);
+  }
+
+  // Edges of one layer as a flat [a0, b0, a1, b1, ...] list, each undirected edge once.
+  val edges(int layer) const {
+    require_index();
+    std::vector<std::uint32_t> pairs;
+    for (std::size_t i = 0; i < built_; ++i) {
+      for (const std::uint64_t j : index_->neighbors_of(i, layer)) {
+        // Keep an edge once: from the lower id, or from either end if the link is one-way.
+        const auto back = index_->neighbors_of(j, layer);
+        const bool mutual = std::find(back.begin(), back.end(), i) != back.end();
+        if (!mutual || i < j) {
+          pairs.push_back(static_cast<std::uint32_t>(i));
+          pairs.push_back(static_cast<std::uint32_t>(j));
+        }
+      }
+    }
+    return copy_to_js("Uint32Array", pairs);
+  }
+
+  val search(const val& query, std::size_t k, std::size_t ef) const {
+    const auto q = emscripten::convertJSArrayToNumberVector<float>(query);
+    if (q.size() != dim_) throw std::invalid_argument("query has the wrong dimension");
+    return traced(q.data(), k, ef);
+  }
+
+  // "More like this": search with a stored photo's own vector.
+  val search_by_id(std::size_t id, std::size_t k, std::size_t ef) const {
+    if (id >= n_) throw std::out_of_range("id out of range");
+    return traced(vector(id), k, ef);
+  }
+
+  val info() const {
+    val out = val::object();
+    out.set("count", n_);
+    out.set("dim", dim_);
+    out.set("built", built_);
+    if (index_) {
+      out.set("maxLevel", index_->max_level());
+      out.set("memoryBytes", static_cast<double>(index_->memory_bytes()));
+    }
+    return out;
+  }
+
+ private:
+  const float* vector(std::size_t i) const { return floats_.data() + i * dim_; }
+
+  val traced(const float* query, std::size_t k, std::size_t ef) const {
+    require_index();
+    // Time the search without tracing (recording every hop costs more than the search itself),
+    // taking the best of a few runs because a single query is near the timer's resolution.
+    double micros = 1e18;
+    for (int run = 0; run < 5; ++run) {
+      const auto start = Clock::now();
+      (void)index_->search(query, k, {.ef = ef});
+      micros = std::min(micros, std::chrono::duration<double, std::micro>(Clock::now() - start).count());
+    }
+    oryx::SearchTrace trace;
+    oryx::SearchStats stats;
+    const auto results = index_->search(query, k, {.ef = ef, .stats = &stats, .trace = &trace});
+    val out = trace_to_js(trace, results, stats, micros);
+
+    // The same query as an exact scan over every vector, for recall and speedup.
+    std::vector<oryx::SearchResult> exact;
+    double exact_micros = 1e18;
+    for (int run = 0; run < 3; ++run) {  // best of 3, like the HNSW timing above
+      const auto exact_start = Clock::now();
+      exact = oryx::brute_force_search(floats_.data(), built_, dim_, query, k, oryx::Metric::Cosine);
+      exact_micros = std::min(exact_micros, std::chrono::duration<double, std::micro>(Clock::now() - exact_start).count());
+    }
+    std::vector<std::uint32_t> exact_labels;
+    for (const auto& r : exact) exact_labels.push_back(static_cast<std::uint32_t>(r.label));
+    out.set("exact", copy_to_js("Uint32Array", exact_labels));
+    out.set("exactMicros", exact_micros);
+    return out;
+  }
+
+  void require_index() const {
+    if (!index_) throw std::logic_error("begin_build() first");
+  }
+
+  std::vector<float> floats_;  // n x dim, dequantized and normalized
+  std::size_t dim_ = 0;
+  std::size_t n_ = 0;
+  std::unique_ptr<oryx::HnswIndex> index_;
+  std::size_t built_ = 0;
+};
+
 }  // namespace
 
 EMSCRIPTEN_BINDINGS(oryx) {
+  emscripten::class_<Collection>("Collection")
+      .constructor<>()
+      .function("load", &Collection::load)
+      .function("beginBuild", &Collection::begin_build)
+      .function("buildStep", &Collection::build_step)
+      .function("levels", &Collection::levels)
+      .function("edges", &Collection::edges)
+      .function("search", &Collection::search)
+      .function("searchById", &Collection::search_by_id)
+      .function("info", &Collection::info);
+
   emscripten::class_<Lab>("Lab")
       .constructor<>()
       .function("generate", &Lab::generate)
@@ -225,6 +366,5 @@ EMSCRIPTEN_BINDINGS(oryx) {
       .function("sweep", &Lab::sweep)
       .function("bruteForceQps", &Lab::brute_force_qps)
       .function("kernelBench", &Lab::kernel_bench)
-      .function("trace", &Lab::trace)
       .function("info", &Lab::info);
 }
