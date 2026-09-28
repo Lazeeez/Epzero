@@ -16,7 +16,7 @@
     </nav>
     <p class="credits">
       Photos: <a href="https://storage.googleapis.com/openimages/web/index.html" rel="noopener">Open Images</a>, CC BY 2.0 via Flickr
-      (authors credited on each photo) · Labels CC BY 4.0 · Built by Lazeeez
+      (authors credited on each photo) · Labels CC BY 4.0 · Built by Lajat
     </p>
   </div>
 </footer>
