@@ -37,6 +37,19 @@ jobs:
           name: bench-${{ matrix.os }}-${{ matrix.compiler }}
           path: bench-*.json
 
+  python:
+    name: python bindings
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build and install
+        run: pip install ./engine pytest
+      - name: Test
+        run: pytest -q engine/python/tests
+
   sanitizers:
     name: sanitizer / ${{ matrix.sanitizer }}
     runs-on: ubuntu-24.04
