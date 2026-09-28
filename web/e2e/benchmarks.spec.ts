@@ -42,6 +42,11 @@ test("benchmarks page: interactive charts, and the lab runs on this device", asy
   const recalls = await lab.locator("tbody tr td:nth-child(2)").allTextContents();
   expect(Number(recalls.at(-1))).toBeGreaterThan(0.99);
 
+  // Phones: nothing may scroll sideways.
+  await page.setViewportSize({ width: 360, height: 780 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+  await page.setViewportSize({ width: 1440, height: 900 });
+
   if (shots) {
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.waitForTimeout(500);
