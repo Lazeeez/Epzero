@@ -127,7 +127,9 @@ export class GraphScene {
 
   constructor(private readonly host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    // Phones and tablets have 3x screens and small GPUs: 1.5x is visually identical for points and
+    // lines under bloom, and renders about half the pixels of 2x.
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, matchMedia("(pointer: coarse)").matches ? 1.5 : 2));
     host.appendChild(this.renderer.domElement);
     this.renderer.domElement.setAttribute("aria-label", "3D view of the HNSW graph layers");
     this.renderer.domElement.setAttribute("role", "img");
