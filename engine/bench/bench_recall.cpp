@@ -35,6 +35,9 @@ struct Options {
   std::size_t num_queries = 1'000, dim = 128, clusters = 100;
   std::size_t M = 16, ef_construction = 200, k = 10, threads = 0;
   std::size_t search_threads = 1;  // >1 measures aggregate throughput of concurrent queries
+  Quantization quantization = Quantization::None;
+  bool keep_vectors = true;
+  std::size_t rerank = 0;
   std::vector<std::size_t> ef = {10, 20, 40, 80, 160, 320};
   Metric metric = Metric::L2;
 };
@@ -72,6 +75,9 @@ Options parse(int argc, char** argv) {
     else if (arg == "--threads") o.threads = std::stoul(value());
     else if (arg == "--search-threads") o.search_threads = std::stoul(value());
     else if (arg == "--ef") o.ef = parse_list(value());
+    else if (arg == "--quant") o.quantization = value() == "sq8" ? Quantization::SQ8 : Quantization::None;
+    else if (arg == "--no-keep") o.keep_vectors = false;
+    else if (arg == "--rerank") o.rerank = std::stoul(value());
     else if (arg == "--metric") {
       const std::string m = value();
       o.metric = m == "cosine" ? Metric::Cosine : m == "ip" ? Metric::InnerProduct : Metric::L2;
@@ -151,9 +157,11 @@ int main(int argc, char** argv) try {
     std::printf("load      %s in %.2fs\n", opt.load.c_str(), seconds_since(t0));
   } else {
     HnswParams params{.dim = dim, .metric = opt.metric, .max_elements = base.n, .M = opt.M,
-                      .ef_construction = opt.ef_construction};
+                      .ef_construction = opt.ef_construction, .quantization = opt.quantization,
+                      .keep_vectors = opt.keep_vectors};
     loaded = std::make_unique<HnswIndex>(params);
     t0 = Clock::now();
+    loaded->train(base.data.data(), std::min<std::size_t>(base.n, 100'000));  // no-op without SQ8
     std::atomic<std::size_t> next{0};
     std::vector<std::thread> builders;
     for (std::size_t t = 0; t < opt.threads; ++t) {
@@ -167,7 +175,10 @@ int main(int argc, char** argv) try {
                 opt.threads, opt.M, opt.ef_construction);
   }
   HnswIndex& index = *loaded;
-  std::printf("index     simd=%s, %.1f MiB, %d layers\n", std::string(to_string(index.simd_level())).c_str(),
+  const auto& ip = index.params();
+  const bool quantized = ip.quantization == Quantization::SQ8;
+  std::printf("index     simd=%s, quant=%s, %.1f MiB, %d layers\n", std::string(to_string(index.simd_level())).c_str(),
+              quantized ? (ip.keep_vectors ? "sq8+vectors" : "sq8 (codes only)") : "none",
               index.memory_bytes() / 1048576.0, index.max_level() + 1);
   if (!opt.save.empty()) index.save(opt.save);
 
@@ -197,7 +208,7 @@ int main(int argc, char** argv) try {
       for (std::size_t q = next++; q < queries.n; q = next++) {
         SearchStats stats;
         const auto start = Clock::now();
-        results[q] = index.search(queries.row(q), opt.k, {.ef = ef, .stats = &stats});
+        results[q] = index.search(queries.row(q), opt.k, {.ef = ef, .rerank = opt.rerank, .stats = &stats});
         latencies[q] = std::chrono::duration<double, std::micro>(Clock::now() - start).count();
         distances_per_query[q] = stats.distance_computations;
       }
