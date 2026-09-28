@@ -1,0 +1,35 @@
+name: cluster
+
+on:
+  push:
+    branches: [main]
+    paths: ["engine/**", "cluster/**", "proto/**", ".github/workflows/cluster.yml"]
+  pull_request:
+    paths: ["engine/**", "cluster/**", "proto/**", ".github/workflows/cluster.yml"]
+
+jobs:
+  failover:
+    name: failover and recovery (3 real nodes, race detector)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install gRPC and protobuf
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ninja-build libgrpc++-dev libprotobuf-dev protobuf-compiler protobuf-compiler-grpc
+      - name: Build oryx-node
+        run: |
+          cmake -S engine -B build -G Ninja -DORYX_BUILD_TESTS=OFF -DORYX_BUILD_BENCH=OFF
+          cmake --build build --target oryx_node
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cluster/go.mod
+          cache-dependency-path: cluster/go.sum
+      - name: Vet
+        working-directory: cluster
+        run: go vet ./... && go vet -tags integration ./...
+      - name: Kill a node mid-traffic, fail over, recover, lose nothing
+        working-directory: cluster
+        env:
+          ORYX_NODE_BIN: ${{ github.workspace }}/build/oryx-node
+        run: go test -race -tags integration -count=1 -v ./...
