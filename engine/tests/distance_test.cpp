@@ -9,7 +9,8 @@
 namespace oryx {
 namespace {
 
-constexpr SimdLevel kAllLevels[] = {SimdLevel::Scalar, SimdLevel::AVX2, SimdLevel::AVX512, SimdLevel::NEON};
+constexpr SimdLevel kAllLevels[] = {SimdLevel::Scalar, SimdLevel::AVX2, SimdLevel::AVX512, SimdLevel::NEON,
+                                    SimdLevel::WasmSimd128};
 
 std::vector<float> random_vector(std::size_t dim, std::mt19937& rng) {
   std::uniform_real_distribution<float> uniform(-1.0f, 1.0f);
