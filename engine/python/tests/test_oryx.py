@@ -1,0 +1,74 @@
+import numpy as np
+import pytest
+
+import oryx
+
+
+@pytest.fixture(scope="module")
+def data():
+    rng = np.random.default_rng(0)
+    centers = rng.normal(size=(20, 24)).astype(np.float32)
+    base = centers[rng.integers(0, 20, 3000)] + 0.3 * rng.normal(size=(3000, 24)).astype(np.float32)
+    queries = centers[rng.integers(0, 20, 50)] + 0.3 * rng.normal(size=(50, 24)).astype(np.float32)
+    return base.astype(np.float32), queries.astype(np.float32)
+
+
+def exact_knn(base, queries, k):
+    d = ((queries[:, None, :] - base[None, :, :]) ** 2).sum(-1)
+    return np.argsort(d, axis=1)[:, :k]
+
+
+def test_search_matches_exact_neighbors(data):
+    base, queries = data
+    index = oryx.Index(dim=24, max_elements=len(base))
+    index.add(base, threads=4)
+    labels, distances = index.search(queries, k=10, ef=100, threads=2)
+    assert labels.shape == (50, 10) and distances.shape == (50, 10)
+    truth = exact_knn(base, queries, 10)
+    recall = np.mean([len(set(l) & set(t)) / 10 for l, t in zip(labels, truth)])
+    assert recall >= 0.95
+    assert np.all(np.diff(distances, axis=1) >= 0)
+
+
+def test_custom_labels_and_missing_results(data):
+    base, _ = data
+    index = oryx.Index(dim=24, max_elements=10)
+    index.add(base[:3], labels=np.array([100, 200, 300]))
+    labels, distances = index.search(base[0], k=5)
+    assert labels[0, 0] == 100
+    assert list(labels[0, 3:]) == [-1, -1] and np.isinf(distances[0, 3:]).all()
+
+
+def test_trace_describes_the_path(data):
+    base, queries = data
+    index = oryx.Index(dim=24, max_elements=len(base))
+    index.add(base, threads=4)
+    trace = index.trace(queries[0], k=5, ef=32)
+    assert trace["entry_layer"] == index.max_level
+    assert trace["distance_computations"] == len(trace["events"]) + 2
+    layer, frm, to, dist, accepted = trace["events"][-1]
+    assert layer == 0
+    assert [r[0] for r in trace["results"]] == list(index.search(queries[0], k=5, ef=32)[0][0])
+
+
+def test_save_load_round_trip(tmp_path, data):
+    base, queries = data
+    index = oryx.Index(dim=24, metric="cosine", max_elements=len(base))
+    index.add(base)
+    path = str(tmp_path / "index.oryx")
+    index.save(path)
+    loaded = oryx.Index.load(path)
+    assert len(loaded) == len(index) and loaded.dim == 24
+    np.testing.assert_array_equal(index.search(queries, k=5)[0], loaded.search(queries, k=5)[0])
+
+
+def test_errors_are_python_exceptions(data):
+    base, _ = data
+    index = oryx.Index(dim=24, max_elements=2)
+    with pytest.raises(ValueError):
+        index.add(np.zeros((2, 7), dtype=np.float32))
+    index.add(base[:2])
+    with pytest.raises(Exception, match="full"):
+        index.add(base[2:3])
+    with pytest.raises(ValueError):
+        oryx.Index(dim=24, metric="manhattan")
