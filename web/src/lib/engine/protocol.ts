@@ -46,4 +46,4 @@ export type FromWorker =
   | { type: "progress"; stage: "download" | "build"; done: number; total: number }
   | { type: "built"; graph: GraphInfo }
   | { type: "result"; seq: number; query: Query; trace: Trace }
-  | { type: "error"; message: string };
+  | { type: "error"; seq?: number; message: string };
