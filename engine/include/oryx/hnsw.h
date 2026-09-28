@@ -65,10 +65,12 @@ struct SearchOptions {
 // Thread safety: add() and search() may be called concurrently from any number of threads.
 // save() must not run concurrently with add().
 //
-// Locking: every node has its own mutex that guards only its neighbor lists, and a thread
-// never holds more than one node lock at a time, which rules out lock-order deadlocks.
-// The entry point (node id + top level) is packed into one atomic word so readers always
-// see a consistent pair without taking a lock.
+// Concurrency: search is lock-free. Neighbor-list slots are atomics written with release
+// stores and read with acquire loads, so a reader that sees a node id also sees that node's
+// data. Writers are serialized per node by a mutex that guards only that node's lists, and a
+// thread never holds more than one node lock at a time, which rules out lock-order deadlocks.
+// The entry point (node id + top level) is packed into one atomic word so readers always see
+// a consistent pair.
 class HnswIndex {
  public:
   explicit HnswIndex(const HnswParams& params);
@@ -128,6 +130,8 @@ class HnswIndex {
   float distance(const float* a, const float* b) const noexcept { return dist_(a, b, params_.dim); }
   int random_level();
   void copy_links(id_t id, int layer, std::vector<id_t>& out) const;
+  // Caller must hold node_locks_[id].
+  void write_links(id_t id, int layer, const std::vector<Candidate>& neighbors) noexcept;
 
   id_t greedy_descend(const float* query, id_t entry, int from_layer, int to_layer, SearchStats& stats,
                       SearchTrace* trace) const;
@@ -141,17 +145,16 @@ class HnswIndex {
 
   HnswParams params_;
   SimdLevel simd_level_;
-  DistanceFn dist_;
-  std::size_t max_links0_;
+  DistanceFn dist_;  std::size_t max_links0_;
   double level_mult_;
 
   // Layer 0 is one contiguous, 64-byte-aligned block. Each node's record holds its vector
   // followed by its layer-0 neighbor list, so expanding a node touches adjacent cache lines.
   std::size_t links0_offset_;
-  std::size_t node_stride_;
-  struct AlignedFree {
+  std::size_t node_stride_;  struct AlignedFree {
     void operator()(std::byte* p) const noexcept;
   };
+  std::unique_ptr<std::byte[], AlignedFree> allocate_level0() const;
   std::unique_ptr<std::byte[], AlignedFree> level0_;
 
   // Upper layers are sparse (~1/M of nodes reach layer 1), so they are stored per node.
