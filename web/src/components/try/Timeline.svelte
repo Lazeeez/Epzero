@@ -36,11 +36,14 @@
     sceneController.scene?.setSpeed(value);
   }
 
-  // Space: play/pause. Arrows: step (shift = 10 steps). Ignored while typing.
+  // Space: play/pause. Arrows: step (shift = 10 steps). Left to the browser while a control has
+  // focus (Space presses a focused button, arrows move a slider) or a dialog is open.
   $effect(() => {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
-      if (target.tagName === "INPUT" || target.isContentEditable) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || document.querySelector("dialog[open]")) return;
+      if (target.closest("input, textarea, select, [contenteditable], [role=\"tablist\"]")) return;
+      if (event.key === " " && target.closest("button, a")) return;
       if (event.key === " ") {
         event.preventDefault();
         toggle();
@@ -244,8 +247,9 @@
   }
   .inspector {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 12px;
+    gap: 6px 12px;
     min-height: 36px;
     font-size: 13px;
     color: var(--text-2);
@@ -289,6 +293,7 @@
     color: var(--muted);
   }
   .explain {
+    flex: 1 1 320px;
     line-height: 1.45;
   }
   .explain strong {
