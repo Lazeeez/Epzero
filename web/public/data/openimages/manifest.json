@@ -1,0 +1,57 @@
+{
+  "name": "Open Images V7 (validation) × CLIP ViT-B/32",
+  "count": 29825,
+  "dim": 512,
+  "model": "openai/clip-vit-base-patch32",
+  "browserTextModel": "Xenova/clip-vit-base-patch32",
+  "metric": "cosine",
+  "files": {
+    "vectors": "vectors.i8",
+    "scales": "scales.f32",
+    "layout": "layout.u16",
+    "meta": "meta.json"
+  },
+  "quantization": {
+    "scheme": "int8 symmetric per-dimension",
+    "recallAt10VsFloat": 0.9939
+  },
+  "thumbnail": "https://c{host}.staticflickr.com/{path}_{size}.jpg",
+  "attribution": "Images from Open Images V7 (Google), hosted on Flickr under the licenses listed per image (CC BY 2.0); image-level labels CC BY 4.0. Each image links to its author and source.",
+  "sanityCheck": {
+    "a dog playing on the beach": [
+      "Japan Summer 2011",
+      "Dog · Water · Sky",
+      "DSC_4307",
+      "Beach · Man",
+      "Sand · Dog"
+    ],
+    "snowy mountains": [
+      "Airplane · Fixed-wing aircraft",
+      "Mont Dauphin Hautes Alpes 061",
+      "Mountain · Snow · Sky",
+      "Sandia Peak Sunset",
+      "Ice · Mountain · Sky"
+    ],
+    "a city street at night": [
+      "Street light · Girl · Man",
+      "Building · Sky",
+      "Street light · Building · Tree",
+      "Street light",
+      "Wheel"
+    ],
+    "a bowl of food on a table": [
+      "Clothing",
+      "Nigeria Gymnastics Camp",
+      "Large Plate of Nachos with Chicken from Sidewinders",
+      "Drink",
+      "Basket · Food"
+    ],
+    "an old black and white photograph": [
+      "Mrs Simpson",
+      "Ship · Boat · Water · Sky",
+      "Boat",
+      "Mule · Horse · Person · Sky",
+      "Ship · Boat · Water"
+    ]
+  }
+}
