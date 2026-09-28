@@ -5,13 +5,10 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
-#include <atomic>
-#include <exception>
 #include <limits>
-#include <mutex>
-#include <thread>
 
 #include "oryx/hnsw.h"
+#include "oryx/parallel.h"
 
 namespace py = pybind11;
 using FloatArray = py::array_t<float, py::array::c_style | py::array::forcecast>;
@@ -24,36 +21,6 @@ oryx::Metric parse_metric(const std::string& name) {
   if (name == "ip") return oryx::Metric::InnerProduct;
   if (name == "cosine") return oryx::Metric::Cosine;
   throw std::invalid_argument("metric must be 'l2', 'ip' or 'cosine'");
-}
-
-// Runs fn(i) for i in [0, n) on `threads` workers; rethrows the first exception.
-template <typename Fn>
-void parallel_for(std::size_t n, std::size_t threads, Fn fn) {
-  if (threads == 0) threads = std::max(1u, std::thread::hardware_concurrency());
-  threads = std::min(threads, std::max<std::size_t>(n, 1));
-  if (threads == 1) {
-    for (std::size_t i = 0; i < n; ++i) fn(i);
-    return;
-  }
-  std::atomic<std::size_t> next{0};
-  std::exception_ptr error;
-  std::mutex error_lock;
-  std::vector<std::thread> workers;
-  for (std::size_t t = 0; t < threads; ++t) {
-    workers.emplace_back([&] {
-      for (std::size_t i = next++; i < n; i = next++) {
-        try {
-          fn(i);
-        } catch (...) {
-          std::lock_guard lock(error_lock);
-          if (!error) error = std::current_exception();
-          next = n;
-        }
-      }
-    });
-  }
-  for (auto& w : workers) w.join();
-  if (error) std::rethrow_exception(error);
 }
 
 const float* rows_of(const FloatArray& data, std::size_t dim, std::size_t& n) {
@@ -93,7 +60,7 @@ class Index {
       std::copy(arr.data(), arr.data() + n, ids.begin());
     }
     py::gil_scoped_release release;
-    parallel_for(n, threads, [&](std::size_t i) { index_->add(static_cast<std::uint64_t>(ids[i]), rows + i * dim); });
+    oryx::parallel_for(0, n, threads, [&](std::size_t i) { index_->add(static_cast<std::uint64_t>(ids[i]), rows + i * dim); });
   }
 
   // Returns (labels, distances), each of shape (n, k). Missing results are -1 / inf.
@@ -107,7 +74,7 @@ class Index {
     float* out_distances = distances.mutable_data();
     {
       py::gil_scoped_release release;
-      parallel_for(n, threads, [&](std::size_t q) {
+      oryx::parallel_for(0, n, threads, [&](std::size_t q) {
         const auto results = index_->search(rows + q * dim, k, {.ef = ef});
         for (std::size_t i = 0; i < k; ++i) {
           const bool found = i < results.size();
