@@ -7,7 +7,7 @@ test("runs the full benchmark in the browser without errors", async ({ page }) =
   page.on("console", (message) => message.type() === "error" && errors.push(message.text()));
   page.on("pageerror", (error) => errors.push(error.message));
 
-  await page.goto("./");
+  await page.goto("lab.html");
   await expect(page.locator("#env .chip").first()).toContainText("SIMD128");
   await expect(page.locator("#env")).toContainText("cross-origin isolated");
 
