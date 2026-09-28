@@ -13,15 +13,17 @@ cluster.
 **[Live demo →](https://lazeeez.github.io/Oryx/)** The engine compiled to
 WebAssembly (SIMD128 + threads), running entirely in your browser:
 - **Explorer.** 29,825 Open Images photos embedded with CLIP, indexed live on
-  every core, and shown as a 3D stack of HNSW layers. Click any photo to
-  search, and watch the query descend the layers and fan out across the base
-  layer. Every search is checked against an exact scan, e.g. *75 µs, 10/10
-  same results, 45× faster*.
+  every core, and shown as a 3D stack of HNSW layers. **Type a description**
+  ("a red apple") or click any photo to search, and watch the query descend
+  the layers and fan out across the base layer. A CLIP text encoder (int8
+  ONNX, self-hosted) turns text into a vector in the browser. Every search is
+  checked against an exact scan, e.g. *75 µs, 10/10 same results, 45×
+  faster*.
 - **[Benchmark lab](https://lazeeez.github.io/Oryx/lab.html).** Generates a
   dataset, builds the graph and sweeps recall against QPS.
 
-> **Status:** milestones 1–5 of 9 are done (engine, benchmarks, WebAssembly,
-> dataset pipeline, 3D explorer). See the [roadmap](#roadmap).
+> **Status:** milestones 1–6 of 9 are done (engine, benchmarks, WebAssembly,
+> dataset pipeline, 3D explorer, text search). See the [roadmap](#roadmap).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/sift1m-recall-qps-dark.svg">
@@ -189,7 +191,7 @@ configurations, the Python tests, and the test suite as WebAssembly under Node.
 3. ✅ WebAssembly build (SIMD128 + threads) and an in-browser benchmark lab on GitHub Pages
 4. ✅ Offline dataset pipeline: CLIP image embeddings, UMAP layout, int8 export
 5. ✅ 3D explorer: layered graph, animated search replay, exact-scan comparison
-6. In-browser text-to-image search (ONNX Runtime Web)
+6. ✅ In-browser text-to-image search (CLIP text encoder on ONNX Runtime Web, self-hosted)
 7. Deletes, write-ahead log, crash recovery; int8 scalar quantization
 8. Cluster: Go router, sharded C++ nodes, replication, chaos testing (Oracle Cloud Ampere A1)
 9. Filtered search, observability, write-ups
