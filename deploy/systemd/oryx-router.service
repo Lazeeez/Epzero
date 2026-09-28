@@ -1,0 +1,21 @@
+[Unit]
+Description=Oryx router (cluster coordinator and HTTP API)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=oryx
+Group=oryx
+EnvironmentFile=/etc/oryx/router.env
+ExecStart=/opt/oryx/bin/oryx-router -listen 127.0.0.1:8080 -nodes ${ORYX_NODES} -dim 512 \
+    -token-file /etc/oryx/token -state /var/lib/oryx/router.json -origins ${ORYX_ORIGINS}
+Restart=always
+RestartSec=3
+ProtectSystem=strict
+ReadWritePaths=/var/lib/oryx
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
