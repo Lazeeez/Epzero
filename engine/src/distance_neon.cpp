@@ -35,6 +35,26 @@ float l2_neon(const float* a, const float* b, std::size_t dim) noexcept {
   return sum;
 }
 
+float sq8_dot_neon(const float* w, const std::uint8_t* codes, std::size_t dim) noexcept {
+  float32x4_t acc0 = vdupq_n_f32(0.0f);
+  float32x4_t acc1 = vdupq_n_f32(0.0f);
+  float32x4_t acc2 = vdupq_n_f32(0.0f);
+  float32x4_t acc3 = vdupq_n_f32(0.0f);
+  std::size_t i = 0;
+  for (; i + 16 <= dim; i += 16) {
+    const uint8x16_t bytes = vld1q_u8(codes + i);
+    const uint16x8_t lo = vmovl_u8(vget_low_u8(bytes));
+    const uint16x8_t hi = vmovl_u8(vget_high_u8(bytes));
+    acc0 = vfmaq_f32(acc0, vld1q_f32(w + i), vcvtq_f32_u32(vmovl_u16(vget_low_u16(lo))));
+    acc1 = vfmaq_f32(acc1, vld1q_f32(w + i + 4), vcvtq_f32_u32(vmovl_u16(vget_high_u16(lo))));
+    acc2 = vfmaq_f32(acc2, vld1q_f32(w + i + 8), vcvtq_f32_u32(vmovl_u16(vget_low_u16(hi))));
+    acc3 = vfmaq_f32(acc3, vld1q_f32(w + i + 12), vcvtq_f32_u32(vmovl_u16(vget_high_u16(hi))));
+  }
+  float dot = vaddvq_f32(vaddq_f32(vaddq_f32(acc0, acc1), vaddq_f32(acc2, acc3)));
+  for (; i < dim; ++i) dot += w[i] * static_cast<float>(codes[i]);
+  return dot;
+}
+
 float ip_neon(const float* a, const float* b, std::size_t dim) noexcept {
   float32x4_t acc0 = vdupq_n_f32(0.0f);
   float32x4_t acc1 = vdupq_n_f32(0.0f);
