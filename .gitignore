@@ -31,3 +31,9 @@ web/public/ort/
 web/public/models/
 web/test-results/
 web/playwright-report/
+
+# Terraform state and caches (state holds IPs and resource ids)
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
