@@ -44,7 +44,8 @@ int main() {
       std::vector<float> data(kRows * dim);
       for (float& x : data) x = uniform(rng);
       const double scalar = ns_per_call(get_distance_fn(metric, SimdLevel::Scalar), data, dim, kRows);
-      for (SimdLevel level : {SimdLevel::Scalar, SimdLevel::AVX2, SimdLevel::AVX512, SimdLevel::NEON}) {
+      for (SimdLevel level :
+           {SimdLevel::Scalar, SimdLevel::AVX2, SimdLevel::AVX512, SimdLevel::NEON, SimdLevel::WasmSimd128}) {
         const DistanceFn fn = get_distance_fn(metric, level);
         if (fn == nullptr) continue;
         const double ns = level == SimdLevel::Scalar ? scalar : ns_per_call(fn, data, dim, kRows);
