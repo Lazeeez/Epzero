@@ -1,0 +1,18 @@
+# Build output
+build/
+out/
+cmake-build-*/
+compile_commands.json
+
+# Datasets and generated indexes (download with scripts/)
+data/
+*.idx
+*.fvecs
+*.ivecs
+*.bvecs
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
