@@ -1,6 +1,7 @@
 // Puts the text-search assets next to the site so the live demo depends on no third-party CDN:
 //   public/ort/     ONNX Runtime Web (SIMD + threads build), copied from node_modules
-//   public/models/  CLIP ViT-B/32 text encoder (int8 ONNX) + tokenizer, downloaded once
+//   public/models/  CLIP ViT-B/32 text and image encoders (int8 ONNX), tokenizer and image
+//                   preprocessor config, downloaded once
 // Both folders are generated (git-ignored) and cached between CI runs.
 import { copyFile, mkdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -12,7 +13,7 @@ const ortOut = join(root, "public", "ort");
 const modelOut = join(root, "public", "models", "clip-vit-base-patch32");
 const HF = "https://huggingface.co/Xenova/clip-vit-base-patch32/resolve/main/";
 const MODEL_FILES = ["config.json", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json",
-  "onnx/text_model_quantized.onnx"];
+  "preprocessor_config.json", "onnx/text_model_quantized.onnx", "onnx/vision_model_quantized.onnx"];
 
 const exists = (path) => stat(path).then((s) => s.size > 0, () => false);
 
