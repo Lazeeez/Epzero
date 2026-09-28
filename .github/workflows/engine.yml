@@ -50,6 +50,22 @@ jobs:
       - name: Test
         run: pytest -q engine/python/tests
 
+  wasm:
+    name: webassembly tests (node)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 6.0.10
+      - run: sudo apt-get install -y ninja-build
+      - name: Configure
+        run: emcmake cmake -S engine -B build -G Ninja -DORYX_BUILD_BENCH=OFF
+      - name: Build
+        run: cmake --build build
+      - name: Test (C++ suite compiled to WASM SIMD128 + threads, run under Node)
+        run: ctest --test-dir build --output-on-failure
+
   sanitizers:
     name: sanitizer / ${{ matrix.sanitizer }}
     runs-on: ubuntu-24.04
