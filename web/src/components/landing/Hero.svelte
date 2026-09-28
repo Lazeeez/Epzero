@@ -84,7 +84,8 @@
         <span>{engine.graph.maxLevel + 1} layers</span>
         <span>WebAssembly SIMD128</span>
       {:else if engine.status === "error"}
-        <span>{engine.error}</span>
+        <span class="failed">The in-browser engine couldn't start: {engine.error}</span>
+        <button class="retry" onclick={() => engine.retry()}>Try again</button>
       {:else}
         <span class="progress"><i class="spin"></i>{engine.stage || "Starting the engine"}</span>
         <span class="bar"><b style:width="{(engine.progress * 100).toFixed(1)}%"></b></span>
@@ -189,6 +190,18 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
+  }
+  .failed {
+    color: var(--warn);
+  }
+  .retry {
+    padding: 4px 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
   }
   .ok {
     width: 7px;
