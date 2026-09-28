@@ -122,7 +122,7 @@
           <rect x="112" y="14" width="76" height="30" rx="9" class="router" />
           <text x="150" y="33">router</text>
           {#each [66, 150, 234] as x, i (x)}
-            <rect x={x - 30} y="104" width="60" height="28" rx="8" class="node" class:down={i === 0} />
+            <rect x={x - 39} y="104" width="78" height="28" rx="8" class="node" class:down={i === 0} />
             <text {x} y="122">{["old primary", "promoted", "replica"][i]}</text>
           {/each}
         </svg>
@@ -326,7 +326,7 @@
   }
   .topology text {
     fill: var(--text-2);
-    font: 11px var(--mono);
+    font: 10.5px var(--mono);
     text-anchor: middle;
   }
   .more {
