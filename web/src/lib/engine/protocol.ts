@@ -1,4 +1,4 @@
-// Messages between the explorer page and its engine worker.
+// Messages between the app and its engine worker.
 
 export interface Trace {
   entryLabel: number;
@@ -28,7 +28,15 @@ export interface GraphInfo {
   variant: "mt" | "st";
 }
 
-export type Query = { kind: "id"; id: number } | { kind: "vector"; vector: Float32Array; text: string };
+export type Query =
+  | { kind: "id"; id: number }
+  | {
+      kind: "vector";
+      vector: Float32Array;
+      source: "text" | "photo" | "camera";
+      text: string; // the description, or a short label for image queries
+      preview?: string; // object URL of the query image
+    };
 
 export type ToWorker =
   | { type: "load"; base: string; count: number; dim: number; M: number; efConstruction: number }
