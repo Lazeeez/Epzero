@@ -41,7 +41,8 @@
   // "/" focuses the search box from anywhere on the page.
   $effect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "/" && document.activeElement?.tagName !== "INPUT") {
+      const typing = (event.target as HTMLElement).closest?.("input, textarea, [contenteditable]");
+      if (event.key === "/" && !typing && !event.ctrlKey && !event.metaKey && !document.querySelector("dialog[open]")) {
         event.preventDefault();
         mode = "text";
         queueMicrotask(() => input?.focus());
@@ -132,6 +133,7 @@
 
   function stopCamera() {
     live = false;
+    liveGeneration++;
     clearTimeout(liveTimer);
     stream?.getTracks().forEach((t) => t.stop());
     stream = null;
@@ -153,20 +155,33 @@
     if (blob) searchImage(blob, "camera");
   }
 
-  // Live mode: search the camera feed continuously (as fast as the encoder allows).
-  async function liveLoop() {
-    if (!live || !cameraOn) return;
-    if (!busy) await capture();
-    liveTimer = window.setTimeout(liveLoop, 350);
+  // Live mode: search the camera feed continuously (as fast as the encoder allows). Each start gets
+  // a new generation, so toggling quickly never leaves two loops running.
+  let liveGeneration = 0;
+  async function liveLoop(generation: number) {
+    if (!live || !cameraOn || generation !== liveGeneration) return;
+    if (!busy && !document.hidden) await capture();
+    if (generation === liveGeneration) liveTimer = window.setTimeout(() => liveLoop(generation), 350);
   }
 
   function toggleLive() {
     live = !live;
-    if (live) liveLoop();
-    else clearTimeout(liveTimer);
+    clearTimeout(liveTimer);
+    liveGeneration++;
+    if (live) liveLoop(liveGeneration);
   }
 
   const pct = (v: number) => `${Math.round(v * 100)}%`;
+
+  // Arrow keys move between the tabs (the tablist keyboard pattern).
+  const modes: Mode[] = ["text", "photo", "camera"];
+  function onTabKey(event: KeyboardEvent) {
+    const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+    if (!delta) return;
+    event.preventDefault();
+    mode = modes[(modes.indexOf(mode) + delta + modes.length) % modes.length];
+    queueMicrotask(() => document.getElementById(`search-tab-${mode}`)?.focus());
+  }
 </script>
 
 <svelte:window onpaste={onPaste} />
@@ -174,15 +189,26 @@
 <div class="search">
   <div class="tabs" role="tablist" aria-label="Search by">
     {#each [["text", "Describe"], ["photo", "Photo"], ["camera", "Camera"]] as [value, label] (value)}
-      <button role="tab" aria-selected={mode === value} class:active={mode === value} onclick={() => (mode = value as Mode)}>
+      <button
+        role="tab"
+        id="search-tab-{value}"
+        aria-controls="search-panel"
+        aria-selected={mode === value}
+        tabindex={mode === value ? 0 : -1}
+        class:active={mode === value}
+        onclick={() => (mode = value as Mode)}
+        onkeydown={onTabKey}
+      >
         {label}
       </button>
     {/each}
-    <button class="surprise" onclick={onsurprise} {disabled} title="Search with a random photo from the collection">
+    <button class="surprise" onclick={onsurprise} {disabled} title="Search with a random photo from the collection" aria-label="Surprise me">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5" /></svg>
-      Surprise me
+      <span>Surprise me</span>
     </button>
   </div>
+
+  <div class="panel" id="search-panel" role="tabpanel" aria-labelledby="search-tab-{mode}">
 
   {#if mode === "text"}
     <form class="field" onsubmit={(e) => (e.preventDefault(), searchText())}>
@@ -191,7 +217,11 @@
         bind:this={input}
         bind:value={text}
         type="search"
-        placeholder={textEncoder.status === "ready" ? "Describe a photo…" : `Loading the CLIP text model… ${pct(textEncoder.progress)}`}
+        placeholder={textEncoder.status === "ready"
+          ? "Describe a photo…"
+          : textEncoder.status === "error"
+            ? "The text model couldn't load. Reload to retry."
+            : `Loading the text model… ${pct(textEncoder.progress)}`}
         aria-label="Describe a photo to search for"
         disabled={disabled || textEncoder.status !== "ready"}
         autocomplete="off"
@@ -221,6 +251,7 @@
       <span>
         <strong>Drop a photo</strong>, choose one, or paste from the clipboard.
         {#if imageEncoder.status === "loading"}<br /><em>Loading the CLIP image model… {pct(imageEncoder.progress)}</em>{/if}
+        {#if imageEncoder.status === "error"}<br /><em class="bad">The image model couldn't load. Reload to retry.</em>{/if}
       </span>
       {#if busy}<span class="spinner" aria-hidden="true"></span>{/if}
     </label>
@@ -241,8 +272,11 @@
         </button>
       {/if}
       {#if imageEncoder.status === "loading"}<p class="note">Loading the CLIP image model… {pct(imageEncoder.progress)}</p>{/if}
+      {#if imageEncoder.status === "error"}<p class="note bad">The image model couldn't load. Reload to retry.</p>{/if}
     </div>
   {/if}
+
+  </div>
 
   {#if error}<p class="error" role="alert">{error}</p>{/if}
 </div>
@@ -250,7 +284,9 @@
 <style>
   .search {
     display: grid;
+    grid-template-columns: minmax(0, 1fr); /* never grow past the panel for wide content */
     gap: 12px;
+    container-type: inline-size;
   }
   .tabs {
     display: flex;
@@ -262,7 +298,7 @@
     background: var(--surface);
   }
   .tabs button {
-    padding: 6px 12px;
+    padding: 6px 10px;
     border: 0;
     border-radius: 8px;
     background: transparent;
@@ -285,6 +321,27 @@
     align-items: center;
     gap: 6px;
     margin-left: auto;
+    white-space: nowrap;
+  }
+  .panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .bad {
+    color: var(--warn);
+  }
+  /* The panel is 400px wide at most: keep the four controls on one line. */
+  @container (max-width: 340px) {
+    .surprise span {
+      display: none;
+    }
+  }
+  @container (max-width: 290px) {
+    .tabs button {
+      padding: 6px 7px;
+      font-size: 13px;
+    }
   }
   .surprise svg {
     width: 14px;
@@ -319,6 +376,7 @@
   }
   input[type="search"] {
     flex: 1;
+    width: 0; /* the input's default size would otherwise set the field's minimum width */
     min-width: 0;
     border: 0;
     outline: 0;
