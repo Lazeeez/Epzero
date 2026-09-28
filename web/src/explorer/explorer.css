@@ -99,6 +99,44 @@ body.explorer .topbar > * {
   color: var(--text);
   font: 14.5px var(--font);
 }
+.search kbd {
+  padding: 1px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--muted);
+  font: 12px var(--mono);
+}
+.search input:disabled {
+  cursor: progress;
+}
+.search button:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: -4px;
+}
+.examples[hidden] {
+  display: none;
+}
+.examples button {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: var(--surface);
+  color: var(--text-2);
+  font: 12.5px var(--font);
+  cursor: pointer;
+}
+.examples button:hover,
+.examples button:focus-visible {
+  border-color: var(--accent);
+  color: var(--text);
+  outline: none;
+}
 .search button {
   display: grid;
   place-items: center;
