@@ -123,16 +123,33 @@
   });
 
   let stepEls: HTMLElement[] = $state([]);
+  // The active step is the last one whose middle has passed a trigger line: mid-screen on desktop,
+  // below the pinned figure on phones. Computed from positions on every scroll (not from crossing
+  // events), so jumping straight to a step, e.g. via a link or Page Down, still lands on it.
   $effect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) if (entry.isIntersecting) active = stepEls.indexOf(entry.target as HTMLElement);
-      },
-      // A thin trigger line: mid-screen on desktop, below the pinned figure on phones.
-      { rootMargin: matchMedia("(max-width: 900px)").matches ? "-72% 0px -26% 0px" : "-48% 0px -48% 0px" },
-    );
-    for (const el of stepEls) if (el) observer.observe(el);
-    return () => observer.disconnect();
+    if (!section) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const box = section!.getBoundingClientRect();
+      if (box.bottom < 0 || box.top > innerHeight) return;
+      const line = innerHeight * (matchMedia("(max-width: 900px)").matches ? 0.8 : 0.62);
+      let next = 0;
+      stepEls.forEach((el, i) => {
+        const r = el?.getBoundingClientRect();
+        if (r && r.top + r.height / 2 < line) next = i;
+      });
+      if (next !== active) active = next;
+    };
+    const schedule = () => (frame ||= requestAnimationFrame(update));
+    addEventListener("scroll", schedule, { passive: true });
+    addEventListener("resize", schedule);
+    schedule();
+    return () => {
+      cancelAnimationFrame(frame);
+      removeEventListener("scroll", schedule);
+      removeEventListener("resize", schedule);
+    };
   });
 
   // Returning to the demo steps replays the demo query from the start.
@@ -146,6 +163,18 @@
     }
     lastActive = step;
   });
+
+  // Keyboard alternative to clicking the map: arrows move the query (shift for bigger steps).
+  function onCanvasKey(event: KeyboardEvent) {
+    if (active !== 5) return;
+    const step = event.shiftKey ? 0.08 : 0.03;
+    const moves: Record<string, [number, number]> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+    const move = moves[event.key];
+    if (!move) return;
+    event.preventDefault();
+    query = [Math.min(1, Math.max(0, query[0] + move[0])), Math.min(1, Math.max(0, query[1] + move[1]))];
+    run(true);
+  }
 
   function onEf(value: number) {
     ef = value;
@@ -234,7 +263,10 @@
         <article class="step last" class:active={active === 5} bind:this={stepEls[5]}>
           <span class="index num">06</span>
           <h3>{steps[5].title}</h3>
-          <p>Click anywhere on the map to search from there. Narrow the beam until it starts missing neighbours.</p>
+          <p>
+            Click anywhere on the map (or focus it and use the arrow keys) to search from there. Narrow the beam until it starts
+            missing neighbours.
+          </p>
           <div class="controls">
             <label>
               <span>Beam width <code>ef</code></span>
@@ -258,7 +290,15 @@
 
       <figure class="figure">
         <div class="frame card">
-          <canvas bind:this={canvas} class:interactive={active === 5} aria-label="An HNSW graph of {count} points and a search through it"
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+          <canvas
+            bind:this={canvas}
+            class:interactive={active === 5}
+            tabindex={active === 5 ? 0 : -1}
+            onkeydown={onCanvasKey}
+            aria-label={active === 5
+              ? "Search map: use the arrow keys to move the query and search from there"
+              : `An HNSW graph of ${count} points and a search through it`}
           ></canvas>
           {#if !graph}
             <div class="placeholder">{failed ? "The demo couldn't load WebAssembly." : "Building the index…"}</div>
@@ -429,6 +469,9 @@
     display: block;
     width: 100%;
     height: calc(100% - 44px);
+  }
+  canvas:focus-visible {
+    outline-offset: -3px; /* inside the frame, which clips overflow */
   }
   canvas.interactive {
     cursor: crosshair;
