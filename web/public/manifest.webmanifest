@@ -1,0 +1,11 @@
+{
+  "name": "Oryx — a vector database in your browser",
+  "short_name": "Oryx",
+  "description": "An HNSW vector database written from scratch in C++20, running as WebAssembly.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#06070a",
+  "theme_color": "#06070a",
+  "icons": [{ "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
