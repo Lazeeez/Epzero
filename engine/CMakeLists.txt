@@ -91,6 +91,36 @@ if(ORYX_BUILD_BENCH)
   target_link_libraries(bench_recall PRIVATE oryx_engine)
 endif()
 
+option(ORYX_BUILD_NODE "Build the cluster data node (needs gRPC C++ and protobuf)" ON)
+if(ORYX_BUILD_NODE AND NOT EMSCRIPTEN)
+  find_package(PkgConfig)
+  if(PkgConfig_FOUND)
+    pkg_check_modules(GRPCPP IMPORTED_TARGET grpc++)
+    pkg_check_modules(PROTOBUF IMPORTED_TARGET protobuf)
+  endif()
+  find_program(PROTOC protoc)
+  find_program(GRPC_CPP_PLUGIN grpc_cpp_plugin)
+  if(GRPCPP_FOUND AND PROTOBUF_FOUND AND PROTOC AND GRPC_CPP_PLUGIN)
+    set(PROTO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../proto)
+    set(PROTO_OUT ${CMAKE_CURRENT_BINARY_DIR}/proto)
+    file(MAKE_DIRECTORY ${PROTO_OUT})
+    set(PROTO_SRCS ${PROTO_OUT}/oryx/v1/oryx.pb.cc ${PROTO_OUT}/oryx/v1/oryx.grpc.pb.cc)
+    add_custom_command(
+      OUTPUT ${PROTO_SRCS}
+      COMMAND ${PROTOC} -I ${PROTO_ROOT} --cpp_out=${PROTO_OUT} --grpc_out=${PROTO_OUT}
+              --plugin=protoc-gen-grpc=${GRPC_CPP_PLUGIN} oryx/v1/oryx.proto
+      DEPENDS ${PROTO_ROOT}/oryx/v1/oryx.proto
+      COMMENT "Generating gRPC code for oryx.proto")
+    add_executable(oryx_node server/node_main.cpp ${PROTO_SRCS})
+    set_target_properties(oryx_node PROPERTIES OUTPUT_NAME oryx-node)
+    target_include_directories(oryx_node PRIVATE ${PROTO_OUT})
+    target_link_libraries(oryx_node PRIVATE oryx_engine PkgConfig::GRPCPP PkgConfig::PROTOBUF)
+    install(TARGETS oryx_node RUNTIME DESTINATION bin)
+  else()
+    message(STATUS "gRPC C++ not found: skipping oryx-node")
+  endif()
+endif()
+
 if(EMSCRIPTEN)
   # ES module for the browser demo: `import createOryx from "./oryx.js"`.
   add_executable(oryx_web wasm/oryx_wasm.cpp)
