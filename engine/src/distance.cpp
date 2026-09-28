@@ -92,6 +92,24 @@ DistanceFn get_distance_fn(Metric metric) noexcept {
   return get_distance_fn(metric, active_simd_level());
 }
 
+Sq8DotFn get_sq8_dot_fn(SimdLevel level) noexcept {
+  if (!simd_level_supported(level)) return nullptr;
+  switch (level) {
+    case SimdLevel::Scalar: return kernels::sq8_dot_scalar;
+#if defined(__x86_64__) || defined(_M_X64)
+    case SimdLevel::AVX2: return kernels::sq8_dot_avx2;
+    case SimdLevel::AVX512: return kernels::sq8_dot_avx512;
+#endif
+#if defined(__aarch64__)
+    case SimdLevel::NEON: return kernels::sq8_dot_neon;
+#endif
+#if defined(__wasm_simd128__)
+    case SimdLevel::WasmSimd128: return kernels::sq8_dot_wasm;
+#endif
+    default: return nullptr;
+  }
+}
+
 void normalize(float* v, std::size_t dim) noexcept {
   float norm_sq = 0.0f;
   for (std::size_t i = 0; i < dim; ++i) norm_sq += v[i] * v[i];
