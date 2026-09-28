@@ -3,6 +3,7 @@ import "./explorer.css";
 import { initTheme, onThemeChange } from "../shared/theme";
 import type { FromWorker, Query, Trace } from "./protocol";
 import { GraphScene } from "./scene";
+import type { FromText } from "./text.worker";
 
 interface Manifest {
   count: number;
@@ -39,7 +40,7 @@ const updateInsets = () => {
   else scene.setInsets(0, innerHeight - box.top);
 };
 new ResizeObserver(updateInsets).observe(panel);
-addEventListener("resize", updateInsets);
+window.addEventListener("resize", updateInsets);
 
 let meta: Meta | null = null;
 let count = 0;
@@ -93,13 +94,14 @@ worker.onmessage = (event: MessageEvent<FromWorker>) => {
       setTimeout(() => ($("#loading").hidden = true), 2500);
       for (const id of ["#surprise", "#replay"]) $<HTMLButtonElement>(id).disabled = false;
       surprise(); // bring the page to life with a first query
+      startTextSearch(); // after the build, so the graph gets every core first
       break;
     }
     case "result":
       if (message.seq !== seq) return; // a newer search superseded this one
       lastTrace = message.trace;
       scene.play(message.trace);
-      renderStats(message.trace);
+      renderStats(message.trace, message.query);
       renderResults(message.trace, message.query);
       break;
     case "error":
@@ -120,6 +122,67 @@ function search(query: Query) {
 function surprise() {
   if (count) search({ kind: "id", id: Math.floor(Math.random() * count) });
 }
+
+// ---------- Text search ----------
+const queryInput = $<HTMLInputElement>("#query");
+const searchButton = $<HTMLButtonElement>("#search button");
+let textWorker: Worker | null = null;
+let textSeq = 0;
+let encodeMs: number | null = null;
+
+function startTextSearch() {
+  $("#search").hidden = false;
+  textWorker = new Worker(new URL("./text.worker.ts", import.meta.url), { type: "module" });
+  textWorker.onmessage = (event: MessageEvent<FromText>) => {
+    const message = event.data;
+    switch (message.type) {
+      case "progress":
+        if (message.total > 0) {
+          queryInput.placeholder = `Loading the CLIP text model… ${Math.round((message.loaded / message.total) * 100)}%`;
+        }
+        break;
+      case "ready":
+        queryInput.disabled = false;
+        searchButton.disabled = false;
+        queryInput.placeholder = "Describe a photo, e.g. “a dog on the beach”";
+        $("#examples").hidden = false;
+        break;
+      case "embedding":
+        if (message.seq !== textSeq) return; // superseded by a newer query
+        encodeMs = message.ms;
+        search({ kind: "vector", vector: message.vector, text: message.text });
+        break;
+      case "error":
+        console.warn(message.message);
+        queryInput.placeholder = "Text search is unavailable in this browser";
+        break;
+    }
+  };
+}
+
+function searchText(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed || !textWorker) return;
+  textSeq += 1;
+  textWorker.postMessage({ type: "encode", seq: textSeq, text: trimmed });
+}
+
+$("#search").addEventListener("submit", (event) => {
+  event.preventDefault();
+  searchText(queryInput.value);
+});
+for (const chip of document.querySelectorAll<HTMLButtonElement>("#examples button")) {
+  chip.addEventListener("click", () => {
+    queryInput.value = chip.textContent ?? "";
+    searchText(queryInput.value);
+  });
+}
+window.addEventListener("keydown", (event) => {
+  if (event.key === "/" && document.activeElement !== queryInput && !queryInput.disabled) {
+    event.preventDefault();
+    queryInput.focus();
+  }
+});
 
 $("#surprise").addEventListener("click", surprise);
 $("#replay").addEventListener("click", () => lastTrace && scene.play(lastTrace));
@@ -152,9 +215,12 @@ function image(id: number, alt: string) {
   return img;
 }
 
+const escapeHtml = (text: string) =>
+  text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
 const formatTime = (micros: number) => (micros >= 1000 ? `${(micros / 1000).toFixed(1)} ms` : `${micros.toFixed(0)} µs`);
 
-function renderStats(trace: Trace) {
+function renderStats(trace: Trace, query: Query) {
   const exact = new Set(trace.exact);
   const hits = Array.from(trace.results).filter((id) => exact.has(id)).length;
   const speedup = trace.exactMicros / Math.max(trace.micros, 1);
@@ -167,7 +233,11 @@ function renderStats(trace: Trace) {
     stat(`${speedup.toFixed(0)}×`, "faster than exact") +
     `<div class="stat wide"><span>Scored <strong>${scored.toLocaleString()}</strong> of ${count.toLocaleString()} photos ` +
     `(${((scored / count) * 100).toFixed(1)}%) across <strong>${trace.entryLayer + 1}</strong> layers</span>` +
-    `<span>exact scan ${formatTime(trace.exactMicros)}</span></div>`;
+    `<span>exact scan ${formatTime(trace.exactMicros)}</span></div>` +
+    (query.kind === "vector" && encodeMs !== null
+      ? `<div class="stat wide"><span>“${escapeHtml(query.text)}” → CLIP text vector</span>` +
+        `<span>${encodeMs.toFixed(0)} ms</span></div>`
+      : "");
   el.hidden = false;
 }
 
