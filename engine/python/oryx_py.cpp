@@ -7,6 +7,7 @@
 
 #include <limits>
 
+#include "oryx/database.h"
 #include "oryx/hnsw.h"
 #include "oryx/parallel.h"
 
@@ -23,6 +24,27 @@ oryx::Metric parse_metric(const std::string& name) {
   throw std::invalid_argument("metric must be 'l2', 'ip' or 'cosine'");
 }
 
+oryx::Quantization parse_quantization(const std::string& name) {
+  if (name == "none") return oryx::Quantization::None;
+  if (name == "sq8") return oryx::Quantization::SQ8;
+  throw std::invalid_argument("quantization must be 'none' or 'sq8'");
+}
+
+oryx::SyncMode parse_sync(const std::string& name) {
+  if (name == "always") return oryx::SyncMode::Always;
+  if (name == "batch") return oryx::SyncMode::Batch;
+  if (name == "none") return oryx::SyncMode::None;
+  throw std::invalid_argument("sync must be 'always', 'batch' or 'none'");
+}
+
+oryx::HnswParams make_params(std::size_t dim, const std::string& metric, std::size_t max_elements, std::size_t M,
+                             std::size_t ef_construction, std::uint64_t seed, const std::string& quantization,
+                             bool keep_vectors) {
+  return {.dim = dim, .metric = parse_metric(metric), .max_elements = max_elements, .M = M,
+          .ef_construction = ef_construction, .seed = seed, .quantization = parse_quantization(quantization),
+          .keep_vectors = keep_vectors};
+}
+
 const float* rows_of(const FloatArray& data, std::size_t dim, std::size_t& n) {
   if (data.ndim() == 1 && static_cast<std::size_t>(data.shape(0)) == dim) {
     n = 1;
@@ -34,56 +56,79 @@ const float* rows_of(const FloatArray& data, std::size_t dim, std::size_t& n) {
   return data.data();
 }
 
+// Labels from Python (None = consecutive from `first`), validated against the row count.
+std::vector<std::uint64_t> labels_of(const py::object& labels, std::size_t n, std::size_t first) {
+  std::vector<std::uint64_t> ids(n);
+  if (labels.is_none()) {
+    for (std::size_t i = 0; i < n; ++i) ids[i] = first + i;
+    return ids;
+  }
+  const auto arr = labels.cast<LabelArray>();
+  if (arr.ndim() != 1 || static_cast<std::size_t>(arr.shape(0)) != n) {
+    throw std::invalid_argument("labels must be a 1-D array with one label per row");
+  }
+  for (std::size_t i = 0; i < n; ++i) {
+    if (arr.data()[i] < 0) throw std::invalid_argument("labels must be non-negative");
+    ids[i] = static_cast<std::uint64_t>(arr.data()[i]);
+  }
+  return ids;
+}
+
+// Runs `search(row, k)` for every query row on `threads` threads and packs (labels, distances)
+// arrays of shape (n, k); missing results are -1 / inf.
+template <typename Search>
+py::tuple batch_search(const FloatArray& queries, std::size_t dim, std::size_t k, std::size_t threads, Search search) {
+  std::size_t n;
+  const float* rows = rows_of(queries, dim, n);
+  LabelArray labels({n, k});
+  FloatArray distances({n, k});
+  std::int64_t* out_labels = labels.mutable_data();
+  float* out_distances = distances.mutable_data();
+  {
+    py::gil_scoped_release release;
+    oryx::parallel_for(0, n, threads, [&](std::size_t q) {
+      const auto results = search(rows + q * dim, k);
+      for (std::size_t i = 0; i < k; ++i) {
+        const bool found = i < results.size();
+        out_labels[q * k + i] = found ? static_cast<std::int64_t>(results[i].label) : -1;
+        out_distances[q * k + i] = found ? results[i].distance : std::numeric_limits<float>::infinity();
+      }
+    });
+  }
+  return py::make_tuple(labels, distances);
+}
+
 class Index {
  public:
   Index(std::size_t dim, const std::string& metric, std::size_t max_elements, std::size_t M,
-        std::size_t ef_construction, std::uint64_t seed)
-      : index_(std::make_unique<oryx::HnswIndex>(oryx::HnswParams{
-            .dim = dim, .metric = parse_metric(metric), .max_elements = max_elements, .M = M,
-            .ef_construction = ef_construction, .seed = seed})) {}
+        std::size_t ef_construction, std::uint64_t seed, const std::string& quantization, bool keep_vectors)
+      : index_(std::make_unique<oryx::HnswIndex>(
+            make_params(dim, metric, max_elements, M, ef_construction, seed, quantization, keep_vectors))) {}
 
   explicit Index(std::unique_ptr<oryx::HnswIndex> index) : index_(std::move(index)) {}
+
+  void train(const FloatArray& data) {
+    std::size_t n;
+    const float* rows = rows_of(data, index_->params().dim, n);
+    py::gil_scoped_release release;
+    index_->train(rows, n);
+  }
 
   void add(const FloatArray& data, const py::object& labels, std::size_t threads) {
     const std::size_t dim = index_->params().dim;
     std::size_t n;
     const float* rows = rows_of(data, dim, n);
-    std::vector<std::int64_t> ids(n);
-    if (labels.is_none()) {
-      const auto first = static_cast<std::int64_t>(index_->size());
-      for (std::size_t i = 0; i < n; ++i) ids[i] = first + static_cast<std::int64_t>(i);
-    } else {
-      const auto arr = labels.cast<LabelArray>();
-      if (arr.ndim() != 1 || static_cast<std::size_t>(arr.shape(0)) != n) {
-        throw std::invalid_argument("labels must be a 1-D array with one label per row");
-      }
-      std::copy(arr.data(), arr.data() + n, ids.begin());
-    }
+    const auto ids = labels_of(labels, n, index_->size());
     py::gil_scoped_release release;
-    oryx::parallel_for(0, n, threads, [&](std::size_t i) { index_->add(static_cast<std::uint64_t>(ids[i]), rows + i * dim); });
+    oryx::parallel_for(0, n, threads, [&](std::size_t i) { index_->add(ids[i], rows + i * dim); });
   }
 
-  // Returns (labels, distances), each of shape (n, k). Missing results are -1 / inf.
-  py::tuple search(const FloatArray& queries, std::size_t k, std::size_t ef, std::size_t threads) const {
-    const std::size_t dim = index_->params().dim;
-    std::size_t n;
-    const float* rows = rows_of(queries, dim, n);
-    LabelArray labels({n, k});
-    FloatArray distances({n, k});
-    std::int64_t* out_labels = labels.mutable_data();
-    float* out_distances = distances.mutable_data();
-    {
-      py::gil_scoped_release release;
-      oryx::parallel_for(0, n, threads, [&](std::size_t q) {
-        const auto results = index_->search(rows + q * dim, k, {.ef = ef});
-        for (std::size_t i = 0; i < k; ++i) {
-          const bool found = i < results.size();
-          out_labels[q * k + i] = found ? static_cast<std::int64_t>(results[i].label) : -1;
-          out_distances[q * k + i] = found ? results[i].distance : std::numeric_limits<float>::infinity();
-        }
-      });
-    }
-    return py::make_tuple(labels, distances);
+  bool remove(std::uint64_t label) { return index_->remove(label); }
+
+  py::tuple search(const FloatArray& queries, std::size_t k, std::size_t ef, std::size_t rerank, std::size_t threads) const {
+    return batch_search(queries, index_->params().dim, k, threads, [&](const float* q, std::size_t kk) {
+      return index_->search(q, kk, {.ef = ef, .rerank = rerank});
+    });
   }
 
   // One query with its full traversal, for the visualizer and debugging.
@@ -111,6 +156,11 @@ class Index {
     return out;
   }
 
+  Index compact(std::size_t threads) const {
+    py::gil_scoped_release release;
+    return Index(index_->compacted(threads));
+  }
+
   void save(const std::string& path) const {
     py::gil_scoped_release release;
     index_->save(path);
@@ -127,6 +177,79 @@ class Index {
   std::unique_ptr<oryx::HnswIndex> index_;
 };
 
+class Database {
+ public:
+  explicit Database(std::unique_ptr<oryx::Database> db) : db_(std::move(db)) {}
+
+  static Database open(const std::string& path, std::size_t dim, const std::string& metric, std::size_t max_elements,
+                       std::size_t M, std::size_t ef_construction, const std::string& quantization, bool keep_vectors,
+                       const std::string& sync, double checkpoint_mb) {
+    oryx::DatabaseOptions options;
+    options.sync = parse_sync(sync);
+    options.checkpoint_bytes = static_cast<std::size_t>(checkpoint_mb * 1024 * 1024);
+    const auto params = make_params(dim, metric, max_elements, M, ef_construction, 42, quantization, keep_vectors);
+    py::gil_scoped_release release;
+    return Database(oryx::Database::open(path, params, options));
+  }
+
+  void train(const FloatArray& data) {
+    std::size_t n;
+    const float* rows = rows_of(data, db_->index().params().dim, n);
+    py::gil_scoped_release release;
+    db_->train(rows, n);
+  }
+
+  // Inserts or replaces rows; a batch is one log write and one fsync.
+  void upsert(const FloatArray& data, const py::object& labels, std::size_t threads) {
+    const std::size_t dim = db_->index().params().dim;
+    std::size_t n;
+    const float* rows = rows_of(data, dim, n);
+    const auto ids = labels_of(labels, n, db_->index().size());
+    py::gil_scoped_release release;
+    if (n == 1) {
+      db_->upsert(ids[0], rows);
+    } else {
+      db_->upsert_batch(ids.data(), rows, n, threads);
+    }
+  }
+
+  bool remove(std::uint64_t label) {
+    py::gil_scoped_release release;
+    return db_->remove(label);
+  }
+
+  py::tuple search(const FloatArray& queries, std::size_t k, std::size_t ef, std::size_t rerank, std::size_t threads) const {
+    return batch_search(queries, db_->index().params().dim, k, threads, [&](const float* q, std::size_t kk) {
+      return db_->search(q, kk, {.ef = ef, .rerank = rerank});
+    });
+  }
+
+  void flush() {
+    py::gil_scoped_release release;
+    db_->flush();
+  }
+
+  void checkpoint() {
+    py::gil_scoped_release release;
+    db_->checkpoint();
+  }
+
+  py::dict recovery() const {
+    const auto& r = db_->recovery();
+    py::dict out;
+    out["loaded_snapshot"] = r.loaded_snapshot;
+    out["snapshot_lsn"] = r.snapshot_lsn;
+    out["replayed"] = r.replayed;
+    out["truncated_bytes"] = r.truncated_bytes;
+    return out;
+  }
+
+  const oryx::Database& raw() const { return *db_; }
+
+ private:
+  std::unique_ptr<oryx::Database> db_;
+};
+
 }  // namespace
 
 PYBIND11_MODULE(oryx, m) {
@@ -135,22 +258,47 @@ PYBIND11_MODULE(oryx, m) {
         "SIMD instruction set used by the distance kernels on this CPU");
 
   py::class_<Index>(m, "Index")
-      .def(py::init<std::size_t, const std::string&, std::size_t, std::size_t, std::size_t, std::uint64_t>(),
+      .def(py::init<std::size_t, const std::string&, std::size_t, std::size_t, std::size_t, std::uint64_t,
+                    const std::string&, bool>(),
            py::arg("dim"), py::arg("metric") = "l2", py::arg("max_elements") = 1'000'000, py::arg("M") = 16,
-           py::arg("ef_construction") = 200, py::arg("seed") = 42)
+           py::arg("ef_construction") = 200, py::arg("seed") = 42, py::arg("quantization") = "none",
+           py::arg("keep_vectors") = true)
+      .def("train", &Index::train, py::arg("data"), "SQ8: learn per-dimension ranges before the first add().")
       .def("add", &Index::add, py::arg("data"), py::arg("labels") = py::none(), py::arg("threads") = 0,
-           "Insert rows of `data`; labels default to consecutive ids starting at len(index).")
+           "Insert rows of `data`; labels default to consecutive ids starting at the number of slots used.")
+      .def("remove", &Index::remove, py::arg("label"), "Tombstone a label; returns False if it is absent.")
       .def("search", &Index::search, py::arg("queries"), py::arg("k") = 10, py::arg("ef") = 64,
-           py::arg("threads") = 1, "Returns (labels, distances), each of shape (n, k).")
+           py::arg("rerank") = 0, py::arg("threads") = 1, "Returns (labels, distances), each of shape (n, k).")
       .def("trace", &Index::trace, py::arg("query"), py::arg("k") = 10, py::arg("ef") = 64)
+      .def("compact", &Index::compact, py::arg("threads") = 0, "A new index without deleted vectors.")
       .def("save", &Index::save, py::arg("path"))
       .def_static("load", &Index::load, py::arg("path"))
       .def("level", [](const Index& self, std::uint64_t label) { return self.raw().level_of(label); })
       .def("neighbors", [](const Index& self, std::uint64_t label, int layer) { return self.raw().neighbors_of(label, layer); },
            py::arg("label"), py::arg("layer") = 0)
-      .def("__len__", [](const Index& self) { return self.raw().size(); })
+      .def("__contains__", [](const Index& self, std::uint64_t label) { return self.raw().contains(label); })
+      .def("__len__", [](const Index& self) { return self.raw().live_count(); })
       .def_property_readonly("dim", [](const Index& self) { return self.raw().params().dim; })
       .def_property_readonly("max_level", [](const Index& self) { return self.raw().max_level(); })
+      .def_property_readonly("deleted_count", [](const Index& self) { return self.raw().deleted_count(); })
       .def_property_readonly("memory_bytes", [](const Index& self) { return self.raw().memory_bytes(); })
       .def_property_readonly("simd", [](const Index& self) { return std::string(oryx::to_string(self.raw().simd_level())); });
+
+  py::class_<Database>(m, "Database", "A durable collection: HNSW index + write-ahead log with crash recovery.")
+      .def_static("open", &Database::open, py::arg("path"), py::arg("dim"), py::arg("metric") = "l2",
+                  py::arg("max_elements") = 1'000'000, py::arg("M") = 16, py::arg("ef_construction") = 200,
+                  py::arg("quantization") = "none", py::arg("keep_vectors") = true, py::arg("sync") = "always",
+                  py::arg("checkpoint_mb") = 256.0,
+                  "Open (or create) a database directory; an existing snapshot's parameters take precedence.")
+      .def("train", &Database::train, py::arg("data"))
+      .def("upsert", &Database::upsert, py::arg("data"), py::arg("labels") = py::none(), py::arg("threads") = 0)
+      .def("remove", &Database::remove, py::arg("label"))
+      .def("search", &Database::search, py::arg("queries"), py::arg("k") = 10, py::arg("ef") = 64,
+           py::arg("rerank") = 0, py::arg("threads") = 1)
+      .def("flush", &Database::flush, "Make every write so far durable (group commit).")
+      .def("checkpoint", &Database::checkpoint, "Snapshot the index and truncate the log.")
+      .def("recovery", &Database::recovery, "What the last open() recovered.")
+      .def("__contains__", [](const Database& self, std::uint64_t label) { return self.raw().index().contains(label); })
+      .def("__len__", [](const Database& self) { return self.raw().size(); })
+      .def_property_readonly("last_lsn", [](const Database& self) { return self.raw().last_lsn(); });
 }
