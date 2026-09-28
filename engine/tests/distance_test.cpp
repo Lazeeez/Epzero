@@ -39,6 +39,25 @@ TEST(Distance, SimdKernelsMatchScalarForAllDimensions) {
   }
 }
 
+TEST(Distance, Sq8KernelsMatchScalarForAllDimensions) {
+  std::mt19937 rng(11);
+  std::uniform_int_distribution<int> byte(0, 255);
+  const Sq8DotFn reference = get_sq8_dot_fn(SimdLevel::Scalar);
+  for (SimdLevel level : kAllLevels) {
+    const Sq8DotFn fn = get_sq8_dot_fn(level);
+    EXPECT_EQ(fn != nullptr, simd_level_supported(level)) << to_string(level);
+    if (fn == nullptr) continue;
+    for (std::size_t dim = 1; dim <= 300; ++dim) {
+      const auto w = random_vector(dim, rng);
+      std::vector<std::uint8_t> codes(dim);
+      for (auto& c : codes) c = static_cast<std::uint8_t>(byte(rng));
+      const float expected = reference(w.data(), codes.data(), dim);
+      EXPECT_NEAR(fn(w.data(), codes.data(), dim), expected, 1e-3f * std::max(1.0f, std::abs(expected)))
+          << to_string(level) << " dim=" << dim;
+    }
+  }
+}
+
 TEST(Distance, KnownValues) {
   const float a[] = {1, 2, 3};
   const float b[] = {4, 6, 3};
