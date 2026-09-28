@@ -1,0 +1,35 @@
+#cloud-config
+# Base setup for every Oryx node. Services are installed later by deploy/deploy.sh.
+package_update: true
+package_upgrade: true
+packages:
+  - netfilter-persistent
+  - iptables-persistent
+  - chrony
+
+users:
+  - default
+  - name: oryx
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/oryx
+
+write_files:
+  # Oracle's Ubuntu images reject everything but SSH in the host firewall; open HTTP(S) for the
+  # router's TLS endpoint and all traffic from inside the VCN.
+  - path: /usr/local/sbin/oryx-firewall
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      set -e
+      for port in 80 443; do
+        iptables -C INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null || iptables -I INPUT 5 -p tcp --dport "$port" -j ACCEPT
+      done
+      iptables -C INPUT -s 10.42.0.0/16 -j ACCEPT 2>/dev/null || iptables -I INPUT 5 -s 10.42.0.0/16 -j ACCEPT
+      netfilter-persistent save
+
+runcmd:
+  - [/usr/local/sbin/oryx-firewall]
+  - [mkdir, -p, /var/lib/oryx/data, /opt/oryx]
+  - [chown, -R, "oryx:oryx", /var/lib/oryx]
+  - [timedatectl, set-timezone, UTC]
