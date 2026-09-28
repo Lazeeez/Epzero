@@ -253,6 +253,7 @@
   }
   .setup {
     display: grid;
+    min-width: 0;
     gap: 20px;
     padding: 24px;
   }
@@ -280,12 +281,12 @@
     color: var(--warn);
   }
   .options {
-    display: grid;
-    grid-template-columns: repeat(4, auto);
-    justify-content: start;
+    display: flex;
+    flex-wrap: wrap;
     gap: 16px 28px;
   }
   fieldset {
+    min-width: 0; /* fieldsets default to min-content width, which overflows phones */
     margin: 0;
     padding: 0;
     border: 0;
@@ -297,6 +298,7 @@
   }
   .seg {
     display: flex;
+    flex-wrap: wrap;
     padding: 3px;
     border: 1px solid var(--border);
     border-radius: 11px;
@@ -337,6 +339,10 @@
   .results {
     display: grid;
     gap: 16px;
+  }
+  .lab > *,
+  .results > * {
+    min-width: 0;
   }
   .stages {
     display: grid;
@@ -478,9 +484,6 @@
     transition: width 0.6s var(--ease);
   }
   @media (max-width: 900px) {
-    .options {
-      grid-template-columns: 1fr 1fr;
-    }
     .tiles {
       grid-template-columns: 1fr 1fr;
     }
