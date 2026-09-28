@@ -4,8 +4,8 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
-import { isDark, token } from "../shared/theme";
-import type { GraphInfo, Trace } from "./protocol";
+import { isDark, token } from "../theme";
+import type { GraphInfo, Trace } from "../engine/protocol";
 
 // World layout: UMAP coordinates spread over the XZ plane, one horizontal slab per HNSW layer.
 const SPREAD = 42;
@@ -117,7 +117,6 @@ export class GraphScene {
   private trailTimes = new Float32Array(0);
   private trailCount = 0;
   private stateEvents: { time: number; point: number; state: State }[] = [];
-  private animationStart = 0;
   private builtCount = 0;
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2(-9, -9);
@@ -411,15 +410,17 @@ export class GraphScene {
     }
   }
 
-  // ---------- Search replay ----------
+  // ---------- Search replay (a seekable timeline) ----------
 
   /**
-   * Replays a search trace. Upper layers play hop by hop (greedy descent); the base layer plays
-   * as a spreading beam, scaled to a fixed duration so small and large ef both read well.
+   * Loads a search trace onto the timeline and starts playing it. Upper layers play hop by hop
+   * (greedy descent); the base layer plays as a spreading beam, scaled to a fixed duration so small
+   * and large ef both read well. Every event has a timestamp, so the replay can be paused,
+   * scrubbed and stepped (the debugger), not only watched.
    */
-  play(trace: Trace, durationScale = 1) {
+  play(trace: Trace, options: { durationScale?: number; flyTo?: boolean } = {}) {
     if (!this.trail) return;
-    this.states.fill(State.Idle);
+    const durationScale = options.durationScale ?? 1;
     const n = trace.to.length;
     const positions = this.trail.geometry.getAttribute("position") as THREE.BufferAttribute;
     const colors = this.trail.geometry.getAttribute("color") as THREE.BufferAttribute;
@@ -428,11 +429,12 @@ export class GraphScene {
     const bright = this.palette.path;
     const dim = this.palette.visited.clone().multiplyScalar(this.palette.dark ? 0.55 : 1);
     const drop = this.palette.result;
-    const upperStep = this.reducedMotion ? 0 : 70 * durationScale;
+    const upperStep = 70 * durationScale;
     const baseEvents = trace.layer.filter((l) => l === 0).length;
-    const baseStep = this.reducedMotion ? 0 : Math.max(0.6, (2600 * durationScale) / Math.max(baseEvents, 1));
+    const baseStep = Math.max(0.6, (2600 * durationScale) / Math.max(baseEvents, 1));
 
     this.stateEvents = [];
+    this.eventTimes = new Float32Array(n);
     let t = 0;
     let segment = 0;
     const addSegment = (a: THREE.Vector3, b: THREE.Vector3, color: THREE.Color, time: number) => {
@@ -459,6 +461,7 @@ export class GraphScene {
         }
         previousLayer = layer;
       }
+      this.eventTimes[i] = t;
       const accepted = trace.accepted[i] === 1;
       addSegment(this.worldPoint(from, layer), this.worldPoint(to, layer), accepted ? bright : dim, t);
       const p = pointAt(to, layer);
@@ -469,39 +472,208 @@ export class GraphScene {
       const p = pointAt(trace.results[r], 0);
       if (p >= 0) this.stateEvents.push({ time: t + 150 + r * 40, point: p, state: State.Result });
     }
+    this.trace = trace;
     this.trailCount = segment;
+    this.duration = t + 150 + trace.results.length * 40;
     positions.needsUpdate = true;
     colors.needsUpdate = true;
-    this.trail.geometry.setDrawRange(0, 0);
-    this.animationStart = performance.now();
-    this.stateCursor = 0;
+    this.resetPlayback();
+    this.playing = true;
+    if (this.reducedMotion) this.playhead = this.duration; // show the finished search at once
 
-    // Fly toward the result neighborhood, keeping the current viewing angle, so the base-layer
-    // beam and the results are framed up close while the upper layers stay in view above.
-    const centroid = new THREE.Vector3();
-    for (const id of trace.results) centroid.add(this.worldPoint(id, 0));
-    centroid.divideScalar(Math.max(trace.results.length, 1)).setY(LAYER_GAP * 0.8);
-    const direction = this.camera.position.clone().sub(this.controls.target).normalize();
-    this.cameraGoal = { target: centroid, position: centroid.clone().addScaledVector(direction, 88 * this.fitScale()) };
-    this.controls.autoRotate = false;
+    if (options.flyTo ?? true) {
+      // Fly toward the result neighborhood, keeping the current viewing angle, so the base-layer
+      // beam and the results are framed up close while the upper layers stay in view above.
+      const centroid = new THREE.Vector3();
+      for (const id of trace.results) centroid.add(this.worldPoint(id, 0));
+      centroid.divideScalar(Math.max(trace.results.length, 1)).setY(LAYER_GAP * 0.8);
+      const direction = this.camera.position.clone().sub(this.controls.target).normalize();
+      this.cameraGoal = { target: centroid, position: centroid.clone().addScaledVector(direction, 88 * this.fitScale()) };
+      this.controls.autoRotate = false;
+    }
   }
 
-  private stateCursor = 0;
+  /** Clears the current search from the scene. */
+  clearTrace() {
+    this.trace = null;
+    this.trailCount = 0;
+    this.stateEvents = [];
+    this.duration = 0;
+    this.resetPlayback();
+    this.trail?.geometry.setDrawRange(0, 0);
+  }
 
-  private frame(time: number) {
-    const elapsed = performance.now() - this.animationStart;
-    if (this.trail && this.trailCount > 0) {
-      let visible = 0;
-      while (visible < this.trailCount && this.trailTimes[visible] <= elapsed) visible++;
-      this.trail.geometry.setDrawRange(0, visible * 2);
+  pause() {
+    this.playing = false;
+    this.emitPlayhead();
+  }
+
+  resume() {
+    if (this.playhead >= this.duration) this.seekTime(0);
+    this.playing = true;
+  }
+
+  setSpeed(speed: number) {
+    this.speed = speed;
+  }
+
+  /** Moves the timeline so that trace event `index` has just happened (and pauses). */
+  seekEvent(index: number) {
+    if (!this.trace || this.eventTimes.length === 0) return;
+    const i = Math.max(-1, Math.min(index, this.eventTimes.length - 1));
+    this.playing = false;
+    this.seekTime(i < 0 ? 0 : this.eventTimes[i] + 0.001);
+    this.focusEvent(i);
+  }
+
+  /** Called with (current event index, total events, playing) whenever the playhead moves. */
+  onPlayhead(listener: ((event: number, total: number, playing: boolean) => void) | null) {
+    this.playheadListener = listener;
+  }
+
+  private trace: Trace | null = null;
+  private eventTimes = new Float32Array(0);
+  private duration = 0;
+  private playhead = 0; // ms along the timeline
+  private playing = false;
+  private speed = 1;
+  private applied = 0; // playhead value the scene currently reflects
+  private stateCursor = 0;
+  private lastFrame = 0;
+  private lastEmitted = -2;
+  private playheadListener: ((event: number, total: number, playing: boolean) => void) | null = null;
+  private focus: THREE.Mesh | null = null;
+
+  private resetPlayback() {
+    this.states.fill(State.Idle);
+    this.stateCursor = 0;
+    this.playhead = 0;
+    this.applied = -1;
+    this.lastEmitted = -2;
+    if (this.points) (this.points.geometry.getAttribute("aState") as THREE.BufferAttribute).needsUpdate = true;
+    if (this.focus) this.focus.visible = false;
+  }
+
+  private seekTime(time: number) {
+    if (time < this.applied) {
+      // Going backwards: rebuild node states from the start (a few thousand events at most).
+      this.states.fill(State.Idle);
+      this.stateCursor = 0;
     }
-    if (this.points && this.stateCursor < this.stateEvents.length) {
-      while (this.stateCursor < this.stateEvents.length && this.stateEvents[this.stateCursor].time <= elapsed) {
+    this.playhead = Math.min(time, this.duration);
+    this.applyPlayhead();
+  }
+
+  private applyPlayhead() {
+    const t = this.playhead;
+    if (this.trail) {
+      // Binary search the last trail segment whose time has come.
+      let lo = 0;
+      let hi = this.trailCount;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (this.trailTimes[mid] <= t) lo = mid + 1;
+        else hi = mid;
+      }
+      this.trail.geometry.setDrawRange(0, lo * 2);
+    }
+    if (this.points) {
+      let changed = false;
+      while (this.stateCursor < this.stateEvents.length && this.stateEvents[this.stateCursor].time <= t) {
         const e = this.stateEvents[this.stateCursor++];
         if (this.states[e.point] < State.Result || e.state >= State.Result) this.states[e.point] = Math.max(this.states[e.point], e.state);
+        changed = true;
       }
-      (this.points.geometry.getAttribute("aState") as THREE.BufferAttribute).needsUpdate = true;
+      if (changed) (this.points.geometry.getAttribute("aState") as THREE.BufferAttribute).needsUpdate = true;
     }
+    this.applied = t;
+    this.emitPlayhead();
+  }
+
+  private currentEvent(): number {
+    let lo = 0;
+    let hi = this.eventTimes.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (this.eventTimes[mid] <= this.playhead) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo - 1;
+  }
+
+  private emitPlayhead() {
+    if (!this.playheadListener || !this.trace) return;
+    const event = this.currentEvent();
+    const key = event * 2 + (this.playing ? 1 : 0);
+    if (key === this.lastEmitted) return;
+    this.lastEmitted = key;
+    this.playheadListener(event, this.eventTimes.length, this.playing);
+  }
+
+  // A ring around the node the paused debugger is looking at.
+  private focusEvent(index: number) {
+    if (!this.trace || index < 0) {
+      if (this.focus) this.focus.visible = false;
+      return;
+    }
+    if (!this.focus) {
+      this.focus = new THREE.Mesh(
+        new THREE.RingGeometry(1.1, 1.45, 48),
+        new THREE.MeshBasicMaterial({ color: this.palette.path, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthTest: false }),
+      );
+      this.focus.rotation.x = -Math.PI / 2;
+      this.focus.renderOrder = 10;
+      this.scene.add(this.focus);
+    }
+    (this.focus.material as THREE.MeshBasicMaterial).color = this.palette.path;
+    const p = this.worldPoint(this.trace.to[index], this.trace.layer[index]);
+    this.focus.position.copy(p).setY(p.y + 0.05);
+    this.focus.visible = true;
+  }
+
+  // ---------- Modes ----------
+
+  private active = true;
+  private interactive = true;
+
+  /** Stops rendering entirely (no GPU or battery use) while no page shows the scene. */
+  setActive(active: boolean) {
+    if (active === this.active) return;
+    this.active = active;
+    this.lastFrame = 0;
+    this.renderer.setAnimationLoop(active ? (time) => this.frame(time) : null);
+  }
+
+  /**
+   * Interactive: orbit/zoom with the mouse and pick nodes. Non-interactive (the landing hero): the
+   * canvas ignores the pointer so the page scrolls normally, and the camera drifts on its own.
+   */
+  setInteractive(interactive: boolean) {
+    this.interactive = interactive;
+    this.controls.enabled = interactive;
+    this.renderer.domElement.style.pointerEvents = interactive ? "auto" : "none";
+    this.controls.autoRotate = !this.reducedMotion;
+    this.controls.autoRotateSpeed = interactive ? 0.35 : 0.55;
+  }
+
+  /** Eases the camera back to the default overview of all layers. */
+  overview() {
+    this.cameraGoal = {
+      target: new THREE.Vector3(0, 12, 0),
+      position: new THREE.Vector3(78, 62, 104).multiplyScalar(this.fitScale()),
+    };
+    this.controls.autoRotate = !this.reducedMotion;
+  }
+
+  private frame(time: number) {
+    const dt = this.lastFrame ? Math.min(time - this.lastFrame, 100) : 0;
+    this.lastFrame = time;
+    if (this.playing && this.trace) {
+      this.playhead = Math.min(this.playhead + dt * this.speed, this.duration);
+      if (this.playhead >= this.duration) this.playing = false;
+    }
+    if (this.playhead !== this.applied) this.applyPlayhead();
+    else if (!this.playing) this.emitPlayhead();
     if (this.points) (this.points.material as THREE.ShaderMaterial).uniforms.uTime.value = time / 1000;
     if (this.cameraGoal) {
       const ease = this.reducedMotion ? 1 : 0.035;
@@ -510,7 +682,7 @@ export class GraphScene {
       if (this.camera.position.distanceTo(this.cameraGoal.position) < 0.05) this.cameraGoal = null;
     }
     this.controls.update();
-    this.pick();
+    if (this.interactive) this.pick();
     this.composer.render();
   }
 
