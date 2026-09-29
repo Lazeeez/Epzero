@@ -1,6 +1,7 @@
 <script lang="ts">
   import { engine } from "../../lib/engine/engine.svelte";
   import { sceneController } from "../../lib/scene/scene.svelte";
+  import Shortcuts from "./Shortcuts.svelte";
 
   let { panelHidden, ontogglepanel }: { panelHidden: boolean; ontogglepanel: () => void } = $props();
 
@@ -9,6 +10,7 @@
   const HINT_KEY = "oryx-view-hint";
 
   let hint = $state(false);
+  let shortcutsOpen = $state(false);
   try {
     hint = !localStorage.getItem(HINT_KEY);
   } catch {
@@ -44,6 +46,11 @@
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || document.querySelector("dialog[open]")) return;
       if ((event.target as HTMLElement).closest("input, textarea, select, [contenteditable]")) return;
+      if (event.key === "?") {
+        event.preventDefault();
+        shortcutsOpen = true;
+        return;
+      }
       const scene = sceneController.scene;
       if (!scene) return;
       if (event.key === "+" || event.key === "=") scene.zoom(0.7);
@@ -59,7 +66,7 @@
   });
 </script>
 
-<div class="view card" role="toolbar" aria-label="View controls" aria-orientation="vertical">
+<div class="view card" role="toolbar" aria-label="View controls">
   <button onclick={() => sceneController.scene?.zoom(0.7)} aria-label="Zoom in" title="Zoom in (+)">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
   </button>
@@ -90,6 +97,7 @@
   <button onclick={() => sceneController.scene?.overview()} aria-label="Reset the view" title="Reset the view (0)">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
   </button>
+  <button class="help" onclick={() => (shortcutsOpen = true)} aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">?</button>
   <span class="sep" aria-hidden="true"></span>
   <button
     class:on={panelHidden}
@@ -103,6 +111,10 @@
     </svg>
   </button>
 </div>
+
+{#if shortcutsOpen}
+  <Shortcuts onclose={() => (shortcutsOpen = false)} />
+{/if}
 
 {#if hint}
   <button class="hint card" onclick={dismissHint} aria-label="Dismiss the controls hint">
@@ -156,6 +168,15 @@
     stroke-linecap: round;
     stroke-linejoin: round;
   }
+  .help {
+    font: 600 15px var(--mono);
+  }
+  /* Touch screens have no keyboard: skip the shortcuts button there. */
+  @media (pointer: coarse) {
+    .help {
+      display: none;
+    }
+  }
   .layer {
     height: 46px;
     gap: 1px;
@@ -201,7 +222,21 @@
       transform: translate(-50%, -6px);
     }
   }
+  /* Phones and portrait tablets: a horizontal strip just above the search panel, so it never
+     climbs into the top controls however tall the panel gets. */
   @media (max-width: 900px) {
+    .view {
+      grid-auto-flow: column;
+      align-items: center;
+    }
+    .sep {
+      width: 1px;
+      height: 24px;
+      margin: 0 3px;
+    }
+    .layer {
+      height: 40px;
+    }
     .hint {
       top: calc(var(--nav-h) + 72px);
       font-size: 12.5px;
