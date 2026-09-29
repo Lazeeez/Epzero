@@ -54,10 +54,13 @@
 
   // Measure the graph when the panel opens, after every rebuild (a new graph object), and
   // whenever ef changes.
+  // Debounced: dragging the ef slider shouldn't queue a one-second measurement per tick.
   $effect(() => {
     void ef;
     void engine.graph;
-    if (engine.status === "ready" && !engine.rebuilding) measure();
+    if (engine.status !== "ready" || engine.rebuilding) return;
+    const timer = setTimeout(measure, 350);
+    return () => clearTimeout(timer);
   });
 
   $effect(() => {
