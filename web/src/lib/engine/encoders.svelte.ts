@@ -133,3 +133,25 @@ class TextEncoder {
 }
 
 export const textEncoder = new TextEncoder();
+
+/**
+ * Starts the CLIP encoders in the background once the page is idle, so a first text (and, on
+ * desktops, photo or webcam) search doesn't wait for a model download. Skipped when the visitor
+ * asked to save data or is on a slow connection; phones only warm the text model (memory).
+ */
+export function warmUpEncoders() {
+  const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+  if (connection?.saveData || /(^|-)(2g|3g)$/.test(connection?.effectiveType ?? "")) return;
+  const idle = (task: () => void) =>
+    "requestIdleCallback" in window ? requestIdleCallback(task, { timeout: 5000 }) : setTimeout(task, 2000);
+  idle(() => {
+    textEncoder.start();
+    if (matchMedia("(pointer: coarse)").matches) return;
+    // The image model after the text one, so the two downloads don't compete.
+    const waitForText = () => {
+      if (textEncoder.status === "ready" || textEncoder.status === "error") idle(() => imageEncoder.start());
+      else setTimeout(waitForText, 1000);
+    };
+    waitForText();
+  });
+}
