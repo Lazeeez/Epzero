@@ -81,8 +81,9 @@
   }
   header {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
-    gap: 12px;
+    gap: 4px 12px;
     color: var(--text-2);
     font: 12.5px var(--mono);
   }
