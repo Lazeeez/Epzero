@@ -2,21 +2,26 @@
   import { untrack } from "svelte";
   import { imageEncoder, textEncoder } from "../../lib/engine/encoders.svelte";
   import type { Query } from "../../lib/engine/protocol";
+  import BlendBox, { type BlendBase } from "./BlendBox.svelte";
 
   let {
     onsearch,
     onsurprise,
     disabled = false,
     initialText = "",
+    blendBase = null,
+    initialBlend = null,
   }: {
-    onsearch: (query: Query) => Promise<void>;
+    onsearch: (query: Query, options?: { live: boolean }) => Promise<void>;
     onsurprise: () => void;
     disabled?: boolean;
     initialText?: string;
+    blendBase?: BlendBase | null;
+    initialBlend?: { words: string; mix: number } | null;
   } = $props();
 
-  type Mode = "text" | "photo" | "camera";
-  let mode = $state<Mode>("text");
+  type Mode = "text" | "photo" | "camera" | "blend";
+  let mode = $state<Mode>(untrack(() => (initialBlend ? "blend" : "text")));
   let text = $state(untrack(() => initialText)); // the box is editable; the prop only seeds it
   let busy = $state(false);
   let error = $state("");
@@ -34,7 +39,7 @@
   const examples = ["a dog on the beach", "snowy mountains", "city lights at night", "a bowl of fruit", "vintage black and white photo", "a red sports car"];
 
   $effect(() => {
-    if (mode === "text") textEncoder.start();
+    if (mode === "text" || mode === "blend") textEncoder.start();
     else imageEncoder.start();
   });
 
@@ -174,7 +179,7 @@
   const pct = (v: number) => `${Math.round(v * 100)}%`;
 
   // Arrow keys move between the tabs (the tablist keyboard pattern).
-  const modes: Mode[] = ["text", "photo", "camera"];
+  const modes: Mode[] = ["text", "photo", "camera", "blend"];
   function onTabKey(event: KeyboardEvent) {
     const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
     if (!delta) return;
@@ -188,7 +193,7 @@
 
 <div class="search">
   <div class="tabs" role="tablist" aria-label="Search by">
-    {#each [["text", "Describe"], ["photo", "Photo"], ["camera", "Camera"]] as [value, label] (value)}
+    {#each [["text", "Describe"], ["photo", "Photo"], ["camera", "Camera"], ["blend", "Blend"]] as [value, label] (value)}
       <button
         role="tab"
         id="search-tab-{value}"
@@ -255,6 +260,14 @@
       </span>
       {#if busy}<span class="spinner" aria-hidden="true"></span>{/if}
     </label>
+  {:else if mode === "blend"}
+    <BlendBox
+      base={blendBase}
+      {onsearch}
+      {disabled}
+      initialWords={initialBlend?.words ?? ""}
+      initialMix={initialBlend?.mix ?? 0.5}
+    />
   {:else}
     <div class="camera">
       {#if cameraOn}
@@ -332,15 +345,23 @@
     color: var(--warn);
   }
   /* The panel is 400px wide at most: keep the four controls on one line. */
-  @container (max-width: 340px) {
+  /* Four tabs and "Surprise me" don't fit the 400px panel: the shuffle button goes icon-only
+     (it keeps its accessible name), and the tabs tighten further on the smallest phones. */
+  @container (max-width: 400px) {
     .surprise span {
       display: none;
     }
   }
-  @container (max-width: 290px) {
+  @container (max-width: 320px) {
     .tabs button {
       padding: 6px 7px;
       font-size: 13px;
+    }
+  }
+  @container (max-width: 275px) {
+    .tabs button {
+      padding: 6px 5px;
+      font-size: 12.5px;
     }
   }
   .surprise svg {
