@@ -16,6 +16,7 @@
         Results for {query.source === "text" ? `“${query.text}”` : query.text}
       {:else}
         Photos like #{query.id}
+        <a class="source" href={engine.source(query.id)} target="_blank" rel="noopener noreferrer" title="The original photo on Flickr">original ↗</a>
       {/if}
     </h2>
     <span class="hint">Click one to search for similar photos</span>
@@ -44,23 +45,24 @@
 
 <style>
   .head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
+    display: grid;
+    gap: 2px;
     margin-bottom: 10px;
   }
   h2 {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: 4px 8px;
     min-width: 0;
     font-size: 14px;
     font-weight: 600;
     letter-spacing: -0.01em;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow-wrap: anywhere; /* long queries wrap instead of being cut off */
+  }
+  .source {
+    font-size: 12px;
+    font-weight: 500;
   }
   .query-img {
     width: 22px;
@@ -69,7 +71,6 @@
     object-fit: cover;
   }
   .hint {
-    flex: none;
     color: var(--muted);
     font-size: 11.5px;
   }
