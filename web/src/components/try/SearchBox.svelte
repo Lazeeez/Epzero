@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { imageEncoder, textEncoder } from "../../lib/engine/encoders.svelte";
+  import { engine } from "../../lib/engine/engine.svelte";
   import type { Query } from "../../lib/engine/protocol";
   import BlendBox, { type BlendBase } from "./BlendBox.svelte";
 
@@ -64,7 +65,10 @@
 
   const examples = ["a dog on the beach", "snowy mountains", "city lights at night", "a bowl of fruit", "vintage black and white photo", "a red sports car"];
 
+  // Models load once the index is ready: searching needs the index anyway, and loading a 67-89 MB
+  // model at the same time would slow the index's own download on the critical path.
   $effect(() => {
+    if (engine.status !== "ready") return;
     if (mode === "text" || mode === "blend") textEncoder.start();
     else imageEncoder.start();
   });
