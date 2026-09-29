@@ -118,6 +118,16 @@ class HnswIndex {
   void save(const std::string& path) const;
   static std::unique_ptr<HnswIndex> load(const std::string& path);
 
+  // The graph without its vectors: every node's label, level and links. For shipping a prebuilt
+  // index next to vectors that are stored elsewhere (e.g. the web demo's int8 file): a few bytes
+  // per link instead of 4 * dim per node. Links are 16-bit when the index has < 65,536 nodes.
+  // Only for full-precision indexes without deletions.
+  std::vector<std::uint8_t> export_graph() const;
+  // Rebuilds an index from export_graph() bytes and the vectors, where row `label` of `vectors`
+  // (n x params.dim) is that label's vector. Validates every link, so corrupt bytes throw.
+  static std::unique_ptr<HnswIndex> import_graph(const HnswParams& params, const float* vectors, std::size_t n,
+                                                 const std::uint8_t* bytes, std::size_t size);
+
   // Introspection, used by tests, benchmarks and the topology export for the visualizer.
   std::size_t size() const noexcept { return count_.load(std::memory_order_acquire); }  // slots used
   std::size_t deleted_count() const noexcept { return deleted_count_.load(std::memory_order_acquire); }
