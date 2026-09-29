@@ -855,4 +855,134 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path) {
   return index;
 }
 
+
+namespace {
+
+constexpr char kGraphMagic[8] = {'O', 'R', 'Y', 'X', 'G', 'R', 'P', 'H'};
+constexpr std::uint32_t kGraphVersion = 1;
+
+class ByteWriter {
+ public:
+  template <typename T>
+  void pod(T value) {
+    const auto* p = reinterpret_cast<const std::uint8_t*>(&value);
+    bytes.insert(bytes.end(), p, p + sizeof(T));
+  }
+  std::vector<std::uint8_t> bytes;
+};
+
+class ByteReader {
+ public:
+  ByteReader(const std::uint8_t* data, std::size_t size) : data_(data), size_(size) {}
+  template <typename T>
+  T pod() {
+    if (size_ - pos_ < sizeof(T)) throw std::runtime_error("graph: truncated");
+    T value;
+    std::memcpy(&value, data_ + pos_, sizeof(T));
+    pos_ += sizeof(T);
+    return value;
+  }
+  bool done() const noexcept { return pos_ == size_; }
+
+ private:
+  const std::uint8_t* data_;
+  std::size_t size_;
+  std::size_t pos_ = 0;
+};
+
+}  // namespace
+
+std::vector<std::uint8_t> HnswIndex::export_graph() const {
+  if (sq8()) throw std::logic_error("export_graph: only full-precision indexes");
+  if (deleted_count() != 0) throw std::logic_error("export_graph: compact the index first");
+  if (max_links0_ > 0xff) throw std::logic_error("export_graph: M too large for the format");
+  const std::size_t count = size();
+  const bool narrow = count <= 0xffff;
+  ByteWriter out;
+  for (char c : kGraphMagic) out.pod(c);
+  out.pod(kGraphVersion);
+  out.pod<std::uint64_t>(params_.dim);
+  out.pod<std::uint32_t>(static_cast<std::uint32_t>(params_.metric));
+  out.pod<std::uint64_t>(params_.M);
+  out.pod<std::uint64_t>(params_.ef_construction);
+  out.pod<std::uint64_t>(count);
+  out.pod<std::uint64_t>(entry_.load(std::memory_order_acquire));
+  out.pod<std::uint8_t>(narrow ? 2 : 4);
+  auto links = [&](const id_t* list) {
+    out.pod(static_cast<std::uint8_t>(list[0]));
+    for (id_t i = 1; i <= list[0]; ++i) {
+      if (narrow) out.pod(static_cast<std::uint16_t>(list[i]));
+      else out.pod(list[i]);
+    }
+  };
+  for (id_t id = 0; id < count; ++id) {
+    std::lock_guard lock(node_locks_[id]);
+    out.pod(labels_[id]);
+    out.pod(levels_[id]);
+    for (int layer = 0; layer <= levels_[id]; ++layer) links(links_of(id, layer));
+  }
+  return std::move(out.bytes);
+}
+
+std::unique_ptr<HnswIndex> HnswIndex::import_graph(const HnswParams& params, const float* vectors, std::size_t n,
+                                                   const std::uint8_t* bytes, std::size_t size) {
+  ByteReader in(bytes, size);
+  for (char c : kGraphMagic) {
+    if (in.pod<char>() != c) throw std::runtime_error("graph: not an Oryx graph");
+  }
+  if (in.pod<std::uint32_t>() != kGraphVersion) throw std::runtime_error("graph: unsupported version");
+  const auto dim = in.pod<std::uint64_t>();
+  const auto metric = static_cast<Metric>(in.pod<std::uint32_t>());
+  const auto M = in.pod<std::uint64_t>();
+  const auto ef_construction = in.pod<std::uint64_t>();
+  const auto count = in.pod<std::uint64_t>();
+  const auto entry = in.pod<std::uint64_t>();
+  const auto width = in.pod<std::uint8_t>();
+  if (dim != params.dim || metric != params.metric || M != params.M || params.quantization != Quantization::None) {
+    throw std::runtime_error("graph: built with different parameters");
+  }
+  if (count > n || count > params.max_elements || (width != 2 && width != 4)) throw std::runtime_error("graph: corrupt header");
+
+  HnswParams actual = params;
+  actual.ef_construction = ef_construction;
+  auto index = std::make_unique<HnswIndex>(actual);
+  std::vector<float> normalized(dim);
+  for (id_t id = 0; id < count; ++id) {
+    const auto label = in.pod<std::uint64_t>();
+    const auto level = in.pod<std::int8_t>();
+    if (label >= n || level < 0 || level > kMaxLevel) throw std::runtime_error("graph: corrupt node");
+    if (!index->label_to_id_.emplace(label, id).second) throw std::runtime_error("graph: duplicate label");
+    index->labels_[id] = label;
+    index->levels_[id] = level;
+    const float* vector = vectors + label * dim;
+    if (metric == Metric::Cosine) {
+      std::copy(vector, vector + dim, normalized.begin());
+      normalize(normalized.data(), dim);
+      vector = normalized.data();
+    }
+    std::memcpy(index->record(id), vector, dim * sizeof(float));
+    if (level > 0) index->upper_links_[id] = std::make_unique<id_t[]>(static_cast<std::size_t>(level) * (1 + M));
+    for (int layer = 0; layer <= level; ++layer) {
+      id_t* list = index->links_of(id, layer);
+      const std::size_t links = in.pod<std::uint8_t>();
+      if (links > index->max_links(layer)) throw std::runtime_error("graph: corrupt neighbor list");
+      list[0] = static_cast<id_t>(links);
+      for (std::size_t i = 1; i <= links; ++i) {
+        const id_t neighbor = width == 2 ? in.pod<std::uint16_t>() : in.pod<std::uint32_t>();
+        if (neighbor >= count) throw std::runtime_error("graph: link out of range");
+        list[i] = neighbor;
+      }
+    }
+  }
+  if (!in.done()) throw std::runtime_error("graph: trailing bytes");
+  const id_t entry_id = static_cast<id_t>(entry & 0xffffffffu);
+  const int entry_level = static_cast<int>(entry >> 32) - 1;
+  if (count > 0 && (entry_id >= count || entry_level != index->levels_[entry_id])) {
+    throw std::runtime_error("graph: corrupt entry point");
+  }
+  index->count_.store(count, std::memory_order_release);
+  index->entry_.store(entry, std::memory_order_release);
+  return index;
+}
+
 }  // namespace oryx
