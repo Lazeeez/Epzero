@@ -5,7 +5,7 @@ const shots = process.env.SCREENSHOT_DIR;
 // A fake camera, so the webcam search runs headless.
 test.use({
   launchOptions: { args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"] },
-  permissions: ["camera"],
+  permissions: ["camera", "clipboard-read", "clipboard-write"],
 });
 
 test("searches 29,825 photos by text, photo and camera, with the debugger and race", async ({ page, request }) => {
@@ -39,6 +39,19 @@ test("searches 29,825 photos by text, photo and camera, with the debugger and ra
   const captions = await panel.locator(".caption > span:first-child").allTextContents();
   expect(captions.filter((c) => /apple/i.test(c)).length).toBeGreaterThanOrEqual(4);
   expect(new URL(page.url()).searchParams.get("q")).toBe("a red apple");
+  await expect(panel.getByRole("group", { name: "Recent searches" })).toContainText("a red apple");
+
+  // Share copies a link that reopens this exact search.
+  await page.getByRole("button", { name: "Share this search" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Link copied" })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("q=a+red+apple");
+
+  // "?" lists every shortcut; Escape closes it.
+  await page.keyboard.press("?");
+  const shortcuts = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+  await expect(shortcuts).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(shortcuts).toHaveCount(0);
 
   // Step-through debugger: stepping pauses the replay and explains each decision.
   const debuggerBar = page.getByRole("region", { name: "Search debugger" });
