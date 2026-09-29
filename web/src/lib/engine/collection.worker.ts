@@ -1,10 +1,13 @@
-// Owns the Oryx engine for the explorer: downloads the int8 CLIP vectors, builds the HNSW graph on
-// every core, and answers searches with full traversal traces. Nothing here touches the DOM.
+// Owns the Oryx engine for the site: downloads the int8 CLIP vectors and the prebuilt HNSW graph
+// (or builds the graph on every core when there isn't one, and on request), and answers searches
+// with full traversal traces. Nothing here touches the DOM.
+import { cachedFetch } from "../cached-fetch";
 import type { Evaluation, FromWorker, Neighborhood, Request, ToWorker, Trace } from "./protocol";
 
 interface Collection {
   load(vectors: Int8Array, scales: Float32Array, dim: number): void;
   beginBuild(M: number, efConstruction: number): void;
+  loadGraph(bytes: Uint8Array, M: number, efConstruction: number): void;
   buildStep(count: number, threads: number): number;
   levels(): Uint8Array;
   edges(layer: number): Uint32Array;
@@ -31,35 +34,40 @@ let count = 0;
 // Base-layer adjacency (CSR), built on first use and dropped on rebuild.
 let adjacency: { offsets: Uint32Array; targets: Uint32Array } | null = null;
 
-// Streams a binary file, reporting bytes as they arrive.
-async function download(url: string, onBytes: (bytes: number) => void): Promise<ArrayBuffer> {
-  const response = await fetch(url);
-  if (!response.ok || !response.body) throw new Error(`${url}: HTTP ${response.status}`);
-  const total = Number(response.headers.get("Content-Length")) || 0;
-  const buffer = new Uint8Array(total || 1 << 20);
+
+// Streams a binary file, reporting bytes as they arrive. A repeat visit reads straight from the
+// Cache API rather than through the service worker's fetch handler, which had to relay every chunk
+// through its own thread (measured: a cached 15 MB read took longer than the network). `expected`
+// sizes the buffer up front: GitHub Pages gzips responses, so there is often no Content-Length.
+async function download(url: string, onBytes: (bytes: number) => void, expected = 0): Promise<ArrayBuffer> {
+  const response = await cachedFetch(url);
+  if (!response.body) throw new Error(`${url}: empty response`);
+  const total = Math.max(Number(response.headers.get("Content-Length")) || 0, expected);
+  let buffer = new Uint8Array(total || 1 << 20);
   let length = 0;
   const reader = response.body.getReader();
-  let grown = buffer;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    if (length + value.length > grown.length) {
-      const bigger = new Uint8Array(Math.max(grown.length * 2, length + value.length));
-      bigger.set(grown.subarray(0, length));
-      grown = bigger;
+    if (length + value.length > buffer.length) {
+      const bigger = new Uint8Array(Math.max(buffer.length * 2, length + value.length));
+      bigger.set(buffer.subarray(0, length));
+      buffer = bigger;
     }
-    grown.set(value, length);
+    buffer.set(value, length);
     length += value.length;
     onBytes(length);
   }
-  return grown.buffer.slice(0, length);
+  return length === buffer.length ? buffer.buffer : buffer.buffer.slice(0, length);
 }
 
 async function load(message: Extract<ToWorker, { type: "load" }>) {
   const bytes = message.count * message.dim;
-  const [vectorBytes, scaleBytes, module] = await Promise.all([
-    download(`${message.base}vectors.i8`, (done) => post({ type: "progress", stage: "download", done, total: bytes })),
+  const [vectorBytes, scaleBytes, graphBytes, module] = await Promise.all([
+    download(`${message.base}vectors.i8`, (done) => post({ type: "progress", stage: "download", done, total: bytes }), bytes),
     download(`${message.base}scales.f32`, () => {}),
+    // The prebuilt graph (~1.3 MB) downloads alongside; if it's missing, the graph is built here.
+    message.graph ? download(`${message.base}${message.graph}`, () => {}).catch(() => null) : Promise.resolve(null),
     engine,
   ]);
   codes = new Int8Array(vectorBytes);
@@ -68,6 +76,16 @@ async function load(message: Extract<ToWorker, { type: "load" }>) {
   count = codes.length / dim;
   collection = new module.Collection();
   collection.load(codes, scales, dim);
+  if (graphBytes) {
+    try {
+      const start = performance.now();
+      collection.loadGraph(new Uint8Array(graphBytes), message.M, message.efConstruction);
+      publish(message.M, message.efConstruction, performance.now() - start, true);
+      return;
+    } catch (error) {
+      console.warn("Prebuilt graph rejected; building instead:", error);
+    }
+  }
   build(message.M, message.efConstruction);
 }
 
@@ -82,7 +100,12 @@ function build(M: number, efConstruction: number) {
     built = index.buildStep(slice, threads);
     post({ type: "progress", stage: "build", done: built, total: count });
   }
-  const buildMs = performance.now() - start;
+  publish(M, efConstruction, performance.now() - start, false);
+}
+
+// Sends the finished graph's topology to the page (for the 3D view and stats).
+function publish(M: number, efConstruction: number, buildMs: number, prebuilt: boolean) {
+  const index = collection!;
   const info = index.info();
   const edges: Uint32Array[] = [new Uint32Array(0)];
   for (let layer = 1; layer <= info.maxLevel; layer++) edges.push(index.edges(layer));
@@ -90,7 +113,7 @@ function build(M: number, efConstruction: number) {
   post(
     {
       type: "built",
-      graph: { levels, edges, maxLevel: info.maxLevel, buildMs, memoryBytes: info.memoryBytes, threads, variant, M, efConstruction },
+      graph: { levels, edges, maxLevel: info.maxLevel, buildMs, memoryBytes: info.memoryBytes, threads, variant, M, efConstruction, prebuilt },
     },
     [levels.buffer, ...edges.map((e) => e.buffer)],
   );
