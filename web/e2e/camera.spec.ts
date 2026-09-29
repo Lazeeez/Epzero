@@ -27,9 +27,13 @@ test.describe("camera, permission granted", () => {
 
     await panel.getByRole("button", { name: /Point your camera/ }).click();
     const video = panel.locator("video");
+    // A cold CI runner can take several seconds to start even the fake camera. If it fails
+    // instead, surface the page's own error message rather than a bare "not found".
+    await expect(video.or(panel.getByRole("alert"))).toBeVisible({ timeout: 30_000 });
+    expect(await panel.getByRole("alert").allTextContents()).toEqual([]);
     await expect(video).toBeVisible();
     // The stream is attached and playing: the preview has real frames.
-    await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 10_000 }).toBeGreaterThan(0);
+    await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
     await expect.poll(() => video.evaluate((v: HTMLVideoElement) => !v.paused)).toBe(true);
 
     const capture = panel.getByRole("button", { name: "Capture & search" });
@@ -67,7 +71,7 @@ test.describe("camera, permission granted", () => {
     const page = await context.newPage();
     const panel = await openCamera(page);
     await panel.getByRole("button", { name: /Point your camera/ }).click();
-    await expect.poll(() => panel.locator("video").evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 10_000 }).toBeGreaterThan(0);
+    await expect.poll(() => panel.locator("video").evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
     const capture = panel.getByRole("button", { name: "Capture & search" });
     await expect(capture).toBeEnabled({ timeout: 200_000 });
     await capture.tap();
