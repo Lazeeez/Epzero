@@ -51,16 +51,38 @@
     border-radius: 14px;
     background: var(--surface);
   }
+  /* Two rows: every label on one line, every value on one shared baseline (the values differ in
+     size, so aligning each column's bottom would leave the labels at different heights). */
   .primary {
-    display: flex;
-    align-items: flex-end;
-    gap: 14px;
+    display: grid;
+    grid-template-columns: auto auto auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    align-items: baseline;
+    column-gap: 14px;
+    row-gap: 2px;
   }
   .stat {
-    display: grid;
-    gap: 2px;
+    display: contents;
+  }
+  .stat:nth-child(1) > * {
+    grid-column: 1;
+  }
+  .stat:nth-child(3) > * {
+    grid-column: 3;
+  }
+  .stat:nth-child(4) > * {
+    grid-column: 4;
+    justify-self: end;
   }
   .label {
+    grid-row: 1;
+  }
+  .stat strong {
+    grid-row: 2;
+    white-space: nowrap;
+  }
+  .label {
+    white-space: nowrap;
     color: var(--muted);
     font-size: 11.5px;
     letter-spacing: 0.04em;
@@ -82,13 +104,10 @@
     color: var(--text-2);
   }
   .vs {
-    padding-bottom: 5px;
+    grid-column: 2;
+    grid-row: 2;
     color: var(--muted);
     font-size: 12px;
-  }
-  .accent {
-    margin-left: auto;
-    text-align: right;
   }
   .accent strong {
     color: var(--good);
