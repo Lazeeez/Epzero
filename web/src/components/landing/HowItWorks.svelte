@@ -241,7 +241,7 @@
           <h3>{steps[3].title}</h3>
           <p>
             A search starts at the single entry point on the top layer. It moves to any neighbour closer to the query
-            <span class="query-mark" aria-label="the diamond"></span>, and when none is, it drops a layer and continues from
+            <span class="query-mark" role="img" aria-label="(the diamond)"></span>, and when none is, it drops a layer and continues from
             the same point.
           </p>
           <p>A few long hops cover most of the distance, touching only a few points.</p>
