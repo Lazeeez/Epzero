@@ -60,7 +60,19 @@ function serviceWorker(): Plugin {
     async generateBundle(_, bundle) {
       const files = Object.keys(bundle).filter((name) => !name.endsWith(".map") && name !== "sw.js");
       const precache = ["", "index.html", ...files.filter((name) => name !== "index.html" && precached(name))];
-      const build = createHash("sha256").update(files.sort().join("\n")).digest("hex").slice(0, 12);
+      // The version covers the bundle's (hashed) names and the engine's WebAssembly files, whose
+      // names never change: a C++-only change must still replace the cached engine.
+      const hash = createHash("sha256").update(files.sort().join("\n"));
+      for (const variant of ["mt", "st"]) {
+        for (const file of ["oryx.js", "oryx.wasm"]) {
+          try {
+            hash.update(await readFile(new URL(`./public/wasm/${variant}/${file}`, import.meta.url)));
+          } catch {
+            /* not built yet (e.g. a docs-only build): nothing to version */
+          }
+        }
+      }
+      const build = hash.digest("hex").slice(0, 12);
       const template = await readFile(new URL("./src/sw/sw-template.js", import.meta.url), "utf8");
       this.emitFile({
         type: "asset",
@@ -76,7 +88,8 @@ export default defineConfig({
   plugins: [svelte(), dropBundledOrt(), staticRoutes(), serviceWorker()],
   // The benchmark pages import their numbers straight from bench/results at the repo root.
   server: { headers: isolation, fs: { allow: [".."] } },
-  preview: { headers: isolation },
+  // ORYX_NO_ISOLATION serves like GitHub Pages (no headers), for the service worker's own tests.
+  preview: { headers: process.env.ORYX_NO_ISOLATION ? {} : isolation },
   worker: { format: "es" },
   build: {
     target: "es2022",
