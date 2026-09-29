@@ -1,11 +1,11 @@
 // Client-side routing for the three pages, with the View Transitions API for page changes.
 // Paths are relative to the site's base (e.g. /Oryx/).
 
-export type Route = "home" | "try" | "benchmarks";
+export type Route = "home" | "try" | "play" | "benchmarks";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-const ROUTES: Record<string, Route> = { "": "home", "/": "home", "/try": "try", "/benchmarks": "benchmarks" };
+const ROUTES: Record<string, Route> = { "": "home", "/": "home", "/try": "try", "/play": "play", "/benchmarks": "benchmarks" };
 
 function parse(pathname: string): { route: Route; hash: string } {
   let path = pathname.startsWith(BASE) ? pathname.slice(BASE.length) : pathname;
@@ -39,9 +39,16 @@ class Router {
     const changed = route !== this.route;
     this.route = route;
     queueMicrotask(() => {
-      const target = hash ? document.querySelector(hash) : null;
+      let target: Element | null = null;
+      try {
+        target = hash ? document.querySelector(decodeURIComponent(hash)) : null;
+      } catch {
+        target = null; // not a valid selector (e.g. a stray #fragment)
+      }
       if (target) target.scrollIntoView({ behavior: changed ? "instant" : "smooth", block: "start" });
       else if (changed) window.scrollTo({ top: 0, behavior: "instant" });
+      // Screen readers: move focus to the new page's content, as a full page load would.
+      if (changed) document.getElementById("main")?.focus({ preventScroll: true });
     });
   }
 
