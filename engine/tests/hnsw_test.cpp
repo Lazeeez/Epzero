@@ -195,6 +195,60 @@ TEST_F(HnswTest, SaveLoadRoundTrip) {
   EXPECT_THROW(loaded->add(0, data_.base.row(0)), std::invalid_argument);  // label map restored
 }
 
+TEST_F(HnswTest, GraphExportImportRoundTrip) {
+  // Cosine, inserted on several threads so node ids differ from labels (the web demo's case).
+  HnswIndex index(params_for(Metric::Cosine));
+  std::vector<std::thread> workers;
+  for (std::size_t t = 0; t < 4; ++t) {
+    workers.emplace_back([&, t] {
+      for (std::size_t i = t; i < kBase; i += 4) index.add(i, data_.base.row(i));
+    });
+  }
+  for (auto& w : workers) w.join();
+
+  const auto bytes = index.export_graph();
+  EXPECT_LT(bytes.size(), kBase * kDim * sizeof(float));  // links only: smaller than the vectors alone
+  const auto imported =
+      HnswIndex::import_graph(params_for(Metric::Cosine), data_.base.data.data(), kBase, bytes.data(), bytes.size());
+  EXPECT_EQ(imported->size(), index.size());
+  EXPECT_EQ(imported->max_level(), index.max_level());
+  for (std::size_t q = 0; q < 50; ++q) {
+    const auto a = index.search(data_.queries.row(q), kK, {.ef = 64});
+    const auto b = imported->search(data_.queries.row(q), kK, {.ef = 64});
+    ASSERT_EQ(a.size(), b.size());
+    for (std::size_t i = 0; i < a.size(); ++i) {
+      EXPECT_EQ(a[i].label, b[i].label);
+      EXPECT_EQ(a[i].distance, b[i].distance);
+    }
+  }
+  EXPECT_THROW(imported->add(0, data_.base.row(0)), std::invalid_argument);  // label map restored
+}
+
+TEST_F(HnswTest, GraphImportRejectsCorruptOrMismatchedInput) {
+  HnswIndex index(params_for(Metric::L2));
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  auto bytes = index.export_graph();
+  const float* vectors = data_.base.data.data();
+
+  auto truncated = bytes;
+  truncated.pop_back();
+  EXPECT_THROW(HnswIndex::import_graph(params_for(Metric::L2), vectors, kBase, truncated.data(), truncated.size()),
+               std::runtime_error);
+  auto garbage = bytes;
+  garbage[0] = 'X';
+  EXPECT_THROW(HnswIndex::import_graph(params_for(Metric::L2), vectors, kBase, garbage.data(), garbage.size()),
+               std::runtime_error);
+  // Every link must point at a loaded node: overwrite the tail (links) with 0xff.
+  auto bad_links = bytes;
+  for (std::size_t i = bad_links.size() - 64; i < bad_links.size(); ++i) bad_links[i] = 0xff;
+  EXPECT_THROW(HnswIndex::import_graph(params_for(Metric::L2), vectors, kBase, bad_links.data(), bad_links.size()),
+               std::runtime_error);
+  EXPECT_THROW(HnswIndex::import_graph(params_for(Metric::Cosine), vectors, kBase, bytes.data(), bytes.size()),
+               std::runtime_error);  // built for L2
+  EXPECT_THROW(HnswIndex::import_graph(params_for(Metric::L2), vectors, kBase - 1, bytes.data(), bytes.size()),
+               std::runtime_error);  // fewer vectors than nodes
+}
+
 // ---------- SQ8 quantization ----------
 
 HnswParams sq8_params(Metric metric, bool keep_vectors, std::size_t max_elements = kBase) {
