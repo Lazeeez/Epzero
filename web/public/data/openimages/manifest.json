@@ -9,7 +9,8 @@
     "vectors": "vectors.i8",
     "scales": "scales.f32",
     "layout": "layout.u16",
-    "meta": "meta.json"
+    "meta": "meta.json",
+    "graph": "graph.bin"
   },
   "quantization": {
     "scheme": "int8 symmetric per-dimension",
@@ -53,5 +54,11 @@
       "Mule · Horse · Person · Sky",
       "Ship · Boat · Water"
     ]
+  },
+  "graph": {
+    "M": 16,
+    "efConstruction": 128,
+    "metric": "cosine",
+    "builtBy": "engine/tools/export_graph.cpp (web/scripts/build-graph.sh)"
   }
 }
