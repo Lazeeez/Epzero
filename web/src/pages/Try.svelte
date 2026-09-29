@@ -244,7 +244,7 @@
       {:else}
         <strong>{engine.stage || "Starting the engine"}</strong>
         <div class="meter"><i style:width="{(engine.progress * 100).toFixed(1)}%"></i></div>
-        <p>C++ compiled to WebAssembly, building on every core of your CPU. Nodes appear as they are inserted.</p>
+        <p>C++ compiled to WebAssembly. The graph arrives prebuilt; rebuild it on your own cores any time from the index settings.</p>
       {/if}
     </div>
   {/if}
