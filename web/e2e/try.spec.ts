@@ -119,15 +119,16 @@ test("searches 29,825 photos by text, photo and camera, with the debugger and ra
   await page.waitForTimeout(3000); // let any camera flight finish
   const hovercard = page.locator(".hovercard");
   const heading = panel.locator(".results h2");
-  // Probe outward from the dense middle of the graph (the free area right of the panel), giving
-  // each spot time for a rendered frame: CI has no GPU, so the scene may draw only a few fps.
+  // Probe outward from the dense middle of the graph (the free area right of the panel).
   let searched = false;
   const [cx, cy] = [(424 + 1440) / 2, 430];
   for (let i = 0; i < 60 && !searched; i++) {
     const angle = i * 2.4;
     const radius = 14 * Math.sqrt(i);
     await page.mouse.move(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius);
-    await page.waitForTimeout(300);
+    // The scene picks what's under the pointer once per rendered frame: wait for two frames (on a
+    // GPU-less CI runner one can take several hundred ms) instead of a fixed delay.
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
     if (!(await hovercard.isVisible())) continue;
     await page.mouse.down();
     await page.mouse.up();
