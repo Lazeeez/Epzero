@@ -155,20 +155,11 @@
       </p>
     </div>
     <Lab />
-  </section>
-
-  <section class="container block method" aria-labelledby="method-title">
-    <h2 id="method-title" class="block-title" use:reveal>Methodology</h2>
-    <ul use:reveal>
-      <li><strong>Hardware.</strong> Intel i5-13420H laptop (P- and E-cores) under WSL2. Hyper-V hides core placement, so runs are interleaved rather than pinned.</li>
-      <li><strong>Same graph for every search change.</strong> Built once, saved, and reloaded by every candidate binary, so recall is identical by construction.</li>
-      <li><strong>Interleaved A/B.</strong> Candidates run in alternating order for 5–7 rounds; the median is reported. Differences under ~3% are treated as noise.</li>
-      <li><strong>Library comparison.</strong> All three libraries are loaded into one process and queried through their own C++ batch loops, so Python overhead isn't timed.</li>
-    </ul>
-    <p class="caption">
+    <p class="caption next">
       Want to see it on real data? <a href={router.href("try")}>Search 29,825 photos in the playground →</a>
     </p>
   </section>
+
 </div>
 
 <style>
@@ -244,6 +235,9 @@
     color: var(--text-2);
     font-size: 15px;
     line-height: 1.65;
+  }
+  .caption.next {
+    margin-top: 28px;
   }
   .caption.lead {
     margin: 10px 0 24px;
@@ -345,18 +339,6 @@
     color: var(--text-2);
     font-size: 14px;
     line-height: 1.6;
-  }
-  .method ul {
-    display: grid;
-    gap: 12px;
-    max-width: 820px;
-    margin: 20px 0 0;
-    padding-left: 20px;
-    color: var(--text-2);
-    line-height: 1.6;
-  }
-  .method strong {
-    color: var(--text);
   }
   @media (max-width: 900px) {
     .stats {
