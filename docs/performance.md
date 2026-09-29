@@ -119,6 +119,55 @@ With re-ranking, SQ8 is strictly better (same or higher recall, faster).
 Without it, codes-only trades a recall ceiling of about 0.989 for roughly 3×
 less memory.
 
+## Exact ground truth: cache blocking
+
+The benchmark lab (and `bench_recall`) needs the exact 10 nearest neighbors of every query.
+The first version scanned the whole dataset once per query. That is bound by memory
+bandwidth: 1,000 queries over 100k × 128-d vectors (51 MB) stream about 51 GB from DRAM.
+`compute_ground_truth` now takes 32 queries at a time and walks the data in 128 KiB blocks
+that stay in L2, so each block is fetched once per tile instead of once per query. Results
+are bit-identical (same distances, same scan order per query).
+
+| 100k × 128-d, 1,000 queries | Per-query scan | Blocked |
+|---|---|---|
+| Native, 12 threads | 898 ms | 346 ms (2.6×) |
+| Native, 1 thread | 3,000 ms | 1,180 ms (2.5×) |
+| WebAssembly, 12 threads (Node) | 825 ms | 480 ms (1.7×) |
+| In the browser lab | 1.0–1.3 s | 0.53–0.61 s |
+
+A WebAssembly-specific trap: the first blocked version was **slower** in the browser (2.7 s),
+though 2.6× faster natively. V8 runs WebAssembly first in a baseline tier and only switches a
+function to optimized code on a later call; a long loop that is already running never switches.
+With the whole scan inside one call per thread, it ran unoptimized from start to finish
+(`node --no-liftoff` made it fast, which confirmed the cause). The fix: the inner block scan is its
+own function, called ~12,500 times, plus a ~6 ms single-threaded warm-up in WebAssembly builds, so
+the optimizing compiler finishes while the CPU is idle rather than while every core is busy.
+
+## Web demo: time to first results
+
+Measured on the Try page (local server, 12-thread laptop):
+
+| | Before | After |
+|---|---|---|
+| Index ready | 3.5–3.8 s (built in the browser on every visit) | 0.1–0.2 s (prebuilt graph) |
+| First results, first visit | 15–16 s | 1.9 s |
+| First results, repeat visit | 15 s | 1.2 s |
+
+- **Prebuilt graph.** `HnswIndex::export_graph` writes only the links (16-bit ids below 65,536
+  nodes): 1.3 MB for the 29,825-photo index, next to the 15 MB of int8 vectors the page already
+  downloads. `import_graph` rebuilds the index from the two, validating every link. Phones,
+  which took 20–40 s to build the graph, gain the most. `web/scripts/build-graph.sh` regenerates it.
+- **Nothing waits on anything it doesn't need.** Only the tiny manifest precedes the big
+  downloads; vectors, graph, photo metadata and the map layout then arrive in parallel.
+- **Cache reads skip the service worker.** On repeat visits the data is read straight from the
+  Cache API. Through the service worker's fetch handler, its single thread relayed every byte and
+  the dataset queued behind the model downloads it was also relaying (5 MB of metadata took over 5 s).
+- **Models wait their turn.** The CLIP encoders (67 and 89 MB) start once the index is ready,
+  instead of competing with it, and warm up in the background on idle (skipped on Data Saver or
+  2G/3G). They are cached once by the service worker, not a second time by transformers.js.
+- **No wasted first-visit download.** The very first visit reloads once to become cross-origin
+  isolated (needed for WebAssembly threads); downloads now start after that reload.
+
 ## Next levers
 
 1. **Graph-parameter tuning** (M, efConstruction) for the best
