@@ -3,6 +3,7 @@ import "@fontsource-variable/jetbrains-mono";
 import "./styles/global.css";
 import { mount } from "svelte";
 import App from "./App.svelte";
+import { engine } from "./lib/engine/engine.svelte";
 import { router } from "./lib/router.svelte";
 import { restoreTheme } from "./lib/theme";
 
@@ -21,4 +22,6 @@ addEventListener("vite:preloadError", (event) => {
 
 restoreTheme();
 router.start();
+// Pages that search start fetching the index right away, before the app has even mounted.
+if (router.route !== "benchmarks") engine.start();
 mount(App, { target: document.getElementById("app")! });
