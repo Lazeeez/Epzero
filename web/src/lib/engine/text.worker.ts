@@ -34,6 +34,14 @@ const files = new Map<string, { loaded: number; total: number }>();
 const started = performance.now();
 
 const ready = (async () => {
+  // The site's service worker already caches everything under models/. When it's active, don't
+  // let transformers.js keep a second copy of the model in its own cache: that doubled the disk
+  // writes on a first visit and the reads on every later one. Without it, keep the library cache.
+  try {
+    env.useBrowserCache = !(await caches.keys()).some((name) => name.startsWith("oryx-shell-"));
+  } catch {
+    env.useBrowserCache = true;
+  }
   const progress_callback = (event: { status: string; file?: string; loaded?: number; total?: number }) => {
     if (event.status !== "progress" || !event.file) return;
     files.set(event.file, { loaded: event.loaded ?? 0, total: event.total ?? 0 });
