@@ -91,6 +91,13 @@ if(ORYX_BUILD_BENCH)
   target_link_libraries(bench_recall PRIVATE oryx_engine)
 endif()
 
+# Writes the web demo's prebuilt graph (see tools/export_graph.cpp and web/scripts/build-graph.sh).
+if(NOT EMSCRIPTEN)
+  add_executable(oryx_export_graph tools/export_graph.cpp)
+  set_target_properties(oryx_export_graph PROPERTIES OUTPUT_NAME oryx-export-graph)
+  target_link_libraries(oryx_export_graph PRIVATE oryx_engine)
+endif()
+
 option(ORYX_BUILD_NODE "Build the cluster data node (needs gRPC C++ and protobuf)" ON)
 if(ORYX_BUILD_NODE AND NOT EMSCRIPTEN)
   find_package(PkgConfig)
