@@ -393,7 +393,6 @@
     padding: 8px;
   }
   .chart :global(canvas) {
-    aspect-ratio: 1;
     border-radius: 10px;
   }
   .legend {
@@ -535,7 +534,7 @@
   .result dl {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-    align-items: center;
+    align-items: start; /* both sides' labels and numbers line up, whatever the caption length */
     gap: 12px;
     margin: 0;
   }
@@ -544,6 +543,7 @@
     gap: 2px;
   }
   .vs {
+    align-self: center;
     color: var(--muted);
   }
   dt {
