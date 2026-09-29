@@ -138,6 +138,7 @@
     gap: 10px;
     padding: 12px 14px;
     background: var(--glass);
+    container-type: inline-size; /* the dock's width varies with the window and the panel */
   }
   .controls {
     display: flex;
@@ -293,8 +294,25 @@
     color: var(--muted);
   }
   .explain {
-    flex: 1 1 320px;
+    flex: 1 1 280px;
+    min-width: 0;
     line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+  /* A narrow dock (small laptops, tablets): drop the speed picker, then the thumbnails, so the
+     controls never spill past the card. */
+  @container (max-width: 600px) {
+    .speeds {
+      display: none;
+    }
+  }
+  @container (max-width: 470px) {
+    .hop {
+      display: none;
+    }
+    .count {
+      min-width: 0;
+    }
   }
   .explain strong {
     color: var(--text);
