@@ -26,7 +26,6 @@
       <span>Oryx</span>
     </a>
     <nav aria-label="Main">
-      <a href={router.href("home", "#how")} class="link">How it works</a>
       <a href={router.href("try")} class="link" aria-current={router.route === "try" ? "page" : undefined}>Try it</a>
       <a href={router.href("play")} class="link" aria-current={router.route === "play" ? "page" : undefined}>Play</a>
       <a href={router.href("benchmarks")} class="link" aria-current={router.route === "benchmarks" ? "page" : undefined}>Benchmarks</a>
@@ -151,9 +150,6 @@
     transform: translateY(-1px);
   }
   @media (max-width: 720px) {
-    nav .link:first-child {
-      display: none;
-    }
     nav {
       margin-left: 0;
     }
