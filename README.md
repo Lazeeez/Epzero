@@ -23,6 +23,13 @@ WebAssembly (SIMD128 + threads), running entirely in your browser:
   hop by hop in a debugger, or race it against an exact scan. Every search is
   checked against the exact answer, e.g. *75 µs, 12/12 same results, 45×
   faster*.
+  **Blend** a photo with words ("in the snow") and slide between them live;
+  **tune and rebuild** the whole index with new `M` / `efConstruction` and
+  compare measured recall and speed; orbit, zoom and tap through the 3D
+  graph with a navigator HUD following each search.
+- **[Play](https://lazeeez.github.io/Oryx/play).** *Out-navigate Oryx*: hop
+  from photo to photo along the real base-layer links to reach a target,
+  then see the route Oryx's search took through its express layers.
 - **[Benchmarks](https://lazeeez.github.io/Oryx/benchmarks).** Interactive
   SIFT1M charts against hnswlib and FAISS, the optimization log, SQ8 results,
   and a lab that benchmarks the engine on your own device.
