@@ -91,6 +91,7 @@
     }
     norm = Math.sqrt(norm) || 1;
     for (let i = 0; i < q.length; i++) q[i] /= norm;
+    inFlight = true;
     onsearch(
       {
         kind: "vector",
@@ -101,15 +102,28 @@
         blend: { id: base?.id, words: wordsFor, mix },
       },
       { live },
-    ).catch(() => {});
+    )
+      .catch(() => {})
+      .finally(() => {
+        inFlight = false;
+        // The slider moved while that search ran: catch up with its latest position.
+        if (stale) {
+          stale = false;
+          go(true);
+        }
+      });
   }
 
-  // Dragging the slider searches on every frame it moves: a blend search takes well under a
-  // millisecond, so the results morph live.
-  let frame = 0;
+  // Dragging the slider searches continuously. The HNSW search itself takes well under a
+  // millisecond, but each also runs an exact scan for comparison, so at most one is in flight:
+  // moves during a search collapse into one follow-up with the latest position. Results keep up
+  // with the finger on any device instead of lagging behind a queue.
+  let inFlight = false;
+  let stale = false;
   function onMix(value: number) {
     mix = value;
-    if (!frame) frame = requestAnimationFrame(() => ((frame = 0), go(true)));
+    if (inFlight) stale = true;
+    else go(true);
   }
 
   // Start from the URL's blend (a shared link); the search runs once the base photo is ready.
@@ -144,7 +158,7 @@
     </form>
   </div>
 
-  <div class="chips" aria-label="Blend ideas">
+  <div class="chips" role="group" aria-label="Blend ideas">
     {#each suggestions as s (s)}
       <button onclick={() => setWords(s)} disabled={disabled || textEncoder.status !== "ready"}>{s}</button>
     {/each}
