@@ -28,6 +28,8 @@ export interface GraphInfo {
   variant: "mt" | "st";
   M: number;
   efConstruction: number;
+  /** Loaded from the prebuilt graph file (buildMs is then the load time) rather than built here. */
+  prebuilt: boolean;
 }
 
 export type Query =
@@ -62,7 +64,16 @@ export interface Neighborhood {
 }
 
 export type ToWorker =
-  | { type: "load"; base: string; count: number; dim: number; M: number; efConstruction: number }
+  | {
+      type: "load";
+      base: string;
+      count: number;
+      dim: number;
+      M: number;
+      efConstruction: number;
+      /** A prebuilt graph to load instead of building (falls back to building if it fails). */
+      graph?: string;
+    }
   | { type: "rebuild"; M: number; efConstruction: number }
   | { type: "search"; seq: number; query: Query; k: number; ef: number }
   | { type: "request"; seq: number; request: Request };
