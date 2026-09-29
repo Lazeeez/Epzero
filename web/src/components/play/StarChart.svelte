@@ -229,6 +229,7 @@
   canvas {
     display: block;
     width: 100%;
-    height: 100%;
+    height: auto; /* square by aspect ratio: 100% height would take the whole card and push the legend out */
+    aspect-ratio: 1;
   }
 </style>
