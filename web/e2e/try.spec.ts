@@ -75,6 +75,50 @@ test("searches 29,825 photos by text, photo and camera, with the debugger and ra
   await panel.getByRole("button", { name: "Capture & search" }).click();
   await expect(panel.locator(".results h2")).toContainText("camera frame", { timeout: 30_000 });
 
+  // Blend: a collection photo plus words, mixed by a slider; the link reproduces it.
+  await panel.getByRole("tab", { name: "Describe" }).click();
+  await results.nth(1).click();
+  await expect(panel.locator(".results h2")).toContainText("Photos like");
+  await panel.getByRole("tab", { name: "Blend" }).click();
+  await panel.getByRole("button", { name: "in the snow" }).click();
+  await expect(panel.locator(".results h2")).toContainText("in the snow", { timeout: 30_000 });
+  await panel.getByRole("slider", { name: /Balance between the photo and the words/ }).fill("0.8");
+  await expect.poll(() => new URL(page.url()).searchParams.get("mix")).toBe("0.80");
+  expect(new URL(page.url()).searchParams.get("plus")).toBe("in the snow");
+
+  // Navigator HUD follows the replay.
+  await expect(page.getByRole("complementary", { name: "Navigator instruments" })).toContainText("Heading");
+
+  // Tune and rebuild: a new graph, measured against an exact scan.
+  await page.getByRole("button", { name: "Index settings" }).click();
+  const tune = page.getByRole("region", { name: "Tune the index" });
+  await expect(tune.locator("tbody tr")).toHaveCount(1, { timeout: 60_000 });
+  await tune.getByRole("button", { name: "8", exact: true }).click();
+  await tune.getByRole("button", { name: "Rebuild index" }).click();
+  await expect(tune.locator("tbody tr")).toHaveCount(2, { timeout: 120_000 });
+  await expect(tune.locator("tbody tr").nth(1).locator("td").nth(5)).toHaveText(/^0\.\d{3}$/, { timeout: 60_000 });
+  if (shots) await page.screenshot({ path: `${shots}/tune.png` });
+  await page.keyboard.press("Escape");
+  await expect(tune).toHaveCount(0);
+
+  // The 3D graph takes the mouse: hovering a star shows its photo, clicking searches from it.
+  await page.getByRole("button", { name: "Auto-rotate" }).click(); // hold the camera still
+  await page.waitForTimeout(3000); // let any camera flight finish
+  const hovercard = page.locator(".hovercard");
+  const heading = panel.locator(".results h2");
+  let searched = false;
+  for (let y = 0.3; y <= 0.8 && !searched; y += 0.04) {
+    for (let x = 0.4; x <= 0.85 && !searched; x += 0.03) {
+      await page.mouse.move(1440 * x, 900 * y);
+      await page.waitForTimeout(40);
+      if (!(await hovercard.isVisible())) continue;
+      await page.mouse.down();
+      await page.mouse.up();
+      searched = await heading.getByText("Photos like").waitFor({ timeout: 2_000 }).then(() => true, () => false);
+    }
+  }
+  expect(searched).toBe(true);
+
   // Changing ef re-runs the query live.
   const ef = page.getByRole("slider", { name: /Beam width/ });
   await ef.fill("128");
