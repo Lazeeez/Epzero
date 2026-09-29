@@ -54,8 +54,10 @@ function readPalette(): Palette {
 const POINT_VERTEX = /* glsl */ `
   attribute float aState;
   attribute float aTone;
+  attribute float aLayer;
   uniform float uPixelRatio;
   uniform float uTime;
+  uniform float uFocus; // -1: every layer; otherwise only this layer is lit
   uniform vec3 uIdleA, uIdleB, uVisited, uAccepted, uResult;
   varying vec3 vColor;
   varying float vAlpha;
@@ -65,10 +67,12 @@ const POINT_VERTEX = /* glsl */ `
     float size = 2.2;
     vec3 color = mix(uIdleA, uIdleB, aTone);
     float alpha = 0.78;
+    if (aState < 0.5) size *= 0.88 + 0.24 * sin(uTime * 1.3 + aTone * 47.0); // idle stars twinkle
     if (aState > 3.5) { size = 10.0; color = uAccepted; alpha = 1.0; }
     else if (aState > 2.5) { size = 7.5 + 1.5 * sin(uTime * 4.0); color = uResult; alpha = 1.0; }
     else if (aState > 1.5) { size = 4.2; color = uAccepted; alpha = 1.0; }
     else if (aState > 0.5) { size = 3.0; color = uVisited; alpha = 0.95; }
+    if (uFocus > -0.5 && abs(aLayer - uFocus) > 0.5 && aState < 0.5) { alpha *= 0.07; size *= 0.7; }
     vColor = color;
     vAlpha = alpha;
     gl_PointSize = size * uPixelRatio * (48.0 / -mv.z);
@@ -87,8 +91,40 @@ const POINT_FRAGMENT = /* glsl */ `
   }
 `;
 
+// A far-away starfield around the whole graph (dark theme only): the collection as a star map.
+const STAR_VERTEX = /* glsl */ `
+  attribute float aSize;
+  attribute float aPhase;
+  uniform float uTime;
+  uniform float uPixelRatio;
+  varying float vAlpha;
+  void main() {
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mv;
+    float twinkle = 0.65 + 0.35 * sin(uTime * (0.6 + aPhase) + aPhase * 30.0);
+    vAlpha = twinkle * (0.35 + 0.65 * aSize);
+    gl_PointSize = (0.8 + aSize * 2.2) * uPixelRatio;
+  }
+`;
+const STAR_FRAGMENT = /* glsl */ `
+  varying float vAlpha;
+  void main() {
+    float d = length(gl_PointCoord - 0.5);
+    if (d > 0.5) discard;
+    gl_FragColor = vec4(vec3(0.85, 0.9, 1.0), vAlpha * smoothstep(0.5, 0.0, d));
+  }
+`;
+
 export interface Hover {
   id: number;
+  x: number;
+  y: number;
+}
+
+/** A click or tap on the graph: the node hit (or -1), how, and where on screen. */
+export interface Tap {
+  id: number;
+  pointerType: string;
   x: number;
   y: number;
 }
@@ -96,7 +132,7 @@ export interface Hover {
 export class GraphScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.PerspectiveCamera(42, 1, 0.5, 600);
+  private readonly camera = new THREE.PerspectiveCamera(42, 1, 0.5, 1000); // far enough for the starfield
   private readonly controls: OrbitControls;
   private readonly composer: EffectComposer;
   private readonly bloom: UnrealBloomPass;
@@ -121,9 +157,17 @@ export class GraphScene {
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2(-9, -9);
   private hoverListener: ((hover: Hover | null) => void) | null = null;
-  private clickListener: ((id: number) => void) | null = null;
   private lastHover = -1;
   private cameraGoal: { target: THREE.Vector3; position: THREE.Vector3 } | null = null;
+  private stars: THREE.Points | null = null;
+  private pointLayer = new Int8Array(0); // index into the points buffer -> layer
+  private layerFocus = -1;
+  // A ring that marks the node under the pointer (or the one selected by a tap).
+  private marker: THREE.Sprite | null = null;
+  private tapListener: ((tap: Tap) => void) | null = null;
+  private autoRotateListener: ((on: boolean) => void) | null = null;
+  // The head of the search route: a glowing point that leads the trail as it's drawn.
+  private comet: THREE.Sprite | null = null;
 
   constructor(private readonly host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -138,12 +182,20 @@ export class GraphScene {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
-    this.controls.minDistance = 12;
-    this.controls.maxDistance = 220;
+    this.controls.minDistance = 6;
+    this.controls.maxDistance = 260;
+    // Zoom toward whatever is under the cursor (or between the fingers), like a map.
+    this.controls.zoomToCursor = true;
+    this.controls.screenSpacePanning = true;
+    this.controls.zoomSpeed = 1.1;
+    this.controls.rotateSpeed = 0.7;
+    this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+    this.controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
     this.controls.autoRotate = !this.reducedMotion;
     this.controls.autoRotateSpeed = 0.35;
     this.controls.target.set(0, 12, 0);
     this.controls.addEventListener("start", () => {
+      if (this.controls.autoRotate) this.autoRotateListener?.(false);
       this.controls.autoRotate = false;
       this.cameraGoal = null; // the viewer took over
     });
@@ -154,10 +206,14 @@ export class GraphScene {
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
     this.scene.add(this.graphGroup, this.planes);
+    this.stars = this.createStars();
+    this.comet = this.createComet();
+    this.scene.add(this.stars, this.comet);
     this.raycaster.params.Points = { threshold: 0.55 };
 
     const canvas = this.renderer.domElement;
     canvas.addEventListener("pointermove", (event) => {
+      if (event.pointerType === "touch") return; // fingers orbit; they don't hover
       const box = canvas.getBoundingClientRect();
       this.pointer.set(((event.clientX - box.left) / box.width) * 2 - 1, -((event.clientY - box.top) / box.height) * 2 + 1);
       this.pointerMoved = true;
@@ -166,13 +222,25 @@ export class GraphScene {
       this.pointer.set(-9, -9);
       this.pointerMoved = true;
     });
-    let down = { x: 0, y: 0 };
-    canvas.addEventListener("pointerdown", (event) => (down = { x: event.clientX, y: event.clientY }));
-    canvas.addEventListener("click", (event) => {
-      // A drag is camera control, not a pick.
-      if (Math.hypot(event.clientX - down.x, event.clientY - down.y) > 5) return;
-      if (this.lastHover >= 0) this.clickListener?.(this.lastHover);
+    let down = { x: 0, y: 0, time: 0 };
+    canvas.addEventListener("pointerdown", (event) => (down = { x: event.clientX, y: event.clientY, time: performance.now() }));
+    canvas.addEventListener("pointerup", (event) => {
+      // A drag or a long press is camera control, not a pick.
+      const moved = Math.hypot(event.clientX - down.x, event.clientY - down.y);
+      if (moved > (event.pointerType === "touch" ? 10 : 5) || performance.now() - down.time > 600 || event.button > 0) return;
+      const hit = this.nodeAt(event.clientX, event.clientY, event.pointerType === "touch" ? 1.6 : 0.55);
+      if (hit) this.showMarker(hit.index);
+      const box = canvas.getBoundingClientRect();
+      this.tapListener?.({ id: hit ? hit.node : -1, pointerType: event.pointerType, x: event.clientX - box.left, y: event.clientY - box.top });
     });
+    // Double-click / double-tap: fly in to that spot.
+    canvas.addEventListener("dblclick", (event) => {
+      const hit = this.nodeAt(event.clientX, event.clientY, 1.6);
+      if (hit) this.flyTo(hit.point, 0.45);
+      else this.zoom(0.6);
+    });
+    // Stop the page itself from zooming on a trackpad pinch over the graph (the graph zooms instead).
+    canvas.addEventListener("wheel", (event) => event.ctrlKey && event.preventDefault(), { passive: false });
 
     new ResizeObserver(() => this.resize()).observe(host);
     this.resize();
@@ -180,13 +248,172 @@ export class GraphScene {
     this.renderer.setAnimationLoop((time) => this.frame(time));
   }
 
+  private createStars(): THREE.Points {
+    const count = 2400;
+    const positions = new Float32Array(count * 3);
+    const sizes = new Float32Array(count);
+    const phases = new Float32Array(count);
+    let seed = 7;
+    const random = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+    for (let i = 0; i < count; i++) {
+      // Uniform on a thick spherical shell, well outside the graph and the camera's orbit.
+      const u = random() * 2 - 1;
+      const phi = random() * Math.PI * 2;
+      const r = 260 + random() * 180;
+      const s = Math.sqrt(1 - u * u);
+      positions.set([r * s * Math.cos(phi), r * u, r * s * Math.sin(phi)], i * 3);
+      sizes[i] = Math.pow(random(), 3); // mostly faint, a few bright
+      phases[i] = random();
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
+    geometry.setAttribute("aPhase", new THREE.BufferAttribute(phases, 1));
+    const stars = new THREE.Points(
+      geometry,
+      new THREE.ShaderMaterial({
+        vertexShader: STAR_VERTEX,
+        fragmentShader: STAR_FRAGMENT,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        uniforms: { uTime: { value: 0 }, uPixelRatio: { value: this.renderer.getPixelRatio() } },
+      }),
+    );
+    stars.frustumCulled = false;
+    stars.visible = this.palette.dark;
+    return stars;
+  }
+
+  private createComet(): THREE.Sprite {
+    const size = 64;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext("2d")!;
+    const glow = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    glow.addColorStop(0, "rgba(255,255,255,1)");
+    glow.addColorStop(0.25, "rgba(255,255,255,0.55)");
+    glow.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, size, size);
+    const texture = new THREE.CanvasTexture(canvas);
+    const comet = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: texture, color: this.palette.path, transparent: true, depthWrite: false, depthTest: false }),
+    );
+    comet.scale.set(4.2, 4.2, 1);
+    comet.renderOrder = 11;
+    comet.visible = false;
+    return comet;
+  }
+
+  /** Called for every click or tap on the canvas (not for drags). */
+  onTap(listener: ((tap: Tap) => void) | null) {
+    this.tapListener = listener;
+  }
+
+  /** Called when auto-rotation stops because the viewer took the camera. */
+  onAutoRotateChange(listener: ((on: boolean) => void) | null) {
+    this.autoRotateListener = listener;
+  }
+
+  setAutoRotate(on: boolean) {
+    this.controls.autoRotate = on && !this.reducedMotion;
+  }
+
+  /** Zooms toward the current focus point; factor < 1 moves in. */
+  zoom(factor: number) {
+    const target = this.cameraGoal?.target ?? this.controls.target.clone();
+    const from = this.cameraGoal?.position ?? this.camera.position;
+    const offset = from.clone().sub(target);
+    const distance = THREE.MathUtils.clamp(offset.length() * factor, this.controls.minDistance, this.controls.maxDistance);
+    this.cameraGoal = { target: target.clone(), position: target.clone().add(offset.setLength(distance)) };
+  }
+
+  /** Flies the camera to look at `point` from closer in (the same viewing angle). */
+  private flyTo(point: THREE.Vector3, closeness: number) {
+    const direction = this.camera.position.clone().sub(this.controls.target);
+    const distance = THREE.MathUtils.clamp(direction.length() * closeness, 14, this.controls.maxDistance);
+    this.cameraGoal = { target: point.clone(), position: point.clone().add(direction.setLength(distance)) };
+    this.controls.autoRotate = false;
+    this.autoRotateListener?.(false);
+  }
+
+  /** Flies to a node on the base layer (e.g. "zoom here" from a selected photo). */
+  focusNode(id: number) {
+    this.flyTo(this.worldPoint(id, 0), 0.4);
+    const index = this.pointIndex[0]?.[id] ?? -1;
+    if (index >= 0) this.showMarker(index);
+  }
+
+  /** Lights one layer and dims the others (-1 shows every layer). */
+  setLayerFocus(layer: number) {
+    this.layerFocus = layer;
+    if (this.points) (this.points.material as THREE.ShaderMaterial).uniforms.uFocus.value = layer;
+    for (const child of this.graphGroup.children) {
+      if (!(child instanceof THREE.LineSegments) || child.name === "trail") continue;
+      const own = child.name.startsWith("lanes-") ? Number(child.name.slice(6)) : -2;
+      const lit = layer < 0 || own === layer;
+      (child.material as THREE.LineBasicMaterial).opacity = (child.userData.opacity as number) * (lit ? 1 : 0.08);
+    }
+    for (const child of this.planes.children) {
+      child.visible = layer < 0 || child.userData.layer === layer;
+    }
+  }
+
+  /** Clears the hover/selection marker. */
+  clearMarker() {
+    if (this.marker) this.marker.visible = false;
+  }
+
+  private showMarker(index: number) {
+    if (!this.points) return;
+    if (!this.marker) {
+      const size = 64;
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext("2d")!;
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, size / 2 - 5, 0, Math.PI * 2);
+      ctx.stroke();
+      this.marker = new THREE.Sprite(
+        new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false, depthWrite: false }),
+      );
+      this.marker.renderOrder = 12;
+      this.marker.scale.set(2.4, 2.4, 1);
+      this.scene.add(this.marker);
+    }
+    (this.marker.material as THREE.SpriteMaterial).color = this.palette.result;
+    const position = this.points.geometry.getAttribute("position");
+    this.marker.position.fromBufferAttribute(position, index);
+    this.marker.visible = true;
+  }
+
+  /** The node under a screen point, honouring the layer focus. `threshold` is in world units. */
+  private nodeAt(clientX: number, clientY: number, threshold: number) {
+    if (!this.points) return null;
+    const box = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((clientX - box.left) / box.width) * 2 - 1, -((clientY - box.top) / box.height) * 2 + 1);
+    this.raycaster.params.Points = { threshold };
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const hits = this.raycaster.intersectObject(this.points);
+    this.raycaster.params.Points = { threshold: 0.55 };
+    const limit = this.builtCount + this.pointNode.length - this.count;
+    for (const hit of hits) {
+      const index = hit.index;
+      if (index === undefined || index >= limit) continue;
+      if (this.layerFocus >= 0 && this.pointLayer[index] !== this.layerFocus) continue;
+      const point = new THREE.Vector3().fromBufferAttribute(this.points.geometry.getAttribute("position"), index);
+      return { node: this.pointNode[index], index, point };
+    }
+    return null;
+  }
+
   onHover(listener: (hover: Hover | null) => void) {
     this.hoverListener = listener;
   }
 
-  onClick(listener: (id: number) => void) {
-    this.clickListener = listener;
-  }
 
   /** Map positions (normalized UMAP, [-1, 1]^2) for every node; shown as a base-layer cloud. */
   setLayout(xy: Float32Array) {
@@ -208,6 +435,9 @@ export class GraphScene {
     this.rebuildPoints();
     this.rebuildEdges(graph);
     this.rebuildPlanes(graph.maxLevel);
+    this.clearMarker();
+    if (this.layerFocus > graph.maxLevel) this.layerFocus = -1;
+    this.setLayerFocus(this.layerFocus);
   }
 
   themeChanged() {
@@ -238,20 +468,24 @@ export class GraphScene {
     const xyz: number[] = [];
     const tone: number[] = [];
     const owners: number[] = [];
+    const layers: number[] = [];
     let index = 0;
     for (let layer = 0; layer <= maxLevel; layer++) {
       for (let node = 0; node < this.count; node++) {
         if (this.levels[node] < layer) continue;
         this.pointIndex[layer][node] = index++;
         owners.push(node);
+        layers.push(layer);
         xyz.push(this.worldX(node), layer * LAYER_GAP, this.worldZ(node));
         tone.push(0.5 + 0.5 * Math.sin(this.positions[node * 2] * 2.1 + this.positions[node * 2 + 1] * 1.3));
       }
     }
     this.pointNode = Int32Array.from(owners);
+    this.pointLayer = Int8Array.from(layers);
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(xyz, 3));
     geometry.setAttribute("aTone", new THREE.Float32BufferAttribute(tone, 1));
+    geometry.setAttribute("aLayer", new THREE.Float32BufferAttribute(layers, 1));
     this.states = new Float32Array(index);
     geometry.setAttribute("aState", new THREE.BufferAttribute(this.states, 1).setUsage(THREE.DynamicDrawUsage));
     geometry.setDrawRange(0, maxLevel === 0 ? this.builtCount : index);
@@ -263,6 +497,7 @@ export class GraphScene {
       uniforms: {
         uPixelRatio: { value: this.renderer.getPixelRatio() },
         uTime: { value: 0 },
+        uFocus: { value: this.layerFocus },
         uIdleA: { value: this.palette.idleA },
         uIdleB: { value: this.palette.idleB },
         uVisited: { value: this.palette.visited },
@@ -289,6 +524,7 @@ export class GraphScene {
       const material = new THREE.LineBasicMaterial({ transparent: true, opacity, depthWrite: false });
       const segments = new THREE.LineSegments(geometry, material);
       segments.name = name;
+      segments.userData.opacity = opacity;
       segments.frustumCulled = false;
       this.graphGroup.add(segments);
     };
@@ -332,7 +568,7 @@ export class GraphScene {
   private rebuildPlanes(maxLevel: number) {
     for (const child of [...this.planes.children]) {
       this.planes.remove(child);
-      if (child instanceof THREE.Mesh || child instanceof THREE.LineLoop || child instanceof THREE.Sprite) {
+      if (child instanceof THREE.Mesh || child instanceof THREE.Line || child instanceof THREE.Sprite) {
         child.geometry.dispose();
         (child.material as THREE.Material).dispose();
       }
@@ -362,7 +598,21 @@ export class GraphScene {
         new THREE.LineBasicMaterial({ color: this.palette.plane, transparent: true, opacity: this.palette.dark ? 0.16 : 0.22 }),
       );
       ring.position.y = layer * LAYER_GAP;
-      this.planes.add(disc, ring, this.label(`Layer ${layer} · ${counts[layer].toLocaleString()} nodes`, layer, radius));
+      // Orbit-style graduations: a tick every 5 degrees, longer every 30.
+      const ticks: THREE.Vector3[] = [];
+      for (let deg = 0; deg < 360; deg += 5) {
+        const a = (deg * Math.PI) / 180;
+        const inner = radius - (deg % 30 === 0 ? 2.2 : 0.9);
+        ticks.push(new THREE.Vector3(Math.cos(a) * inner, 0, Math.sin(a) * inner), new THREE.Vector3(Math.cos(a) * radius, 0, Math.sin(a) * radius));
+      }
+      const graduations = new THREE.LineSegments(
+        new THREE.BufferGeometry().setFromPoints(ticks),
+        new THREE.LineBasicMaterial({ color: this.palette.plane, transparent: true, opacity: this.palette.dark ? 0.22 : 0.28 }),
+      );
+      graduations.position.y = layer * LAYER_GAP;
+      const label = this.label(`Layer ${layer} · ${counts[layer].toLocaleString()} nodes`, layer, radius);
+      for (const object of [disc, ring, graduations, label]) object.userData.layer = layer;
+      this.planes.add(disc, ring, graduations, label);
     }
   }
 
@@ -389,6 +639,8 @@ export class GraphScene {
   private applyPalette() {
     const p = this.palette;
     this.scene.background = p.background;
+    if (this.stars) this.stars.visible = p.dark;
+    if (this.comet) (this.comet.material as THREE.SpriteMaterial).color = p.path;
     this.bloom.enabled = p.dark && !this.reducedMotion;
     const blending = p.dark ? THREE.AdditiveBlending : THREE.NormalBlending;
     if (this.points) {
@@ -497,6 +749,7 @@ export class GraphScene {
 
   /** Clears the current search from the scene. */
   clearTrace() {
+    if (this.comet) this.comet.visible = false;
     this.trace = null;
     this.trailCount = 0;
     this.stateEvents = [];
@@ -578,6 +831,14 @@ export class GraphScene {
         else hi = mid;
       }
       this.trail.geometry.setDrawRange(0, lo * 2);
+      if (this.comet) {
+        const live = lo > 0 && t < this.duration;
+        this.comet.visible = live;
+        if (live) {
+          const end = (this.trail.geometry.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
+          this.comet.position.set(end[(lo - 1) * 6 + 3], end[(lo - 1) * 6 + 4], end[(lo - 1) * 6 + 5]);
+        }
+      }
     }
     if (this.points) {
       let changed = false;
@@ -677,6 +938,7 @@ export class GraphScene {
     if (this.playhead !== this.applied) this.applyPlayhead();
     else if (!this.playing) this.emitPlayhead();
     if (this.points) (this.points.material as THREE.ShaderMaterial).uniforms.uTime.value = time / 1000;
+    if (this.stars?.visible) (this.stars.material as THREE.ShaderMaterial).uniforms.uTime.value = time / 1000;
     if (this.cameraGoal) {
       const ease = this.reducedMotion ? 1 : 0.035;
       this.controls.target.lerp(this.cameraGoal.target, ease);
@@ -695,18 +957,23 @@ export class GraphScene {
     let node = -1;
     let anchor: THREE.Vector3 | null = null;
     if (this.pointer.x > -1.5) {
-      this.raycaster.setFromCamera(this.pointer, this.camera);
-      const hit = this.raycaster.intersectObject(this.points)[0];
-      if (hit?.index !== undefined && hit.index < this.builtCount + this.pointNode.length - this.count) {
-        node = this.pointNode[hit.index];
-        const position = this.points.geometry.getAttribute("position");
-        anchor = new THREE.Vector3().fromBufferAttribute(position, hit.index);
+      const box = this.renderer.domElement.getBoundingClientRect();
+      const hit = this.nodeAt(
+        box.left + ((this.pointer.x + 1) / 2) * box.width,
+        box.top + ((1 - this.pointer.y) / 2) * box.height,
+        0.55,
+      );
+      if (hit) {
+        node = hit.node;
+        anchor = hit.point;
+        this.showMarker(hit.index);
       }
     }
     if (node === this.lastHover) return;
     this.lastHover = node;
     this.renderer.domElement.style.cursor = node >= 0 ? "pointer" : "";
     if (!anchor) {
+      this.clearMarker();
       this.hoverListener(null);
       return;
     }
