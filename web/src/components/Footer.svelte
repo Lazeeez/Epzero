@@ -10,7 +10,7 @@
       <p>An HNSW vector database written from scratch in C++20, compiled to WebAssembly for this site. Nothing you search leaves your browser.</p>
     </div>
     <nav aria-label="Footer">
-      <a href={router.href("home", "#how")}>How it works</a>
+      <a href={router.href("home")}>Home</a>
       <a href={router.href("try")}>Try it</a>
       <a href={router.href("play")}>Play</a>
       <a href={router.href("benchmarks")}>Benchmarks</a>
