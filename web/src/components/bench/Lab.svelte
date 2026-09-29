@@ -1,7 +1,10 @@
 <script lang="ts">
   import { formatQps, formatUs } from "../../lib/format";
   import type { EngineInfo, FromWorker, KernelRow, LabConfig, StageId, SweepRow } from "../../lib/lab/protocol";
+  import { reloadForThreads } from "../../lib/isolation";
   import RecallChart from "./RecallChart.svelte";
+
+  const cores = Math.min(navigator.hardwareConcurrency || 1, 16);
 
   const choices = {
     n: [20000, 50000, 100000, 200000],
@@ -127,9 +130,19 @@
     <ul class="env" aria-label="Runtime">
       {#if info}
         <li class="ok">SIMD: {info.simd === "wasm" ? "WebAssembly SIMD128" : info.simd}</li>
-        <li class:ok={info.variant === "mt"} class:warn={info.variant !== "mt"}>
-          {info.variant === "mt" ? `${info.threads} threads` : "Single-threaded (page isn't cross-origin isolated)"}
-        </li>
+        {#if info.variant === "mt"}
+          <li class="ok">{info.threads} threads</li>
+        {:else}
+          <!-- A warning, not an error: everything works, on one core instead of all of them. -->
+          <li class="warn" title="Browsers only allow WebAssembly threads on cross-origin isolated pages; this site's service worker makes it so once it serves the page.">
+            1 thread: multithreading is off for this page load
+          </li>
+          {#if cores > 1}
+            <li class="action">
+              <button onclick={reloadForThreads}>Reload to use all {cores} cores</button>
+            </li>
+          {/if}
+        {/if}
       {:else if error}
         <li class="warn">{error}</li>
       {:else}
@@ -279,6 +292,19 @@
   .env li.warn {
     border-color: color-mix(in srgb, var(--warn) 45%, transparent);
     color: var(--warn);
+  }
+  .env li.action {
+    padding: 0;
+    border: 0;
+  }
+  .env li.action button {
+    padding: 5px 12px;
+    border: 1px solid var(--accent);
+    border-radius: 99px;
+    background: var(--accent-wash);
+    color: var(--accent-strong);
+    font: 12.5px var(--mono);
+    cursor: pointer;
   }
   .options {
     display: flex;
