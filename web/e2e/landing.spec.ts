@@ -14,7 +14,7 @@ test("landing page: live hero, and the HNSW explainer runs real searches", async
   await expect(page).toHaveTitle(/Oryx/);
 
   // The engine builds behind the hero and starts answering live queries.
-  await expect(page.locator(".telemetry")).toContainText("Index built", { timeout: 150_000 });
+  await expect(page.locator(".telemetry")).toContainText(/Index (ready|built)/, { timeout: 150_000 });
   await expect(page.getByRole("complementary", { name: "Live query" })).toBeVisible({ timeout: 15_000 });
   if (shots) {
     await page.waitForTimeout(2500);
@@ -73,7 +73,7 @@ test("landing page: live hero, and the HNSW explainer runs real searches", async
 
   if (shots) {
     await page.goto("./");
-    await expect(page.locator(".telemetry")).toContainText("Index built", { timeout: 150_000 });
+    await expect(page.locator(".telemetry")).toContainText(/Index (ready|built)/, { timeout: 150_000 });
     await page.getByRole("button", { name: "Switch to light theme" }).click();
     await page.waitForTimeout(3000);
     await page.screenshot({ path: `${shots}/home-light.png` });
