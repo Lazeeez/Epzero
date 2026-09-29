@@ -1,5 +1,7 @@
 // The site-wide engine: dataset, the WebAssembly index (in a worker) and search. One instance for
 // the whole app, so the graph is built once and survives navigation between pages.
+import { cachedFetch } from "../cached-fetch";
+import { isolationSettled } from "../isolation";
 import type { Evaluation, FromWorker, GraphInfo, Neighborhood, Query, Request, Trace } from "./protocol";
 
 export interface Meta {
@@ -18,6 +20,8 @@ interface Manifest {
   count: number;
   dim: number;
   quantization: { recallAt10VsFloat: number };
+  files: { graph?: string };
+  graph?: { M: number; efConstruction: number };
 }
 
 export type EngineStatus = "idle" | "loading" | "building" | "ready" | "error";
@@ -64,7 +68,7 @@ class Engine {
 
   /** Loads the dataset and builds the index (idempotent). */
   start(): Promise<void> {
-    this.started ??= this.load();
+    this.started ??= isolationSettled().then(() => this.load());
     return this.started;
   }
 
@@ -80,26 +84,41 @@ class Engine {
     return this.start();
   }
 
+  private graphFile: string | undefined;
+  private graphParams = { M: 16, efConstruction: 128 };
+
   private async load() {
     this.status = "loading";
     this.stage = "Loading the dataset";
+    // Only the tiny manifest is needed before the big downloads start. The vectors (in the worker),
+    // photo metadata and map layout then download in parallel, so the metadata (2 MB) is no longer
+    // on the critical path; the index is "ready" once the graph and the metadata are both there.
+    let side: Promise<void>;
     try {
-      const [manifest, meta, layout] = await Promise.all([
-        fetch(`${DATA}manifest.json`).then((r) => r.json() as Promise<Manifest>),
-        fetch(`${DATA}meta.json`).then((r) => r.json() as Promise<Meta>),
-        fetch(`${DATA}layout.u16`).then((r) => r.arrayBuffer()),
-      ]);
+      const manifest = (await (await cachedFetch(`${DATA}manifest.json`, { fresh: true })).json()) as Manifest;
       this.count = manifest.count;
       this.dim = manifest.dim;
       this.quantizationRecall = manifest.quantization.recallAt10VsFloat;
-      this.meta = meta;
-      this.layout = Float32Array.from(new Uint16Array(layout), (v) => (v / 65535) * 2 - 1);
+      this.graphFile = manifest.files.graph;
+      if (manifest.graph) this.graphParams = { M: manifest.graph.M, efConstruction: manifest.graph.efConstruction };
+      side = Promise.all([
+        cachedFetch(`${DATA}meta.json`)
+          .then((r) => r.json() as Promise<Meta>)
+          .then((meta) => void (this.meta = meta)),
+        cachedFetch(`${DATA}layout.u16`)
+          .then((r) => r.arrayBuffer())
+          .then((layout) => void (this.layout = Float32Array.from(new Uint16Array(layout), (v) => (v / 65535) * 2 - 1))),
+      ]).then(() => {});
     } catch (error) {
       this.fail(`Could not load the dataset: ${error}`);
       return;
     }
 
     await new Promise<void>((resolve) => {
+      side.catch((error) => {
+        this.fail(`Could not load the dataset: ${error}`);
+        resolve();
+      });
       this.worker = new Worker(new URL("./collection.worker.ts", import.meta.url), { type: "module" });
       this.worker.onmessage = (event: MessageEvent<FromWorker>) => {
         const message = event.data;
@@ -107,7 +126,8 @@ class Engine {
           case "progress":
             if (message.stage === "download") {
               this.stage = `Downloading ${(message.total / 1e6).toFixed(0)} MB of CLIP vectors`;
-              this.progress = 0.35 * (message.done / message.total);
+              // With a prebuilt graph the download is nearly all the wait; otherwise the build is.
+              this.progress = (this.graphFile ? 0.95 : 0.35) * (message.done / message.total);
             } else if (this.rebuilding) {
               this.rebuildProgress = message.done / message.total;
             } else {
@@ -117,20 +137,25 @@ class Engine {
               this.built = message.done;
             }
             break;
-          case "built":
-            this.graph = message.graph;
-            this.buildMs = message.graph.buildMs;
-            this.params = { M: message.graph.M, efConstruction: message.graph.efConstruction };
-            this.built = this.count;
-            this.progress = 1;
-            this.stage = "Ready";
-            this.status = "ready";
-            this.evaluation = null;
-            this.rebuilding = false;
-            this.rebuilt?.();
-            this.rebuilt = null;
-            resolve();
+          case "built": {
+            const graph = message.graph;
+            // Captions and thumbnails need the metadata: go ready once it has arrived too.
+            side.then(() => {
+              this.graph = graph;
+              this.buildMs = graph.buildMs;
+              this.params = { M: graph.M, efConstruction: graph.efConstruction };
+              this.built = this.count;
+              this.progress = 1;
+              this.stage = "Ready";
+              this.status = "ready";
+              this.evaluation = null;
+              this.rebuilding = false;
+              this.rebuilt?.();
+              this.rebuilt = null;
+              resolve();
+            });
             break;
+          }
           case "reply": {
             const waiter = this.replies.get(message.seq);
             this.replies.delete(message.seq);
@@ -171,7 +196,7 @@ class Engine {
         this.fail(event.message || "The engine worker failed to start.");
         resolve();
       };
-      this.worker.postMessage({ type: "load", base: DATA, count: this.count, dim: this.dim, M: 16, efConstruction: 128 });
+      this.worker.postMessage({ type: "load", base: DATA, count: this.count, dim: this.dim, graph: this.graphFile, ...this.graphParams });
     });
   }
 
