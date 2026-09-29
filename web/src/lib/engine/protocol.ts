@@ -26,6 +26,8 @@ export interface GraphInfo {
   memoryBytes: number;
   threads: number;
   variant: "mt" | "st";
+  M: number;
+  efConstruction: number;
 }
 
 export type Query =
@@ -33,17 +35,41 @@ export type Query =
   | {
       kind: "vector";
       vector: Float32Array;
-      source: "text" | "photo" | "camera";
+      source: "text" | "photo" | "camera" | "blend";
       text: string; // the description, or a short label for image queries
       preview?: string; // object URL of the query image
+      blend?: { id?: number; words: string; mix: number }; // a photo + words mix
     };
+
+export interface Evaluation {
+  recall: number;
+  qps: number;
+  distancesPerQuery: number;
+  ef: number;
+}
+
+/** Small request/reply calls answered from the loaded vectors and graph. */
+export type Request =
+  | { method: "vector"; id: number } // -> Float32Array (normalized)
+  | { method: "neighbors"; id: number; target: number } // -> Neighborhood on the base layer
+  | { method: "similarity"; a: number; b: number } // -> number (cosine)
+  | { method: "evaluate"; ef: number; samples: number }; // -> Evaluation
+
+export interface Neighborhood {
+  ids: Uint32Array;
+  /** Cosine similarity of each neighbour to the target. */
+  similarities: Float32Array;
+}
 
 export type ToWorker =
   | { type: "load"; base: string; count: number; dim: number; M: number; efConstruction: number }
-  | { type: "search"; seq: number; query: Query; k: number; ef: number };
+  | { type: "rebuild"; M: number; efConstruction: number }
+  | { type: "search"; seq: number; query: Query; k: number; ef: number }
+  | { type: "request"; seq: number; request: Request };
 
 export type FromWorker =
   | { type: "progress"; stage: "download" | "build"; done: number; total: number }
   | { type: "built"; graph: GraphInfo }
   | { type: "result"; seq: number; query: Query; trace: Trace }
+  | { type: "reply"; seq: number; value: unknown }
   | { type: "error"; seq?: number; message: string };
