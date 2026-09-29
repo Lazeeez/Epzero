@@ -31,10 +31,36 @@
 
   // Camera
   let video: HTMLVideoElement | undefined = $state();
-  let stream: MediaStream | null = null;
+  let stream = $state.raw<MediaStream | null>(null);
   let cameraOn = $state(false);
+  let starting = $state(false);
   let live = $state(false);
   let liveTimer = 0;
+  // Phones start on the back camera (point it at things); laptops have one, facing the user.
+  let facing = $state<"user" | "environment">(matchMedia("(pointer: coarse)").matches ? "environment" : "user");
+  let cameraCount = $state(0);
+  // A camera facing the user is shown mirrored, like every video-call app; captures are not.
+  let mirrored = $state(false);
+
+  // Recent descriptions, kept on this device only (a convenience: fine if storage is blocked).
+  const RECENT_KEY = "oryx-recent-searches";
+  let recent = $state<string[]>(loadRecent());
+  function loadRecent(): string[] {
+    try {
+      const value = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+      return Array.isArray(value) ? value.filter((v) => typeof v === "string").slice(0, 6) : [];
+    } catch {
+      return [];
+    }
+  }
+  function saveRecent(next: string[]) {
+    recent = next;
+    try {
+      localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+    } catch {
+      /* storage blocked */
+    }
+  }
 
   const examples = ["a dog on the beach", "snowy mountains", "city lights at night", "a bowl of fruit", "vintage black and white photo", "a red sports car"];
 
@@ -57,19 +83,20 @@
     return () => removeEventListener("keydown", onKey);
   });
 
-  // Stop the camera when leaving camera mode or the page.
+  // Stop the camera when leaving camera mode or the page. Depends on `mode` only: stopCamera reads
+  // the stream, and tracking that would stop every new stream the moment it started.
   $effect(() => {
-    if (mode !== "camera") stopCamera();
-    return () => stopCamera();
+    if (mode !== "camera") untrack(stopCamera);
+    return () => untrack(stopCamera);
   });
 
-  async function run(task: () => Promise<Query | null>) {
+  async function run(task: () => Promise<Query | null>, live = false) {
     if (busy) return;
     busy = true;
     error = "";
     try {
       const query = await task();
-      if (query) await onsearch(query);
+      if (query) await onsearch(query, { live });
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -81,28 +108,33 @@
     const trimmed = value.trim();
     if (!trimmed) return;
     text = trimmed;
+    saveRecent([trimmed, ...recent.filter((r) => r !== trimmed)].slice(0, 6));
     run(async () => ({ kind: "vector", source: "text", text: trimmed, vector: await textEncoder.encode(trimmed) }));
   }
 
-  let lastFrameUrl: string | null = null;
+  // Camera frames: live mode makes one every few hundred milliseconds. Release old ones, but only
+  // once they can no longer be on screen (the results header shows the latest query's frame).
+  const frameUrls: string[] = [];
 
-  function searchImage(blob: Blob, source: "photo" | "camera") {
+  function searchImage(blob: Blob, source: "photo" | "camera", liveFrame = false) {
     const url = URL.createObjectURL(blob);
     if (source === "photo") {
       if (preview) URL.revokeObjectURL(preview);
       preview = url;
     } else {
-      // Live mode captures a frame every few hundred milliseconds: release the previous one.
-      if (lastFrameUrl) URL.revokeObjectURL(lastFrameUrl);
-      lastFrameUrl = url;
+      frameUrls.push(url);
+      while (frameUrls.length > 3) URL.revokeObjectURL(frameUrls.shift()!);
     }
-    run(async () => ({
-      kind: "vector",
-      source,
-      text: source === "photo" ? "your photo" : "camera frame",
-      preview: url,
-      vector: await imageEncoder.encode(blob),
-    }));
+    run(
+      async () => ({
+        kind: "vector",
+        source,
+        text: source === "photo" ? "your photo" : "camera frame",
+        preview: url,
+        vector: await imageEncoder.encode(blob),
+      }),
+      liveFrame,
+    );
   }
 
   function onFiles(files: FileList | null | undefined) {
@@ -120,33 +152,91 @@
     }
   }
 
-  async function startCamera() {
+  function cameraError(e: unknown): string {
+    const name = e instanceof DOMException || e instanceof Error ? e.name : "";
+    switch (name) {
+      case "NotAllowedError":
+      case "SecurityError":
+        return "Camera access was blocked. Allow the camera for this site in your browser's address bar, then try again.";
+      case "NotFoundError":
+      case "OverconstrainedError":
+        return "No camera was found on this device.";
+      case "NotReadableError":
+      case "AbortError":
+        return "The camera is busy in another app or tab. Close it there and try again.";
+      case "NotSupportedError":
+        return "This browser window can't open the camera (in-app browsers often can't). Try it in Chrome, Safari, Edge or Firefox.";
+      default:
+        return `The camera couldn't start${e instanceof Error && e.message ? `: ${e.message}` : "."}`;
+    }
+  }
+
+  async function startCamera(want: "user" | "environment" = facing) {
     error = "";
+    if (!navigator.mediaDevices?.getUserMedia) {
+      error = "This browser can't use a camera on this page.";
+      return;
+    }
+    starting = true;
+    releaseStream();
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "environment" } });
-      cameraOn = true;
-      queueMicrotask(() => {
-        if (video) {
-          video.srcObject = stream;
-          video.play();
+      const next = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: want }, width: { ideal: 640 }, height: { ideal: 480 } },
+      });
+      if (mode !== "camera") {
+        next.getTracks().forEach((t) => t.stop()); // the viewer left the tab while it was starting
+        return;
+      }
+      facing = want;
+      const track = next.getVideoTracks()[0];
+      // Laptops don't report a facing mode; their one camera faces the user.
+      mirrored = track?.getSettings().facingMode !== "environment";
+      track?.addEventListener("ended", () => {
+        if (stream === next) {
+          stopCamera();
+          error = "The camera stopped (it was unplugged or its permission was revoked).";
         }
       });
+      stream = next;
+      cameraOn = true;
+      // Device labels and counts are only available once permission is granted.
+      cameraCount = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput").length;
     } catch (e) {
-      error = e instanceof DOMException && e.name === "NotAllowedError" ? "Camera permission was denied." : "No camera is available.";
+      error = cameraError(e);
+    } finally {
+      starting = false;
     }
+  }
+
+  // Attach the stream once both it and the <video> element exist (the element only renders after
+  // cameraOn flips, so doing it right after getUserMedia could race the render).
+  $effect(() => {
+    if (!video || !stream) return;
+    video.srcObject = stream;
+    video.play().catch(() => {
+      /* autoplay of a muted inline video is allowed; a rejection means the element went away */
+    });
+  });
+
+  function releaseStream() {
+    stream?.getTracks().forEach((t) => t.stop());
+    stream = null;
   }
 
   function stopCamera() {
     live = false;
     liveGeneration++;
     clearTimeout(liveTimer);
-    stream?.getTracks().forEach((t) => t.stop());
-    stream = null;
+    releaseStream();
     cameraOn = false;
   }
 
   function grabFrame(): Promise<Blob | null> {
-    if (!video || !video.videoWidth) return Promise.resolve(null);
+    if (!video || !video.videoWidth) {
+      error = "The camera is still starting. Try again in a moment.";
+      return Promise.resolve(null);
+    }
     const canvas = document.createElement("canvas");
     // A centered square crop: what CLIP sees anyway (it center-crops to 224x224).
     const side = Math.min(video.videoWidth, video.videoHeight);
@@ -155,9 +245,9 @@
     return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
   }
 
-  async function capture() {
+  async function capture(liveFrame = false) {
     const blob = await grabFrame();
-    if (blob) searchImage(blob, "camera");
+    if (blob) searchImage(blob, "camera", liveFrame);
   }
 
   // Live mode: search the camera feed continuously (as fast as the encoder allows). Each start gets
@@ -165,7 +255,8 @@
   let liveGeneration = 0;
   async function liveLoop(generation: number) {
     if (!live || !cameraOn || generation !== liveGeneration) return;
-    if (!busy && !document.hidden) await capture();
+    // Live frames keep the 3D camera still and replay fast (no fly-to on every frame).
+    if (!busy && !document.hidden && video?.videoWidth) await capture(true);
     if (generation === liveGeneration) liveTimer = window.setTimeout(() => liveLoop(generation), 350);
   }
 
@@ -234,7 +325,16 @@
       />
       {#if busy}<span class="spinner" aria-hidden="true"></span>{:else}<kbd aria-hidden="true">/</kbd>{/if}
     </form>
-    <div class="chips" aria-label="Example searches">
+    {#if recent.length}
+      <div class="chips recent" role="group" aria-label="Recent searches">
+        <span class="label">Recent</span>
+        {#each recent as item (item)}
+          <button onclick={() => searchText(item)} disabled={disabled || textEncoder.status !== "ready"}>{item}</button>
+        {/each}
+        <button class="clear" onclick={() => saveRecent([])} aria-label="Clear recent searches" title="Clear recent searches">×</button>
+      </div>
+    {/if}
+    <div class="chips" role="group" aria-label="Example searches">
       {#each examples as example (example)}
         <button onclick={() => searchText(example)} disabled={disabled || textEncoder.status !== "ready"}>{example}</button>
       {/each}
@@ -271,17 +371,41 @@
   {:else}
     <div class="camera">
       {#if cameraOn}
-        <video bind:this={video} muted playsinline aria-label="Camera preview"></video>
+        <div class="viewfinder">
+          <video bind:this={video} class:mirrored autoplay muted playsinline aria-label="Camera preview"></video>
+          {#if live}<span class="live-badge" aria-hidden="true">LIVE</span>{/if}
+          <div class="corner-actions">
+            {#if cameraCount > 1}
+              <button
+                class="round"
+                onclick={() => startCamera(facing === "user" ? "environment" : "user")}
+                disabled={starting}
+                aria-label="Switch camera"
+                title="Switch camera"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-2.5h6L17 8h3v11H4zM9 13a3 3 0 0 1 5.2-2M15 13a3 3 0 0 1-5.2 2M14 9.5l.4 1.6-1.6.3M10 16.5l-.4-1.6 1.6-.3" /></svg>
+              </button>
+            {/if}
+            <button class="round" onclick={stopCamera} aria-label="Turn the camera off" title="Turn the camera off">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+            </button>
+          </div>
+        </div>
         <div class="camera-actions">
-          <button class="btn btn-primary" onclick={capture} disabled={busy || imageEncoder.status !== "ready"}>Capture & search</button>
+          <button class="btn btn-primary" onclick={() => capture()} disabled={busy || imageEncoder.status !== "ready"}>
+            {imageEncoder.status === "ready" ? "Capture & search" : `Loading model… ${pct(imageEncoder.progress)}`}
+          </button>
           <button class="btn btn-ghost" class:on={live} onclick={toggleLive} disabled={imageEncoder.status !== "ready"} aria-pressed={live}>
             <span class="dot" aria-hidden="true"></span>{live ? "Live" : "Go live"}
           </button>
         </div>
       {:else}
-        <button class="start" onclick={startCamera}>
+        <button class="start" onclick={() => startCamera()} disabled={starting}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l2-2.5h6L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Z" /><circle cx="12" cy="13" r="3.6" /></svg>
-          <span><strong>Point your camera at something</strong><br />Frames are embedded by CLIP on your device; nothing is uploaded.</span>
+          <span>
+            <strong>{starting ? "Starting the camera…" : "Point your camera at something"}</strong><br />Frames are embedded by CLIP on
+            your device; nothing is uploaded.
+          </span>
         </button>
       {/if}
       {#if imageEncoder.status === "loading"}<p class="note">Loading the CLIP image model… {pct(imageEncoder.progress)}</p>{/if}
@@ -483,12 +607,59 @@
     display: grid;
     gap: 10px;
   }
+  .viewfinder {
+    position: relative;
+    border-radius: 14px;
+    overflow: hidden;
+    background: #000;
+  }
   video {
+    display: block;
     width: 100%;
     aspect-ratio: 4 / 3;
-    border-radius: 14px;
-    background: #000;
     object-fit: cover;
+  }
+  video.mirrored {
+    transform: scaleX(-1);
+  }
+  .live-badge {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: var(--result);
+    color: #fff;
+    font: 700 10.5px var(--mono);
+    letter-spacing: 0.08em;
+  }
+  .corner-actions {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 6px;
+  }
+  .round {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+  }
+  .round svg {
+    width: 17px;
+    height: 17px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
   .camera-actions {
     display: flex;
@@ -562,5 +733,22 @@
     50% {
       opacity: 0.5;
     }
+  }
+  .recent {
+    align-items: center;
+  }
+  .recent .label {
+    color: var(--muted);
+    font: 600 10.5px var(--mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .recent button {
+    border-style: dashed;
+  }
+  .recent .clear {
+    padding: 2px 9px;
+    border-style: solid;
+    color: var(--muted);
   }
 </style>
