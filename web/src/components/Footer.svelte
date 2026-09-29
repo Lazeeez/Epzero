@@ -12,6 +12,7 @@
     <nav aria-label="Footer">
       <a href={router.href("home", "#how")}>How it works</a>
       <a href={router.href("try")}>Try it</a>
+      <a href={router.href("play")}>Play</a>
       <a href={router.href("benchmarks")}>Benchmarks</a>
     </nav>
     <p class="credits">
