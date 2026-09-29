@@ -12,6 +12,7 @@
     M: number;
     efConstruction: number;
     buildMs: number;
+    prebuilt: boolean;
     memoryMiB: number;
     layers: number;
     recall: number | null;
@@ -35,6 +36,7 @@
       M: engine.params.M,
       efConstruction: engine.params.efConstruction,
       buildMs: graph.buildMs,
+      prebuilt: graph.prebuilt,
       memoryMiB: graph.memoryBytes / 1048576,
       layers: graph.maxLevel + 1,
       recall: result?.recall ?? null,
@@ -135,7 +137,7 @@
             <tr class:current={run === current}>
               <td>{run.M}</td>
               <td>{run.efConstruction}</td>
-              <td>{(run.buildMs / 1000).toFixed(1)} s</td>
+              <td>{run.prebuilt ? "prebuilt" : `${(run.buildMs / 1000).toFixed(1)} s`}</td>
               <td>{run.memoryMiB.toFixed(0)} MiB</td>
               <td>{run.layers}</td>
               <td>{run.recall?.toFixed(3) ?? "–"}</td>
