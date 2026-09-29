@@ -266,6 +266,18 @@ class Collection {
     built_ = 0;
   }
 
+  // Loads a prebuilt graph (HnswIndex::export_graph bytes) for the loaded vectors instead of
+  // building one: milliseconds instead of seconds, which matters most on phones.
+  void load_graph(const val& bytes, std::size_t M, std::size_t ef_construction) {
+    if (n_ == 0) throw std::logic_error("load() first");
+    const auto data = emscripten::convertJSArrayToNumberVector<std::uint8_t>(bytes);
+    index_ = oryx::HnswIndex::import_graph(
+        oryx::HnswParams{.dim = dim_, .metric = oryx::Metric::Cosine, .max_elements = n_, .M = M,
+                         .ef_construction = ef_construction},
+        floats_.data(), n_, data.data(), data.size());
+    built_ = index_->size();
+  }
+
   std::size_t build_step(std::size_t count, std::size_t threads) {
     if (!index_) throw std::logic_error("begin_build() first");
     const std::size_t end = std::min(n_, built_ + count);
@@ -453,6 +465,7 @@ EMSCRIPTEN_BINDINGS(oryx) {
       .function("load", &Collection::load)
       .function("beginBuild", &Collection::begin_build)
       .function("buildStep", &Collection::build_step)
+      .function("loadGraph", &Collection::load_graph)
       .function("levels", &Collection::levels)
       .function("edges", &Collection::edges)
       .function("search", &Collection::search)
