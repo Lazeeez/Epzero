@@ -111,13 +111,15 @@
           </p>
         </div>
         <svg class="topology" viewBox="0 0 300 170" aria-hidden="true">
+          <!-- Every line ends at a box edge (router bottom y=44, node top y=104, node bottom y=132), so
+               nothing runs behind the labels. -->
           <g class="links">
-            <path class="cut" d="M150 34 L66 118" /><path d="M150 34 L150 118" /><path d="M150 34 L234 118" />
-            <path class="repl" d="M66 118 C 66 150, 150 150, 150 118" />
-            <path class="repl" d="M150 118 C 150 150, 234 150, 234 118" />
+            <path class="cut" d="M136 44 L66 104" /><path d="M150 44 L150 104" /><path d="M164 44 L234 104" />
+            <path class="repl" d="M66 132 C 66 158, 150 158, 150 132" />
+            <path class="repl" d="M150 132 C 150 158, 234 158, 234 132" />
           </g>
           <g class="flow">
-            <path d="M150 34 L150 118" /><path d="M150 34 L234 118" />
+            <path d="M150 44 L150 104" /><path d="M164 44 L234 104" />
           </g>
           <rect x="112" y="14" width="76" height="30" rx="9" class="router" />
           <text x="150" y="33">router</text>
@@ -241,18 +243,28 @@
     padding: 0;
     list-style: none;
   }
+  /* Label and bar share the left column; the value has its own column, so the bar's end marker
+     never runs through the number. */
   .ladder li {
     position: relative;
-    display: flex;
-    justify-content: space-between;
-    padding: 6px 10px;
-    border-radius: 8px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 62px;
+    align-items: center;
+    gap: 10px;
     font-size: 12.5px;
     color: var(--text-2);
-    overflow: hidden;
-    z-index: 0;
   }
-  .ladder li::before {
+  .ladder li span {
+    position: relative;
+    z-index: 0;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--surface-3) 50%, transparent);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .ladder li span::before {
     content: "";
     position: absolute;
     inset: 0 auto 0 0;
@@ -262,12 +274,13 @@
     border-right: 2px solid var(--accent);
     transition: width 1.2s var(--ease) var(--d);
   }
-  :global(.revealed) .ladder li::before {
+  :global(.revealed) .ladder li span::before {
     width: var(--w);
   }
   .ladder b {
     color: var(--text);
     font: 600 12.5px var(--mono);
+    text-align: right;
   }
   .chips {
     display: flex;
@@ -322,7 +335,7 @@
   .topology rect.down {
     stroke: var(--warn);
     stroke-dasharray: 3 3;
-    fill: transparent;
+    fill: var(--surface-solid); /* opaque, like the other nodes */
   }
   .topology text {
     fill: var(--text-2);
