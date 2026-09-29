@@ -6,11 +6,12 @@
   import { sceneController, type SceneMode } from "./lib/scene/scene.svelte";
   import Benchmarks from "./pages/Benchmarks.svelte";
   import Landing from "./pages/Landing.svelte";
+  import Play from "./pages/Play.svelte";
   import Try from "./pages/Try.svelte";
 
   let stage: HTMLDivElement;
 
-  const modes: Record<string, SceneMode> = { home: "hero", try: "explore", benchmarks: "hidden" };
+  const modes: Record<string, SceneMode> = { home: "hero", try: "explore", play: "hidden", benchmarks: "hidden" };
 
   // Pages that show the graph start the engine and the scene; the benchmarks page needs neither.
   $effect(() => {
@@ -20,6 +21,7 @@
       engine.start();
       sceneController.attach(stage);
     }
+    if (router.route === "play") engine.start(); // the game needs the index, not the 3D scene
   });
 
   // Nodes appear in the scene as the index is built.
@@ -34,6 +36,7 @@
   const titles = {
     home: "Oryx · A vector database, running in your browser",
     try: "Try it · Oryx",
+    play: "Out-navigate Oryx · Oryx",
     benchmarks: "Benchmarks · Oryx",
   };
   $effect(() => {
@@ -43,7 +46,7 @@
 
 <div
   class="stage"
-  class:hidden={router.route === "benchmarks"}
+  class:hidden={modes[router.route] === "hidden"}
   class:hero={router.route === "home"}
   bind:this={stage}
   aria-hidden={router.route !== "try"}
@@ -51,11 +54,13 @@
 
 <Nav />
 
-<main id="main">
+<main id="main" tabindex="-1" class:passthrough={router.route === "try"}>
   {#if router.route === "home"}
     <Landing />
   {:else if router.route === "try"}
     <Try />
+  {:else if router.route === "play"}
+    <Play />
   {:else}
     <Benchmarks />
   {/if}
@@ -90,5 +95,11 @@
   main {
     position: relative;
     z-index: 1;
+    outline: none; /* focused programmatically after navigation, not by the user */
+  }
+  /* The playground's 3D graph sits behind the page: let pointer and touch input through to it
+     everywhere except the page's own panels (which opt back in). */
+  main.passthrough {
+    pointer-events: none;
   }
 </style>
