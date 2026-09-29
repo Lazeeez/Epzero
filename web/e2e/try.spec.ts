@@ -9,7 +9,7 @@ test.use({
 });
 
 test("searches 29,825 photos by text, photo and camera, with the debugger and race", async ({ page, request }) => {
-  test.setTimeout(420_000); // downloads both CLIP models (156 MB) on a cold cache
+  test.setTimeout(600_000); // downloads both CLIP models (156 MB) on a cold cache, on a GPU-less CI runner
   const errors: string[] = [];
   page.on("console", (message) => message.type() === "error" && errors.push(message.text()));
   page.on("pageerror", (error) => errors.push(error.message));
@@ -119,16 +119,19 @@ test("searches 29,825 photos by text, photo and camera, with the debugger and ra
   await page.waitForTimeout(3000); // let any camera flight finish
   const hovercard = page.locator(".hovercard");
   const heading = panel.locator(".results h2");
+  // Probe outward from the dense middle of the graph (the free area right of the panel), giving
+  // each spot time for a rendered frame: CI has no GPU, so the scene may draw only a few fps.
   let searched = false;
-  for (let y = 0.3; y <= 0.8 && !searched; y += 0.04) {
-    for (let x = 0.4; x <= 0.85 && !searched; x += 0.03) {
-      await page.mouse.move(1440 * x, 900 * y);
-      await page.waitForTimeout(40);
-      if (!(await hovercard.isVisible())) continue;
-      await page.mouse.down();
-      await page.mouse.up();
-      searched = await heading.getByText("Photos like").waitFor({ timeout: 2_000 }).then(() => true, () => false);
-    }
+  const [cx, cy] = [(424 + 1440) / 2, 430];
+  for (let i = 0; i < 60 && !searched; i++) {
+    const angle = i * 2.4;
+    const radius = 14 * Math.sqrt(i);
+    await page.mouse.move(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius);
+    await page.waitForTimeout(300);
+    if (!(await hovercard.isVisible())) continue;
+    await page.mouse.down();
+    await page.mouse.up();
+    searched = await heading.getByText("Photos like").waitFor({ timeout: 3_000 }).then(() => true, () => false);
   }
   expect(searched).toBe(true);
 
