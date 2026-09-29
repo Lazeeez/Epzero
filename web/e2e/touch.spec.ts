@@ -34,6 +34,14 @@ test("touch: tap a star for its photo card, search from it, hide and show the pa
   const id = Number((await card.locator(".info span").textContent())!.match(/#(\d+)/)![1]);
   await card.getByRole("button", { name: "Find similar" }).click();
   await expect(panel).not.toHaveClass(/collapsed/);
+  // The view toolbar sits above the re-opened panel, never on top of it.
+  await expect
+    .poll(async () => {
+      const bar = (await page.getByRole("toolbar", { name: "View controls" }).boundingBox())!;
+      const box = (await panel.boundingBox())!;
+      return bar.y + bar.height <= box.y + 1;
+    })
+    .toBe(true);
   await expect(panel.locator(".results h2")).toContainText(`#${id}`);
 
   // Layer isolation and zoom work from the toolbar.
