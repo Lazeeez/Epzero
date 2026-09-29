@@ -80,7 +80,11 @@
 
     <div class="telemetry num" aria-live="polite">
       {#if engine.status === "ready" && engine.graph}
-        <span><i class="ok"></i>Index built in {(engine.buildMs / 1000).toFixed(1)} s on {engine.graph.threads} {engine.graph.threads === 1 ? "thread" : "threads"}</span>
+        {#if engine.graph.prebuilt}
+          <span><i class="ok"></i>Index ready in {Math.max(1, Math.round(engine.buildMs))} ms · prebuilt graph</span>
+        {:else}
+          <span><i class="ok"></i>Index built in {(engine.buildMs / 1000).toFixed(1)} s on {engine.graph.threads} {engine.graph.threads === 1 ? "thread" : "threads"}</span>
+        {/if}
         <span>{engine.graph.maxLevel + 1} layers</span>
         <span>WebAssembly SIMD128</span>
       {:else if engine.status === "error"}
