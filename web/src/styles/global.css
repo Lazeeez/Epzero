@@ -12,7 +12,7 @@
   --border-strong: rgba(255, 255, 255, 0.15);
   --text: #f3f5fa;
   --text-2: #a8afbf;
-  --muted: #6d7486;
+  --muted: #7d8497; /* 5.4:1 on --page: AA for small text */
   --grid: #1c1f28;
   --axis: #2c303b;
   --accent: #5b9dff;
@@ -52,7 +52,7 @@
   --border-strong: rgba(12, 14, 20, 0.17);
   --text: #0b0c10;
   --text-2: #4d5160;
-  --muted: #7c8090;
+  --muted: #666a79; /* 5.0:1 on --page: AA for small text */
   --grid: #e4e3dd;
   --axis: #c6c5bd;
   --accent: #2a6fd6;
