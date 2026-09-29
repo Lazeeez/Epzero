@@ -117,9 +117,14 @@
     const observer = new ResizeObserver(update);
     observer.observe(panel);
     addEventListener("resize", update);
+    // Hiding or showing the panel slides it (a transform, which ResizeObserver doesn't see):
+    // measure again once it has arrived.
+    const target = panel;
+    target.addEventListener("transitionend", update);
     update();
     return () => {
       observer.disconnect();
+      target.removeEventListener("transitionend", update);
       removeEventListener("resize", update);
       sceneController.scene?.setInsets(0, 0);
     };
@@ -127,6 +132,26 @@
 
   const hover = $derived(sceneController.hover);
   const selected = $derived(sceneController.selected);
+
+  // Share the current search: the native share sheet on phones, the clipboard elsewhere.
+  let toast = $state("");
+  let toastTimer = 0;
+  async function share() {
+    const url = location.href;
+    try {
+      if (navigator.share && matchMedia("(pointer: coarse)").matches) {
+        await navigator.share({ title: document.title, url });
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+      toast = "Link copied: it opens this exact search";
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return; // share sheet dismissed
+      toast = "Couldn't copy the link; copy it from the address bar";
+    }
+    clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => (toast = ""), 2600);
+  }
 
   function searchSelected() {
     const pick = sceneController.selected;
@@ -172,6 +197,9 @@
       <output class="num">{ef}</output>
     </label>
     <div class="buttons">
+      <button class="btn btn-ghost icon-only" onclick={share} disabled={!outcome} aria-label="Share this search" title="Share this search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" /></svg>
+      </button>
       <button class="btn btn-ghost" onclick={() => (raceOpen = true)} disabled={!outcome}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3 4 14h7l-1 7 9-11h-7z" /></svg>
         Race vs. exact
@@ -242,7 +270,10 @@
       <Thumb id={selected.id} size="n" alt={engine.caption(selected.id)} />
       <div class="info">
         <strong>{engine.caption(selected.id)}</strong>
-        <span>© {engine.author(selected.id)} · CC BY 2.0 · photo #{selected.id}</span>
+        <span>
+          © {engine.author(selected.id)} · CC BY 2.0 · photo #{selected.id} ·
+          <a href={engine.source(selected.id)} target="_blank" rel="noopener noreferrer">original ↗</a>
+        </span>
       </div>
       <div class="actions">
         <button class="btn btn-primary" onclick={searchSelected}>Find similar</button>
@@ -255,6 +286,8 @@
       </div>
     </div>
   {/if}
+
+  {#if toast}<div class="toast card" role="status">{toast}</div>{/if}
 
   {#if raceOpen && outcome}
     <Race {outcome} onclose={() => (raceOpen = false)} />
@@ -429,6 +462,23 @@
     padding: 20px;
     background: var(--glass);
     transform: translate(-50%, -50%);
+  }
+  .toast {
+    position: fixed;
+    z-index: 40;
+    left: 50%;
+    bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+    padding: 10px 16px;
+    background: var(--surface-solid);
+    font-size: 13.5px;
+    transform: translateX(-50%);
+    animation: toast-in 0.3s var(--ease);
+  }
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translate(-50%, 8px);
+    }
   }
   .icon-only.on {
     border-color: var(--accent);
