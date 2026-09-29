@@ -296,6 +296,50 @@ class Collection {
     return traced(vector(id), k, ef);
   }
 
+  // Recall@k and single-thread throughput of the current graph, for the "tune and rebuild" panel.
+  // Queries are midpoints of two random photos (normalized), so they are not in the index and
+  // can't trivially find themselves. Exact answers come from a parallel brute-force scan.
+  val evaluate(std::size_t samples, std::size_t k, std::size_t ef, std::size_t threads) const {
+    require_index();
+    std::mt19937_64 rng(1234);
+    std::uniform_int_distribution<std::size_t> pick(0, built_ - 1);
+    std::vector<float> queries(samples * dim_);
+    for (std::size_t s = 0; s < samples; ++s) {
+      const float* a = vector(pick(rng));
+      const float* b = vector(pick(rng));
+      float* q = queries.data() + s * dim_;
+      for (std::size_t d = 0; d < dim_; ++d) q[d] = a[d] + b[d];
+      oryx::normalize(q, dim_);
+    }
+    std::vector<std::vector<oryx::SearchResult>> truth(samples);
+    oryx::parallel_for(0, samples, threads, [&](std::size_t s) {
+      truth[s] = oryx::brute_force_search(floats_.data(), built_, dim_, queries.data() + s * dim_, k, oryx::Metric::Cosine);
+    });
+
+    std::size_t hits = 0;
+    double distances = 0;
+    const auto start = Clock::now();
+    for (std::size_t s = 0; s < samples; ++s) {
+      oryx::SearchStats stats;
+      const auto found = index_->search(queries.data() + s * dim_, k, {.ef = ef, .stats = &stats});
+      distances += static_cast<double>(stats.distance_computations);
+      for (const auto& r : found) {
+        for (const auto& t : truth[s]) {
+          if (t.label == r.label) {
+            ++hits;
+            break;
+          }
+        }
+      }
+    }
+    const double seconds = std::chrono::duration<double>(Clock::now() - start).count();
+    val out = val::object();
+    out.set("recall", static_cast<double>(hits) / static_cast<double>(samples * k));
+    out.set("qps", static_cast<double>(samples) / std::max(seconds, 1e-9));
+    out.set("distancesPerQuery", distances / static_cast<double>(samples));
+    return out;
+  }
+
   val info() const {
     val out = val::object();
     out.set("count", n_);
@@ -413,6 +457,7 @@ EMSCRIPTEN_BINDINGS(oryx) {
       .function("edges", &Collection::edges)
       .function("search", &Collection::search)
       .function("searchById", &Collection::search_by_id)
+      .function("evaluate", &Collection::evaluate)
       .function("info", &Collection::info);
 
   emscripten::class_<Lab>("Lab")
