@@ -28,7 +28,17 @@ self.addEventListener("activate", (event) => {
     caches
       .keys()
       .then((keys) =>
-        Promise.all(keys.filter((k) => k.startsWith("oryx-shell-") && k !== SHELL_CACHE).map((k) => caches.delete(k))),
+        Promise.all(
+          keys
+            // Old builds' shells, data/image caches from an older version of their name, and the
+            // second copy of the models transformers.js used to keep (this worker caches them).
+            .filter(
+              (k) =>
+                k === "transformers-cache" ||
+                (/^oryx-(shell|data|images)-/.test(k) && ![SHELL_CACHE, DATA_CACHE, IMAGE_CACHE].includes(k)),
+            )
+            .map((k) => caches.delete(k)),
+        ),
       )
       .then(() => self.clients.claim()),
   );
@@ -52,14 +62,14 @@ async function cacheFirst(request, cacheName) {
   return response;
 }
 
-async function networkFirst(request) {
-  const cache = await caches.open(SHELL_CACHE);
+async function networkFirst(request, cacheName, fallbackToShell) {
+  const cache = await caches.open(cacheName);
   try {
     const response = await fetch(request);
     if (response.ok) cache.put(request, response.clone());
     return response;
   } catch {
-    const hit = (await cache.match(request)) || (await cache.match(BASE + "index.html"));
+    const hit = (await cache.match(request)) || (fallbackToShell && (await cache.match(BASE + "index.html")));
     if (hit) return hit;
     throw new Error("offline and not cached");
   }
@@ -74,7 +84,10 @@ self.addEventListener("fetch", (event) => {
     if (!url.pathname.startsWith(BASE)) return;
     const path = url.pathname.slice(BASE.length);
     let response;
-    if (request.mode === "navigate") response = networkFirst(request);
+    if (request.mode === "navigate") response = networkFirst(request, SHELL_CACHE, true);
+    // The dataset manifest is tiny and says what the data files are (e.g. a new prebuilt graph):
+    // always check for a fresh one, falling back to the cached copy offline.
+    else if (/^data\/.*manifest\.json$/.test(path)) response = networkFirst(request, DATA_CACHE, false);
     else if (/^(data|models|ort)\//.test(path)) response = cacheFirst(request, DATA_CACHE);
     else response = cacheFirst(request, SHELL_CACHE); // hashed assets, wasm, fonts, icons
     event.respondWith(response.then(isolate));
