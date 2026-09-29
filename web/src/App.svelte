@@ -2,6 +2,7 @@
   import Footer from "./components/Footer.svelte";
   import Nav from "./components/Nav.svelte";
   import { engine } from "./lib/engine/engine.svelte";
+  import { warmUpEncoders } from "./lib/engine/encoders.svelte";
   import { router } from "./lib/router.svelte";
   import { sceneController, type SceneMode } from "./lib/scene/scene.svelte";
   import Benchmarks from "./pages/Benchmarks.svelte";
@@ -22,6 +23,15 @@
       sceneController.attach(stage);
     }
     if (router.route === "play") engine.start(); // the game needs the index, not the 3D scene
+  });
+
+  // Once the index is ready, warm the CLIP models in the background (not on the benchmarks page,
+  // which doesn't use them): the first text or photo search then answers without a download.
+  let warmed = false;
+  $effect(() => {
+    if (warmed || engine.status !== "ready" || router.route === "benchmarks") return;
+    warmed = true;
+    warmUpEncoders();
   });
 
   // Nodes appear in the scene as the index is built.
