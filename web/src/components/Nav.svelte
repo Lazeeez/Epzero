@@ -28,6 +28,7 @@
     <nav aria-label="Main">
       <a href={router.href("home", "#how")} class="link">How it works</a>
       <a href={router.href("try")} class="link" aria-current={router.route === "try" ? "page" : undefined}>Try it</a>
+      <a href={router.href("play")} class="link" aria-current={router.route === "play" ? "page" : undefined}>Play</a>
       <a href={router.href("benchmarks")} class="link" aria-current={router.route === "benchmarks" ? "page" : undefined}>Benchmarks</a>
     </nav>
     <div class="right">
@@ -51,6 +52,7 @@
     inset: 0 0 auto 0;
     z-index: 50;
     height: var(--nav-h);
+    padding-inline: env(safe-area-inset-left, 0px) env(safe-area-inset-right, 0px); /* landscape notches */
     transition: background 0.3s, border-color 0.3s, backdrop-filter 0.3s;
     border-bottom: 1px solid transparent;
   }
@@ -162,6 +164,12 @@
     .overlay .inner {
       width: calc(100% - 32px);
       gap: 12px;
+    }
+  }
+  /* Three links, the logo and the theme toggle share a phone's width: the logo drops its name. */
+  @media (max-width: 400px) {
+    .brand span {
+      display: none;
     }
   }
   @media (max-width: 359px) {
