@@ -17,8 +17,8 @@ WebAssembly (SIMD128 + threads), running entirely in your browser:
   scroll-driven explainer builds a small HNSW index (the real engine, in
   WebAssembly) and replays a search layer by layer. Click to search it yourself.
 - **[Playground](https://lazeeez.github.io/Oryx/try).** 29,825 Open Images
-  photos embedded with CLIP, indexed live on every core, and shown as a 3D
-  stack of HNSW layers. Search by **description, uploaded photo or webcam**
+  photos embedded with CLIP, loaded from a prebuilt graph in ~0.1 s (first
+  results in about 2 s on a first visit) and shown as a 3D stack of HNSW layers. Search by **description, uploaded photo or webcam**
   (CLIP text and image encoders run in the browser), step through the search
   hop by hop in a debugger, or race it against an exact scan. Every search is
   checked against the exact answer, e.g. *75 µs, 12/12 same results, 45×
