@@ -490,6 +490,15 @@
     top: calc(var(--nav-h) + 78px);
     right: 24px;
   }
+  /* Small laptops: keep the tune panel beside the search panel rather than over it. */
+  @media (min-width: 901px) and (max-width: 1100px) {
+    .tune-anchor {
+      left: 448px;
+    }
+    .tune-anchor > :global(*) {
+      width: 100%;
+    }
+  }
   @media (max-width: 900px) {
     .tune-anchor {
       top: calc(var(--nav-h) + 64px);
