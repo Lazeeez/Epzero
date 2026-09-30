@@ -129,6 +129,21 @@ export interface Tap {
   y: number;
 }
 
+/** True when WebGL runs on the CPU (SwiftShader, llvmpipe, Windows' WARP), where every frame is costly. */
+function softwareRenderer(): boolean {
+  // Asked of a throwaway context, so the real one can be created with the right settings.
+  const gl = document.createElement("canvas").getContext("webgl2");
+  if (!gl) return false; // the renderer reports the missing WebGL itself
+  // Firefox and Safari name the renderer directly; Chrome needs the debug extension for it.
+  let name = String(gl.getParameter(gl.RENDERER));
+  if (/^WebKit WebGL$/i.test(name)) {
+    const info = gl.getExtension("WEBGL_debug_renderer_info");
+    if (info) name = String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL));
+  }
+  gl.getExtension("WEBGL_lose_context")?.loseContext();
+  return /swiftshader|llvmpipe|softpipe|software|basic render/i.test(name);
+}
+
 export class GraphScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
@@ -137,7 +152,13 @@ export class GraphScene {
   private readonly composer: EffectComposer;
   private readonly bloom: UnrealBloomPass;
   private palette = readPalette();
-  private readonly reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // Calm: no drift, twinkle or animated searches. For viewers who ask for reduced motion, and on a
+  // software renderer, where the scene then only draws while something actually changes.
+  private calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  private readonly software: boolean;
+  private interacting = false; // the viewer is dragging, pinching or scrolling the view
+  private moving = false; // the camera moved last frame (including damping after a drag)
+  private dirty = true; // something changed that the next frame must show
 
   private count = 0;
   private positions: Float32Array<ArrayBufferLike> = new Float32Array(0); // node id -> (x, z) on the map
@@ -170,10 +191,18 @@ export class GraphScene {
   private comet: THREE.Sprite | null = null;
 
   constructor(private readonly host: HTMLElement) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    // No GPU (software rendering: VMs, blocklisted drivers): start at the lowest quality, without
+    // multisampling (which multiplies the CPU's work), and draw only while something changes.
+    this.software = softwareRenderer();
+    this.renderer = new THREE.WebGLRenderer({ antialias: !this.software, powerPreference: "high-performance" });
     // Phones and tablets have 3x screens and small GPUs: 1.5x is visually identical for points and
     // lines under bloom, and renders about half the pixels of 2x.
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, matchMedia("(pointer: coarse)").matches ? 1.5 : 2));
+    if (this.software) {
+      this.calm = true;
+      this.quality = 0;
+      this.renderer.setPixelRatio(1);
+    }
     host.appendChild(this.renderer.domElement);
     this.renderer.domElement.setAttribute("aria-label", "3D view of the HNSW graph layers");
     this.renderer.domElement.setAttribute("role", "img");
@@ -191,14 +220,17 @@ export class GraphScene {
     this.controls.rotateSpeed = 0.7;
     this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
     this.controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
-    this.controls.autoRotate = !this.reducedMotion;
+    this.controls.autoRotate = !this.calm;
     this.controls.autoRotateSpeed = 0.35;
     this.controls.target.set(0, 12, 0);
     this.controls.addEventListener("start", () => {
       if (this.controls.autoRotate) this.autoRotateListener?.(false);
       this.controls.autoRotate = false;
       this.cameraGoal = null; // the viewer took over
+      this.interacting = true;
     });
+    this.controls.addEventListener("end", () => (this.interacting = false));
+    this.controls.addEventListener("change", () => (this.moving = true)); // e.g. a wheel zoom, applied at once
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
@@ -242,6 +274,7 @@ export class GraphScene {
     // Stop the page itself from zooming on a trackpad pinch over the graph (the graph zooms instead).
     canvas.addEventListener("wheel", (event) => event.ctrlKey && event.preventDefault(), { passive: false });
 
+    this.frameDone.port1.onmessage = () => this.measureFrame();
     new ResizeObserver(() => this.resize()).observe(host);
     this.resize();
     this.applyPalette();
@@ -317,11 +350,13 @@ export class GraphScene {
   }
 
   setAutoRotate(on: boolean) {
-    this.controls.autoRotate = on && !this.reducedMotion;
+    this.dirty = true;
+    this.controls.autoRotate = on && !this.calm;
   }
 
   /** Zooms toward the current focus point; factor < 1 moves in. */
   zoom(factor: number) {
+    this.dirty = true;
     const target = this.cameraGoal?.target ?? this.controls.target.clone();
     const from = this.cameraGoal?.position ?? this.camera.position;
     const offset = from.clone().sub(target);
@@ -340,6 +375,7 @@ export class GraphScene {
 
   /** Flies to a node on the base layer (e.g. "zoom here" from a selected photo). */
   focusNode(id: number) {
+    this.dirty = true;
     this.flyTo(this.worldPoint(id, 0), 0.4);
     const index = this.pointIndex[0]?.[id] ?? -1;
     if (index >= 0) this.showMarker(index);
@@ -347,6 +383,7 @@ export class GraphScene {
 
   /** Lights one layer and dims the others (-1 shows every layer). */
   setLayerFocus(layer: number) {
+    this.dirty = true;
     this.layerFocus = layer;
     if (this.points) (this.points.material as THREE.ShaderMaterial).uniforms.uFocus.value = layer;
     for (const child of this.graphGroup.children) {
@@ -362,10 +399,12 @@ export class GraphScene {
 
   /** Clears the hover/selection marker. */
   clearMarker() {
+    this.dirty = true;
     if (this.marker) this.marker.visible = false;
   }
 
   private showMarker(index: number) {
+    this.dirty = true;
     if (!this.points) return;
     if (!this.marker) {
       const size = 64;
@@ -417,6 +456,7 @@ export class GraphScene {
 
   /** Map positions (normalized UMAP, [-1, 1]^2) for every node; shown as a base-layer cloud. */
   setLayout(xy: Float32Array) {
+    this.dirty = true;
     this.count = xy.length / 2;
     this.positions = xy;
     this.levels = new Uint8Array(this.count);
@@ -425,11 +465,13 @@ export class GraphScene {
 
   /** Reveals nodes as they are inserted during the build (layer 0 only until topology arrives). */
   setBuilt(count: number) {
+    this.dirty = true;
     this.builtCount = count;
     this.points?.geometry.setDrawRange(0, count);
   }
 
   setGraph(graph: GraphInfo) {
+    this.dirty = true;
     this.levels = graph.levels;
     this.builtCount = this.count;
     this.rebuildPoints();
@@ -441,6 +483,7 @@ export class GraphScene {
   }
 
   themeChanged() {
+    this.dirty = true;
     this.palette = readPalette();
     this.applyPalette();
     if (this.levels.some((l) => l > 0)) this.rebuildPlanes(Math.max(...this.levels));
@@ -459,37 +502,47 @@ export class GraphScene {
   }
 
   private rebuildPoints() {
+    // The material (a compiled shader program) is kept across rebuilds; only the geometry is new.
+    let material = this.points?.material as THREE.ShaderMaterial | undefined;
     if (this.points) {
       this.graphGroup.remove(this.points);
       this.points.geometry.dispose();
     }
-    const maxLevel = this.levels.reduce((m, l) => Math.max(m, l), 0);
+    let maxLevel = 0;
+    let total = 0;
+    for (let node = 0; node < this.count; node++) {
+      maxLevel = Math.max(maxLevel, this.levels[node]);
+      total += this.levels[node] + 1; // one point per layer the node is on
+    }
     this.pointIndex = Array.from({ length: maxLevel + 1 }, () => new Int32Array(this.count).fill(-1));
-    const xyz: number[] = [];
-    const tone: number[] = [];
-    const owners: number[] = [];
-    const layers: number[] = [];
+    const xyz = new Float32Array(total * 3);
+    const tone = new Float32Array(total);
+    const layers = new Float32Array(total);
+    this.pointNode = new Int32Array(total);
+    this.pointLayer = new Int8Array(total);
     let index = 0;
     for (let layer = 0; layer <= maxLevel; layer++) {
       for (let node = 0; node < this.count; node++) {
         if (this.levels[node] < layer) continue;
-        this.pointIndex[layer][node] = index++;
-        owners.push(node);
-        layers.push(layer);
-        xyz.push(this.worldX(node), layer * LAYER_GAP, this.worldZ(node));
-        tone.push(0.5 + 0.5 * Math.sin(this.positions[node * 2] * 2.1 + this.positions[node * 2 + 1] * 1.3));
+        this.pointIndex[layer][node] = index;
+        this.pointNode[index] = node;
+        this.pointLayer[index] = layer;
+        layers[index] = layer;
+        xyz[index * 3] = this.worldX(node);
+        xyz[index * 3 + 1] = layer * LAYER_GAP;
+        xyz[index * 3 + 2] = this.worldZ(node);
+        tone[index] = 0.5 + 0.5 * Math.sin(this.positions[node * 2] * 2.1 + this.positions[node * 2 + 1] * 1.3);
+        index++;
       }
     }
-    this.pointNode = Int32Array.from(owners);
-    this.pointLayer = Int8Array.from(layers);
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.Float32BufferAttribute(xyz, 3));
-    geometry.setAttribute("aTone", new THREE.Float32BufferAttribute(tone, 1));
-    geometry.setAttribute("aLayer", new THREE.Float32BufferAttribute(layers, 1));
+    geometry.setAttribute("position", new THREE.BufferAttribute(xyz, 3));
+    geometry.setAttribute("aTone", new THREE.BufferAttribute(tone, 1));
+    geometry.setAttribute("aLayer", new THREE.BufferAttribute(layers, 1));
     this.states = new Float32Array(index);
     geometry.setAttribute("aState", new THREE.BufferAttribute(this.states, 1).setUsage(THREE.DynamicDrawUsage));
     geometry.setDrawRange(0, maxLevel === 0 ? this.builtCount : index);
-    const material = new THREE.ShaderMaterial({
+    material ??= new THREE.ShaderMaterial({
       vertexShader: POINT_VERTEX,
       fragmentShader: POINT_FRAGMENT,
       transparent: true,
@@ -516,6 +569,7 @@ export class GraphScene {
       if (child !== this.points) {
         this.graphGroup.remove(child);
         (child as THREE.LineSegments).geometry.dispose();
+        ((child as THREE.LineSegments).material as THREE.Material).dispose();
       }
     }
     const line = (positions: number[], opacity: number, name: string) => {
@@ -641,7 +695,7 @@ export class GraphScene {
     this.scene.background = p.background;
     if (this.stars) this.stars.visible = p.dark;
     if (this.comet) (this.comet.material as THREE.SpriteMaterial).color = p.path;
-    this.bloom.enabled = p.dark && !this.reducedMotion;
+    this.bloom.enabled = p.dark && !this.calm && this.quality > 0;
     const blending = p.dark ? THREE.AdditiveBlending : THREE.NormalBlending;
     if (this.points) {
       const material = this.points.material as THREE.ShaderMaterial;
@@ -673,6 +727,7 @@ export class GraphScene {
    * scrubbed and stepped (the debugger), not only watched.
    */
   play(trace: Trace, options: { durationScale?: number; flyTo?: boolean } = {}) {
+    this.dirty = true;
     if (!this.trail) return;
     const durationScale = options.durationScale ?? 1;
     const n = trace.to.length;
@@ -733,7 +788,7 @@ export class GraphScene {
     colors.needsUpdate = true;
     this.resetPlayback();
     this.playing = true;
-    if (this.reducedMotion) this.playhead = this.duration; // show the finished search at once
+    if (this.calm) this.playhead = this.duration; // show the finished search at once
 
     if (options.flyTo ?? true) {
       // Fly toward the result neighborhood, keeping the current viewing angle, so the base-layer
@@ -749,6 +804,7 @@ export class GraphScene {
 
   /** Clears the current search from the scene. */
   clearTrace() {
+    this.dirty = true;
     if (this.comet) this.comet.visible = false;
     this.trace = null;
     this.trailCount = 0;
@@ -759,11 +815,13 @@ export class GraphScene {
   }
 
   pause() {
+    this.dirty = true;
     this.playing = false;
     this.emitPlayhead();
   }
 
   resume() {
+    this.dirty = true;
     if (this.playhead >= this.duration) this.seekTime(0);
     this.playing = true;
   }
@@ -774,11 +832,13 @@ export class GraphScene {
 
   /** Moves the timeline so that trace event `index` has just happened (and pauses). */
   seekEvent(index: number) {
+    this.dirty = true;
     if (!this.trace || this.eventTimes.length === 0) return;
     const i = Math.max(-1, Math.min(index, this.eventTimes.length - 1));
     this.playing = false;
     this.seekTime(i < 0 ? 0 : this.eventTimes[i] + 0.001);
     this.focusEvent(i);
+    this.emitPlayhead(); // the timeline updates now, not whenever the next frame is drawn
   }
 
   /** Called with (current event index, total events, playing) whenever the playhead moves. */
@@ -904,6 +964,7 @@ export class GraphScene {
     if (active === this.active) return;
     this.active = active;
     this.lastFrame = 0;
+    this.nextFrameAt = 0;
     this.renderer.setAnimationLoop(active ? (time) => this.frame(time) : null);
   }
 
@@ -912,23 +973,67 @@ export class GraphScene {
    * canvas ignores the pointer so the page scrolls normally, and the camera drifts on its own.
    */
   setInteractive(interactive: boolean) {
+    this.dirty = true;
     this.interactive = interactive;
     this.controls.enabled = interactive;
     this.renderer.domElement.style.pointerEvents = interactive ? "auto" : "none";
-    this.controls.autoRotate = !this.reducedMotion;
+    this.controls.autoRotate = !this.calm;
     this.controls.autoRotateSpeed = interactive ? 0.35 : 0.55;
   }
 
   /** Eases the camera back to the default overview of all layers. */
   overview() {
+    this.dirty = true;
     this.cameraGoal = {
       target: new THREE.Vector3(0, 12, 0),
       position: new THREE.Vector3(78, 62, 104).multiplyScalar(this.fitScale()),
     };
-    this.controls.autoRotate = !this.reducedMotion;
+    this.controls.autoRotate = !this.calm;
+  }
+
+  // Frame pacing. On a slow GPU (software rendering, where every draw runs on the CPU) drawing at
+  // the display's rate would take the whole main thread and freeze the page around the scene. Each
+  // frame's cost is measured, including the browser presenting it (which happens after the frame
+  // callback returns, so it's timed by a message that only runs once the frame is done). While the
+  // cost stays high, quality steps down (1x pixels, then no bloom), and after an expensive frame the
+  // next one waits twice as long, so the page itself keeps at least two thirds of the main thread.
+  private hasSize = false;
+  private quality = 2; // 2: full, 1: 1x pixel ratio, 0: also no bloom
+  private frameCost = 0; // moving average of a frame's cost in ms
+  private slowFrames = 0;
+  private nextFrameAt = 0;
+  private frameStart = 0;
+  private readonly frameDone = new MessageChannel();
+
+  private measureFrame() {
+    const cost = performance.now() - this.frameStart;
+    this.frameCost += (cost - this.frameCost) * 0.1;
+    this.nextFrameAt = cost > 24 ? this.frameStart + cost * 3 : 0;
+    if (this.quality > 0 && this.frameCost > 24 && ++this.slowFrames > 20) this.lowerQuality();
+  }
+
+  private lowerQuality() {
+    this.quality--;
+    this.slowFrames = 0;
+    this.frameCost = 0;
+    if (this.quality === 1) {
+      this.renderer.setPixelRatio(1);
+      this.composer.setPixelRatio(1);
+      // Point sizes are in device pixels: keep them the same size on screen.
+      for (const object of [this.points, this.stars])
+        if (object) (object.material as THREE.ShaderMaterial).uniforms.uPixelRatio.value = 1;
+      this.resize();
+    } else {
+      this.bloom.enabled = false;
+    }
   }
 
   private frame(time: number) {
+    if (!this.hasSize || time < this.nextFrameAt) return; // hidden (0x0 canvas), or pacing
+    // Software rendering: draw while something moves, else refresh once a second (which also picks
+    // up any other change, such as a theme switch).
+    const busy = this.dirty || this.playing || this.playhead !== this.applied || this.cameraGoal || this.interacting || this.moving || this.pointerMoved;
+    if (this.software && !busy && time - this.lastFrame < 1000) return;
     const dt = this.lastFrame ? Math.min(time - this.lastFrame, 100) : 0;
     this.lastFrame = time;
     if (this.playing && this.trace) {
@@ -940,14 +1045,19 @@ export class GraphScene {
     if (this.points) (this.points.material as THREE.ShaderMaterial).uniforms.uTime.value = time / 1000;
     if (this.stars?.visible) (this.stars.material as THREE.ShaderMaterial).uniforms.uTime.value = time / 1000;
     if (this.cameraGoal) {
-      const ease = this.reducedMotion ? 1 : 0.035;
+      const ease = this.calm ? 1 : 0.035;
       this.controls.target.lerp(this.cameraGoal.target, ease);
       this.camera.position.lerp(this.cameraGoal.position, ease);
       if (this.camera.position.distanceTo(this.cameraGoal.position) < 0.05) this.cameraGoal = null;
     }
-    this.controls.update();
+    this.moving = this.controls.update();
+    this.dirty = false;
     if (this.interactive) this.pick();
-    this.composer.render();
+    this.frameStart = performance.now();
+    // Without bloom the composer would only copy the frame to the screen: draw it there directly.
+    if (this.bloom.enabled) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
+    this.frameDone.port2.postMessage(null);
   }
 
   private pick() {
@@ -1001,7 +1111,9 @@ export class GraphScene {
 
   private resize() {
     const { clientWidth: w, clientHeight: h } = this.host;
-    if (w === 0 || h === 0) return;
+    this.hasSize = w > 0 && h > 0;
+    if (!this.hasSize) return;
+    this.dirty = true;
     if (!this.cameraGoal && !this.fitted && this.trailCount === 0) {
       this.camera.position.set(78, 62, 104).multiplyScalar(this.fitScale());
       this.fitted = w > 0;
