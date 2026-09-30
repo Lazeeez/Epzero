@@ -53,10 +53,10 @@
       is queried from one process on one thread, in {compare.rounds} interleaved rounds.
     </p>
     <dl class="stats">
-      <div><dt>vs hnswlib</dt><dd class="num">{vsHnswlib.toFixed(2)}×</dd><span>QPS at equal recall ({operating.recall.toFixed(3)})</span></div>
-      <div><dt>vs FAISS HNSW</dt><dd class="num">{vsFaiss.toFixed(2)}×</dd><span>QPS at equal recall ({operating.recall.toFixed(3)})</span></div>
-      <div><dt>SQ8 + re-rank</dt><dd class="num">+48%</dd><span>QPS, identical recall</span></div>
-      <div><dt>Graph build</dt><dd class="num">{libs.oryx.build_seconds.toFixed(1)} s</dd><span>on {compare.build_threads} threads</span></div>
+      <div><dt>vs hnswlib</dt><dd class="num">{vsHnswlib.toFixed(2)}×</dd><dd class="note">QPS at equal recall ({operating.recall.toFixed(3)})</dd></div>
+      <div><dt>vs FAISS HNSW</dt><dd class="num">{vsFaiss.toFixed(2)}×</dd><dd class="note">QPS at equal recall ({operating.recall.toFixed(3)})</dd></div>
+      <div><dt>SQ8 + re-rank</dt><dd class="num">+48%</dd><dd class="note">QPS, identical recall</dd></div>
+      <div><dt>Graph build</dt><dd class="num">{libs.oryx.build_seconds.toFixed(1)} s</dd><dd class="note">on {compare.build_threads} threads</dd></div>
     </dl>
   </header>
 
@@ -195,15 +195,16 @@
     font-weight: 700;
     letter-spacing: -0.04em;
   }
-  .stats div:first-child dd {
+  .stats div:first-child dd:not(.note) {
     background: linear-gradient(90deg, var(--accent-strong), var(--accent-2));
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
   }
-  .stats span {
+  .stats dd.note {
     color: var(--muted);
     font: 12px var(--mono);
+    letter-spacing: 0;
   }
   .block {
     margin-top: clamp(56px, 8vw, 96px);
