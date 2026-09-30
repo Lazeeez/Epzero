@@ -34,6 +34,24 @@ function staticRoutes(): Plugin {
   };
 }
 
+// src/boot.js must run before first paint. It's inlined (a separate file would be one more request
+// blocking the first paint), and the Content Security Policy allows exactly that script by its hash.
+function inlineBoot(): Plugin {
+  return {
+    name: "oryx-inline-boot",
+    transformIndexHtml: {
+      order: "pre", // before Vite looks at the script tags
+      async handler(html) {
+        const code = (await readFile(new URL("./src/boot.js", import.meta.url), "utf8")).trim();
+        const hash = createHash("sha256").update(code).digest("base64");
+        const tag = /<script src="[^"]*boot\.js"><\/script>/;
+        if (!tag.test(html) || !html.includes("script-src 'self'")) throw new Error("index.html: boot script or CSP not found");
+        return html.replace(tag, () => `<script>${code}</script>`).replace("script-src 'self'", `script-src 'self' 'sha256-${hash}'`);
+      },
+    },
+  };
+}
+
 // transformers.js references its own copy of ONNX Runtime's wasm (27 MB), which Vite emits. The
 // encoders load the self-hosted build in public/ort instead (wasmPaths), so drop the unused copy.
 function dropBundledOrt(): Plugin {
@@ -85,7 +103,7 @@ function serviceWorker(): Plugin {
 
 export default defineConfig({
   base: process.env.ORYX_BASE ?? "/Oryx/",
-  plugins: [svelte(), dropBundledOrt(), staticRoutes(), serviceWorker()],
+  plugins: [svelte(), inlineBoot(), dropBundledOrt(), staticRoutes(), serviceWorker()],
   // The benchmark pages import their numbers straight from bench/results at the repo root.
   server: { headers: isolation, fs: { allow: [".."] } },
   // ORYX_NO_ISOLATION serves like GitHub Pages (no headers), for the service worker's own tests.
