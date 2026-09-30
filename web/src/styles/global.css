@@ -1,6 +1,25 @@
 /* Oryx design system. Dark and cinematic by default; light is a full theme, not an inversion.
    Chart colors come from the CVD-validated categorical palette used across the project. */
 
+/* Until the web fonts arrive, text is drawn in a local font scaled to the same metrics, so the
+   swap doesn't reflow the page (the hero heading used to jump by a line). Arial and Liberation
+   Sans share metrics, as do Courier New and Liberation Mono (whose 0.6em advance JetBrains Mono also has). */
+@font-face {
+  font-family: "Inter Fallback";
+  src: local("Arial"), local("Helvetica"), local("Liberation Sans");
+  size-adjust: 107.12%;
+  ascent-override: 90.44%;
+  descent-override: 22.52%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "JetBrains Mono Fallback";
+  src: local("Courier New"), local("Liberation Mono");
+  ascent-override: 102%;
+  descent-override: 30%;
+  line-gap-override: 0%;
+}
+
 :root {
   color-scheme: dark;
   --page: #06070a;
@@ -12,7 +31,7 @@
   --border-strong: rgba(255, 255, 255, 0.15);
   --text: #f3f5fa;
   --text-2: #a8afbf;
-  --muted: #7d8497; /* 5.4:1 on --page: AA for small text */
+  --muted: #82899b; /* >= 4.6:1 on every background, tinted highlights included (WCAG AA) */
   --grid: #1c1f28;
   --axis: #2c303b;
   --accent: #5b9dff;
@@ -32,8 +51,8 @@
   --glass: rgba(10, 12, 18, 0.62);
   --hero-gradient: linear-gradient(180deg, #ffffff 0%, #c9d4ea 55%, #7d8aa6 100%);
 
-  --font: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font: "Inter Variable", "Inter Fallback", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono Variable", "JetBrains Mono Fallback", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --radius: 16px;
   --radius-sm: 10px;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -52,17 +71,17 @@
   --border-strong: rgba(12, 14, 20, 0.17);
   --text: #0b0c10;
   --text-2: #4d5160;
-  --muted: #666a79; /* 5.0:1 on --page: AA for small text */
+  --muted: #616573; /* >= 4.6:1 on every background, tinted highlights included (WCAG AA) */
   --grid: #e4e3dd;
   --axis: #c6c5bd;
-  --accent: #2a6fd6;
+  --accent: #2563be; /* light-theme text colors are darkened to keep >= 4.6:1 on every surface */
   --accent-strong: #1c56ab;
   --accent-2: #6d4fd8;
   --accent-wash: rgba(42, 111, 214, 0.1);
   --accent-glow: rgba(42, 111, 214, 0.2);
-  --result: #e2622a;
-  --good: #1a8f55;
-  --warn: #b77900;
+  --result: #a7491f;
+  --good: #157445;
+  --warn: #8b5c00;
   --series-1: #2a78d6;
   --series-2: #eb6834;
   --series-3: #1baf7a;
@@ -103,6 +122,14 @@ body {
 a {
   color: var(--accent-strong);
   text-decoration: none;
+}
+/* Links inside running text are underlined, not told apart by color alone (WCAG 1.4.1). */
+p a:not(.btn),
+li a:not(.btn),
+dd a:not(.btn) {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
 }
 
 button {
