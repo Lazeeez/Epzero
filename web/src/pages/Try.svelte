@@ -21,7 +21,6 @@
   let tuneOpen = $state(false);
   // Hide the search panel to explore the graph with the whole screen.
   let panelHidden = $state(false);
-  let panelInset = $state(0); // phones: how much of the bottom the panel covers
   // The photo the Blend tab mixes words into: the latest photo query, or else the top result.
   let blendBase = $state.raw<BlendBase | null>(null);
   let panel: HTMLElement | undefined = $state();
@@ -109,10 +108,9 @@
     const hidden = panelHidden;
     const update = () => {
       const box = panel!.getBoundingClientRect();
-      panelInset = hidden || innerWidth > 900 ? 0 : Math.max(0, innerHeight - box.top);
       if (hidden) sceneController.scene?.setInsets(0, 0);
       else if (innerWidth > 900) sceneController.scene?.setInsets(box.right, 0);
-      else sceneController.scene?.setInsets(0, panelInset);
+      else sceneController.scene?.setInsets(0, Math.max(0, innerHeight - box.top)); // phones: the sheet covers the bottom
     };
     const observer = new ResizeObserver(update);
     observer.observe(panel);
@@ -218,9 +216,14 @@
     </div>
   </div>
 
-  <div class="view-anchor" style:--panel-inset="{panelInset}px">
-    <ViewControls {panelHidden} ontogglepanel={() => (panelHidden = !panelHidden)} />
-  </div>
+  {#if sceneController.unavailable}
+    <!-- Without WebGL there's no 3D view; search, results and the race all still work. -->
+    <p class="no-3d card" role="note">3D view unavailable: WebGL is turned off in this browser. Search works as normal.</p>
+  {:else}
+    <div class="view-anchor" class:low={panelHidden}>
+      <ViewControls {panelHidden} ontogglepanel={() => (panelHidden = !panelHidden)} />
+    </div>
+  {/if}
 
   {#if tuneOpen}
     <div class="tune-anchor">
@@ -238,9 +241,9 @@
   {#if engine.status !== "ready"}
     <div class="loading card" role="status" aria-live="polite">
       {#if engine.status === "error"}
-        <strong>Something went wrong</strong>
+        <strong>{engine.unsupported ? "This browser is too old for the engine" : "Something went wrong"}</strong>
         <p>{engine.error}</p>
-        <button class="btn btn-primary retry" onclick={() => engine.retry()}>Try again</button>
+        {#if !engine.unsupported}<button class="btn btn-primary retry" onclick={() => engine.retry()}>Try again</button>{/if}
       {:else}
         <strong>{engine.stage || "Starting the engine"}</strong>
         <div class="meter"><i style:width="{(engine.progress * 100).toFixed(1)}%"></i></div>
@@ -463,6 +466,23 @@
     background: var(--glass);
     transform: translate(-50%, -50%);
   }
+  .no-3d {
+    position: fixed;
+    top: calc(var(--nav-h) + 90px);
+    left: calc(424px + (100% - 424px) / 2);
+    max-width: min(420px, calc(100% - 32px));
+    margin: 0;
+    padding: 12px 16px;
+    background: var(--surface-solid);
+    color: var(--text-2);
+    font-size: 13.5px;
+    transform: translateX(-50%);
+  }
+  @media (max-width: 900px) {
+    .no-3d {
+      left: 50%;
+    }
+  }
   .toast {
     position: fixed;
     z-index: 40;
@@ -574,7 +594,9 @@
       right: 12px;
       bottom: calc(12px + env(safe-area-inset-bottom, 0px)); /* clear the iPhone home indicator */
       width: auto;
-      max-height: 52dvh;
+      /* A fixed height (the first results always follow): the sheet doesn't grow under the viewer's
+         thumb when they arrive, and the view controls docked above it stay put. */
+      height: 52dvh;
       padding: 16px;
     }
     .panel header .lede,
@@ -632,10 +654,15 @@
     .selectcard .info {
       padding: 10px 12px 0;
     }
+    /* Just above the sheet, whose height is fixed: placed by CSS from the first frame, rather than
+       jumping up once a script has measured the sheet. */
     .view-anchor {
       right: 12px;
-      bottom: calc(max(var(--panel-inset, 0px), env(safe-area-inset-bottom, 0px)) + 12px);
+      bottom: calc(52dvh + 24px + env(safe-area-inset-bottom, 0px));
       transition: bottom 0.35s var(--ease);
+    }
+    .view-anchor.low {
+      bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     }
     .loading {
       left: 50%;
