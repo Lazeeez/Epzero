@@ -1,7 +1,7 @@
 // Client-side routing for the three pages, with the View Transitions API for page changes.
 // Paths are relative to the site's base (e.g. /Oryx/).
 
-export type Route = "home" | "try" | "play" | "benchmarks";
+export type Route = "home" | "try" | "play" | "benchmarks" | "notfound";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -10,7 +10,8 @@ const ROUTES: Record<string, Route> = { "": "home", "/": "home", "/try": "try", 
 function parse(pathname: string): { route: Route; hash: string } {
   let path = pathname.startsWith(BASE) ? pathname.slice(BASE.length) : pathname;
   path = path.replace(/\/index\.html$/, "").replace(/\/$/, "");
-  return { route: ROUTES[path] ?? "home", hash: location.hash };
+  // Unknown paths get a real "not found" page rather than silently showing the landing page.
+  return { route: ROUTES[path] ?? "notfound", hash: location.hash };
 }
 
 class Router {
