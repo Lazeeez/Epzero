@@ -3,17 +3,17 @@
 A vector database built from scratch in C++20. It implements HNSW
 (Hierarchical Navigable Small World) approximate nearest-neighbor search, with
 hand-written SIMD kernels, lock-free concurrent search and memory-system
-tuning. On SIFT1M it serves **1.46× the queries per second of hnswlib and 1.40×
+tuning. On SIFT1M it serves **1.46× the queries per second of hnswlib and 1.41×
 FAISS at the same recall**.
 
-The same engine is being built for three targets: native (benchmarks and
-servers), WebAssembly (a live, in-browser 3D demo) and a sharded, replicated
-cluster.
+The same engine runs on three targets: native (benchmarks and servers),
+WebAssembly (a live, in-browser demo) and a sharded, replicated cluster (C++
+data nodes behind a Go router).
 
 **[Live demo →](https://lazeeez.github.io/Oryx/)** The engine compiled to
 WebAssembly (SIMD128 + threads), running entirely in your browser:
-- **[Landing page](https://lazeeez.github.io/Oryx/).** The engine indexes
-  the photo collection behind the hero and answers live queries, then a
+- **[Landing page](https://lazeeez.github.io/Oryx/).** The engine loads the
+  photo index behind the hero and answers live queries, then a
   scroll-driven explainer builds a small HNSW index (the real engine, in
   WebAssembly) and replays a search layer by layer. Click to search it yourself.
 - **[Playground](https://lazeeez.github.io/Oryx/try).** 29,825 Open Images
@@ -34,9 +34,13 @@ WebAssembly (SIMD128 + threads), running entirely in your browser:
   SIFT1M charts against hnswlib and FAISS, the optimization log, SQ8 results,
   and a lab that benchmarks the engine on your own device.
 
-> **Status:** milestones 1–7 of 9 are done (engine, benchmarks, WebAssembly,
-> dataset pipeline, 3D explorer, text search, quantization and durability).
-> See the [roadmap](#roadmap).
+The site works in Chrome, Edge, Firefox and Safari (16.4+), on desktop and
+mobile, and offline after one visit. Browsers without WebGL get everything but
+the 3D view; browsers too old for WebAssembly SIMD get a clear explanation.
+
+> **Status:** milestones 1–7 of 9 are done, and milestone 8's cluster is built
+> and tested in CI (a real three-node failover on every push); its cloud
+> deployment is on hold. See the [roadmap](#roadmap).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/sift1m-recall-qps-dark.svg">
@@ -166,15 +170,25 @@ dispatch level. Two modules are shipped:
   Web Workers sharing memory;
 - a **single-threaded** fallback, for pages that aren't cross-origin isolated.
 
-GitHub Pages can't send the isolation headers, so a service worker adds them.
-The whole C++ test suite also runs as WebAssembly under Node in CI.
+GitHub Pages can't send the isolation headers, so a service worker adds them
+(recovering by itself after a hard refresh, which bypasses it) and caches the
+site for offline use. The page also sets a Content Security Policy: only the
+site's own code runs, with no inline scripts and no `eval` (the bindings are
+built with `-sDYNAMIC_EXECUTION=0`). The whole C++ test suite also runs as
+WebAssembly under Node in CI.
 
 ```bash
 source emsdk/emsdk_env.sh
 scripts/build_wasm.sh                 # -> web/public/wasm/{mt,st}
 cd web && npm install && npm run dev  # http://localhost:5173/Oryx/
-npx playwright test                   # full benchmark in headless Chromium
+npx playwright test                   # every end-to-end suite (see below)
 ```
+
+The end-to-end suites run on every push: all four pages in Chromium (desktop
+and touch phone, both themes), the core journeys in Firefox and WebKit, an
+automated WCAG 2.1 AA audit (axe-core), the webcam path and every camera error,
+offline use, a browser without WebGL, one without WebAssembly SIMD, and a
+server that sends no isolation headers (as GitHub Pages does).
 
 The page runs the engine in a Web Worker, so the UI never blocks while every
 core builds the graph.
@@ -188,7 +202,9 @@ an RTX 4050), lays them out in 2-D with UMAP, and exports compact binaries:
 - **int8 vectors** with per-dimension scales: 15 MB instead of 61 MB, with
   recall@10 of 0.994 against float vectors;
 - a 16-bit layout;
-- metadata with each photo's author, license and source link.
+- metadata with each photo's author, license and source link;
+- a **prebuilt HNSW graph** (links only, 1.3 MB), so browsers load the index
+  in ~0.1 s instead of building it; `web/scripts/build-graph.sh` regenerates it.
 
 Photos are CC BY 2.0 and hotlinked from Flickr with attribution, and labels
 are CC BY 4.0. (Unsplash Lite was evaluated and rejected: its terms forbid
@@ -199,9 +215,41 @@ pip install torch transformers umap-learn pillow
 python pipeline/build_dataset.py --work data/openimages --out web/public/data/openimages
 ```
 
+## Cluster
+
+`cluster/` holds the distributed version: C++ data nodes (`oryx-node`, gRPC,
+each with its own write-ahead log) and a Go router in front of them.
+
+- **Sharding and replication.** Each shard has a primary and a backup on
+  different nodes. Writes go to the primary, which forwards them synchronously
+  to the backup before acknowledging; epochs act as fencing tokens so a
+  demoted primary can't accept writes.
+- **Failover and recovery.** The router health-checks every node, promotes the
+  backup when a primary stops answering, and catches a returning node up from
+  its peer (log records, or a snapshot when it's too far behind).
+- **Queries.** Fanned out to every shard with hedged requests (the other copy
+  is asked if the first is slow), then the top-k is merged.
+- **API.** `POST /v1/search` is open; `upsert`, `remove` and the chaos
+  `crash` endpoint need a bearer token, compared in constant time. Request
+  bodies are size-limited, vectors are validated, and the server has read,
+  write and idle timeouts. `GET /metrics` serves Prometheus metrics.
+
+```bash
+cmake --build build --target oryx_node
+cd cluster && ORYX_NODE_BIN=../build/oryx-node go test -race -tags integration ./...
+```
+
+CI runs that test on every push: three real nodes, a primary killed mid-traffic,
+failover, recovery, and a check that no acknowledged write was lost. It also
+checks formatting and scans for known vulnerabilities reachable from the code.
+`deploy/` has the Terraform (Oracle Cloud Always Free, Ampere A1), systemd
+units and a rolling-restart deploy script; credentials stay outside the
+repository.
+
 ## Build and test
 
-Linux or WSL2, CMake ≥ 3.20, GCC ≥ 13 or Clang ≥ 17.
+Linux or WSL2, CMake ≥ 3.20, GCC ≥ 13 or Clang ≥ 17; Go ≥ 1.27 for the
+cluster; Node ≥ 22 for the site.
 
 ```bash
 cmake -S engine -B build -G Ninja
@@ -230,5 +278,5 @@ configurations, the Python tests, and the test suite as WebAssembly under Node.
 5. ✅ 3D explorer: layered graph, animated search replay, exact-scan comparison
 6. ✅ In-browser text-to-image search (CLIP text encoder on ONNX Runtime Web, self-hosted)
 7. ✅ Deletes, write-ahead log, crash recovery; 8-bit scalar quantization
-8. Cluster: Go router, sharded C++ nodes, replication, chaos testing (Oracle Cloud Ampere A1)
+8. ✅ Cluster: Go router, sharded C++ nodes, replication, failover testing in CI (cloud deployment on hold)
 9. Filtered search, observability, write-ups
