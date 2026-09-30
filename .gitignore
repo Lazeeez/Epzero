@@ -32,6 +32,13 @@ web/public/models/
 web/test-results/
 web/playwright-report/
 
+# Credentials must never be committed (cloud API keys, tokens, local environment files)
+*.pem
+*.key
+.env
+.env.*
+.oci/
+
 # Terraform state and caches (state holds IPs and resource ids)
 .terraform/
 *.tfstate
