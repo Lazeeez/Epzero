@@ -1,5 +1,6 @@
 // Runs the Oryx engine (C++ compiled to WebAssembly) off the main thread, so the page stays at
 // 60 fps while the engine saturates every core.
+import { UNSUPPORTED_BROWSER, wasmSimdSupported } from "../support";
 import type { FromWorker, KernelRow, LabConfig, SweepRow, ToWorker } from "./protocol";
 
 interface Lab {
@@ -36,7 +37,11 @@ enginePromise.then(
     post({ type: "ready", info: { simd: lab.info().simd, threads, variant, isolated: self.crossOriginIsolated } });
     lab.delete();
   },
-  (error) => post({ type: "error", message: `Could not load the engine: ${error}` }),
+  (error) =>
+    post({
+      type: "error",
+      message: wasmSimdSupported() ? `Could not load the engine: ${error}` : UNSUPPORTED_BROWSER,
+    }),
 );
 
 async function run(config: LabConfig) {
