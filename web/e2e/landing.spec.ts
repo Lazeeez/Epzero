@@ -66,6 +66,14 @@ test("landing page: live hero, and the HNSW explainer runs real searches", async
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
   await page.setViewportSize({ width: 1440, height: 900 });
 
+  // Unknown addresses get a real "not found" page, with a way back.
+  await page.goto("no-such-page");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("drifted out of the graph");
+  await expect(page).toHaveTitle(/Page not found/);
+  await page.getByRole("link", { name: "Go to the home page" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("A vector database");
+  await expect(page.locator(".telemetry")).toContainText(/Index (ready|built)/, { timeout: 150_000 });
+
   // Navigating by the nav bar is client-side (the engine survives).
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Benchmarks" }).click();
   await expect(page).toHaveURL(/\/benchmarks$/);
