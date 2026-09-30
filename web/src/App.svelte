@@ -7,12 +7,13 @@
   import { sceneController, type SceneMode } from "./lib/scene/scene.svelte";
   import Benchmarks from "./pages/Benchmarks.svelte";
   import Landing from "./pages/Landing.svelte";
+  import NotFound from "./pages/NotFound.svelte";
   import Play from "./pages/Play.svelte";
   import Try from "./pages/Try.svelte";
 
   let stage: HTMLDivElement;
 
-  const modes: Record<string, SceneMode> = { home: "hero", try: "explore", play: "hidden", benchmarks: "hidden" };
+  const modes: Record<string, SceneMode> = { home: "hero", try: "explore", play: "hidden", benchmarks: "hidden", notfound: "hidden" };
 
   // Pages that show the graph start the engine and the scene; the benchmarks page needs neither.
   $effect(() => {
@@ -48,9 +49,14 @@
     try: "Try it · Oryx",
     play: "Out-navigate Oryx · Oryx",
     benchmarks: "Benchmarks · Oryx",
+    notfound: "Page not found · Oryx",
   };
+  // Per-page title and canonical URL (search engines index each page on its own address; a
+  // not-found page points back to the home page).
   $effect(() => {
     document.title = titles[router.route];
+    const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    if (canonical) canonical.href = new URL(router.href(router.route === "notfound" ? "home" : router.route), "https://lazeeez.github.io").href;
   });
 </script>
 
@@ -71,8 +77,10 @@
     <Try />
   {:else if router.route === "play"}
     <Play />
-  {:else}
+  {:else if router.route === "benchmarks"}
     <Benchmarks />
+  {:else}
+    <NotFound />
   {/if}
 </main>
 
