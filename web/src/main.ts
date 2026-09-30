@@ -23,5 +23,5 @@ addEventListener("vite:preloadError", (event) => {
 restoreTheme();
 router.start();
 // Pages that search start fetching the index right away, before the app has even mounted.
-if (router.route !== "benchmarks") engine.start();
+if (router.route !== "benchmarks" && router.route !== "notfound") engine.start();
 mount(App, { target: document.getElementById("app")! });
