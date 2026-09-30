@@ -32,8 +32,9 @@ test("navigator game: hop through the graph to the target, then compare with Ory
   }
   await expect(result).toBeVisible();
   await expect(result).toContainText("Oryx");
-  await expect(result.locator("dd").nth(0)).toHaveText(/\d+ hops/);
-  await expect(result.locator("dd").nth(1)).toHaveText(/^\d+ \+ \d+$/); // express hops + expansions
+  const sides = result.locator(".compare dl");
+  await expect(sides.nth(0).locator("dd").first()).toHaveText(/\d+ hops/);
+  await expect(sides.nth(1).locator("dd").first()).toHaveText(/^\d+ \+ \d+$/); // express hops + expansions
   if (shots) {
     await page.waitForTimeout(800);
     await page.screenshot({ path: `${shots}/play-result.png` });
