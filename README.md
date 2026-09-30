@@ -280,3 +280,8 @@ configurations, the Python tests, and the test suite as WebAssembly under Node.
 7. ✅ Deletes, write-ahead log, crash recovery; 8-bit scalar quantization
 8. ✅ Cluster: Go router, sharded C++ nodes, replication, failover testing in CI (cloud deployment on hold)
 9. Filtered search, observability, write-ups
+
+## License
+
+The code is under the [MIT License](LICENSE). The demo's photos are not: each keeps its own
+license from its author (credited, with a link to the source, wherever a photo is shown).
