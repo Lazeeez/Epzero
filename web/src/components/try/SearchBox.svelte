@@ -287,7 +287,9 @@
 <svelte:window onpaste={onPaste} />
 
 <div class="search">
-  <div class="tabs" role="tablist" aria-label="Search by">
+  <!-- The tab list holds only the tabs (ARIA requires it); the shuffle button sits beside it. -->
+  <div class="tabs">
+    <div class="tablist" role="tablist" aria-label="Search by">
     {#each [["text", "Describe"], ["photo", "Photo"], ["camera", "Camera"], ["blend", "Blend"]] as [value, label] (value)}
       <button
         role="tab"
@@ -302,6 +304,7 @@
         {label}
       </button>
     {/each}
+    </div>
     <button class="surprise" onclick={onsurprise} {disabled} title="Search with a random photo from the collection" aria-label="Surprise me">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5" /></svg>
       <span>Surprise me</span>
@@ -437,6 +440,12 @@
     border: 1px solid var(--border);
     border-radius: 12px;
     background: var(--surface);
+  }
+  .tablist {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
   }
   .tabs button {
     padding: 6px 10px;
