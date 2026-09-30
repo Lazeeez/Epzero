@@ -33,10 +33,10 @@ type ShardTiming struct {
 	Shard    int     `json:"shard"`
 	Node     string  `json:"node"`
 	Role     string  `json:"role"`
-	NodeUs   uint64  `json:"node_us"`   // search time inside the node
-	RoundMs  float64 `json:"round_ms"`  // router <-> node round trip
-	Hedged   bool    `json:"hedged"`    // the backup copy was also asked
-	Scored   uint64  `json:"scored"`    // distance computations on the node
+	NodeUs   uint64  `json:"node_us"`  // search time inside the node
+	RoundMs  float64 `json:"round_ms"` // router <-> node round trip
+	Hedged   bool    `json:"hedged"`   // the backup copy was also asked
+	Scored   uint64  `json:"scored"`   // distance computations on the node
 	Error    string  `json:"error,omitempty"`
 	Degraded bool    `json:"degraded"` // answered by the only live copy
 }
