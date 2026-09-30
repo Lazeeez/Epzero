@@ -234,8 +234,13 @@
     cursor: pointer;
     transition: opacity 0.2s;
   }
+  /* A hidden series stays a readable, clickable toggle: struck through and muted, not faded out. */
   .legend button.off {
-    opacity: 0.4;
+    color: var(--muted);
+    text-decoration: line-through;
+  }
+  .legend button.off i {
+    opacity: 0.35;
   }
   .legend i {
     width: 10px;
