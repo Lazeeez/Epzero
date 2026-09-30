@@ -158,6 +158,9 @@
   }
   em {
     margin-left: 6px;
+    padding: 0 5px;
+    border-radius: 5px;
+    background: var(--surface-solid); /* readable on top of the bar, in both themes */
     color: var(--good);
     font-style: normal;
   }
