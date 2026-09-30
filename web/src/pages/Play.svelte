@@ -181,7 +181,7 @@
           {#if best !== null}<span class="best num">Your best: {best} hops</span>{/if}
         {:else if engine.status === "error"}
           <p class="warn">{engine.error}</p>
-          <button class="btn btn-primary" onclick={() => engine.retry()}>Try again</button>
+          {#if !engine.unsupported}<button class="btn btn-primary" onclick={() => engine.retry()}>Try again</button>{/if}
         {:else}
           <span class="loading num">{engine.stage || "Starting the engine"} · {Math.round(engine.progress * 100)}%</span>
           <span class="bar"><i style:width="{engine.progress * 100}%"></i></span>
@@ -256,18 +256,22 @@
         {:else}
           <div class="result card" class:won={phase === "won"}>
             <h2>{phase === "won" ? "You found it." : "Lost in space."}</h2>
-            <dl class="num">
-              <div><dt>You</dt><dd>{hops} hops</dd><span>{seen.toLocaleString()} photos looked at{hints ? ` · ${hints} hints` : ""}</span></div>
-              <div class="vs">vs</div>
-              <div>
+            <div class="compare num">
+              <dl>
+                <dt>You</dt>
+                <dd>{hops} hops</dd>
+                <dd class="note">{seen.toLocaleString()} photos looked at{hints ? ` · ${hints} hints` : ""}</dd>
+              </dl>
+              <span class="vs" aria-hidden="true">vs</span>
+              <dl>
                 <dt>Oryx</dt>
                 <dd>{oryxRoute.express} + {oryxRoute.expanded}</dd>
-                <span>
+                <dd class="note">
                   express hops + base-layer expansions · {oryx?.distanceComputations.toLocaleString()} photos compared in
                   {oryx ? time(oryx.micros) : "–"}
-                </span>
-              </div>
-            </dl>
+                </dd>
+              </dl>
+            </div>
             <p>
               Oryx starts on its sparse top layer, where one hop crosses the whole map, and only drops to the dense layer you were
               walking once it's close. There it widens into a beam search to make sure nothing nearer was missed. The blue lines on
@@ -531,16 +535,16 @@
   .result.won h2 {
     color: var(--good);
   }
-  .result dl {
+  .compare {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: start; /* both sides' labels and numbers line up, whatever the caption length */
     gap: 12px;
-    margin: 0;
   }
-  .result dl > div:not(.vs) {
+  .compare dl {
     display: grid;
     gap: 2px;
+    margin: 0;
   }
   .vs {
     align-self: center;
@@ -558,9 +562,11 @@
     font-weight: 700;
     letter-spacing: -0.03em;
   }
-  .result dl span {
+  dd.note {
     color: var(--muted);
     font-size: 12px;
+    font-weight: 400;
+    letter-spacing: 0;
   }
   .result p {
     margin: 0;
