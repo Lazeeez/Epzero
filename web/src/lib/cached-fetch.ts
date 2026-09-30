@@ -13,7 +13,7 @@ export async function cachedFetch(url: string, { fresh = false } = {}): Promise<
     return response;
   }
   try {
-    const hit = await (await caches.open(DATA_CACHE)).match(url, { ignoreSearch: true });
+    const hit = await (await caches.open(DATA_CACHE)).match(url, { ignoreSearch: true, ignoreVary: true });
     if (hit) return hit;
   } catch {
     // No Cache API here (e.g. some private modes): fall through to the network.
