@@ -134,7 +134,10 @@ if(EMSCRIPTEN)
   target_link_libraries(oryx_web PRIVATE oryx_engine)
   set_target_properties(oryx_web PROPERTIES OUTPUT_NAME oryx SUFFIX .js)
   target_link_options(oryx_web PRIVATE
-    -lembind -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createOryx -sENVIRONMENT=web,worker -sSTACK_SIZE=1MB)
+    -lembind -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createOryx -sENVIRONMENT=web,worker -sSTACK_SIZE=1MB
+    # No eval / new Function in the generated bindings, so the site's Content Security Policy can
+    # forbid it (only WebAssembly compilation is allowed).
+    -sDYNAMIC_EXECUTION=0)
   if(ORYX_WASM_THREADS)
     # Pre-spawn the workers: the module's own thread blocks while a build runs, so it cannot
     # create new ones on demand.
