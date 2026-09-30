@@ -72,7 +72,7 @@
   }
   .hint {
     color: var(--muted);
-    font-size: 11.5px;
+    font-size: 12px;
   }
   ol {
     display: grid;
@@ -142,7 +142,7 @@
     padding: 18px 7px 6px;
     background: linear-gradient(transparent, rgba(0, 0, 0, 0.78));
     color: #fff;
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.3;
     text-align: left;
     opacity: 0;
