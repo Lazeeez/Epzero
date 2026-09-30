@@ -89,7 +89,7 @@
         <span>WebAssembly SIMD128</span>
       {:else if engine.status === "error"}
         <span class="failed">The in-browser engine couldn't start: {engine.error}</span>
-        <button class="retry" onclick={() => engine.retry()}>Try again</button>
+        {#if !engine.unsupported}<button class="retry" onclick={() => engine.retry()}>Try again</button>{/if}
       {:else}
         <span class="progress"><i class="spin"></i>{engine.stage || "Starting the engine"}</span>
         <span class="bar"><b style:width="{(engine.progress * 100).toFixed(1)}%"></b></span>
@@ -327,6 +327,14 @@
     from {
       opacity: 0;
       transform: translateY(10px);
+    }
+  }
+  /* Phones: the loading line and the ready line wrap differently. Reserving both rows keeps the
+     (vertically centered) hero from shifting when the index comes up. */
+  @media (max-width: 640px) {
+    .telemetry {
+      min-height: 48px;
+      align-content: flex-start;
     }
   }
   @media (max-width: 900px) {
