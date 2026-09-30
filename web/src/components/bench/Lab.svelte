@@ -2,6 +2,7 @@
   import { formatQps, formatUs } from "../../lib/format";
   import type { EngineInfo, FromWorker, KernelRow, LabConfig, StageId, SweepRow } from "../../lib/lab/protocol";
   import { reloadForThreads } from "../../lib/isolation";
+  import { UNSUPPORTED_BROWSER, wasmSimdSupported } from "../../lib/support";
   import RecallChart from "./RecallChart.svelte";
 
   const cores = Math.min(navigator.hardwareConcurrency || 1, 16);
@@ -44,6 +45,10 @@
       ([entry]) => {
         if (!entry.isIntersecting) return;
         observer.disconnect();
+        if (!wasmSimdSupported()) {
+          error = UNSUPPORTED_BROWSER; // don't download an engine this browser can't run
+          return;
+        }
         worker = new Worker(new URL("../../lib/lab/lab.worker.ts", import.meta.url), { type: "module" });
         worker.onmessage = (event: MessageEvent<FromWorker>) => handle(event.data);
         worker.onerror = (event) => handle({ type: "error", message: event.message || "The engine worker failed to start." });
