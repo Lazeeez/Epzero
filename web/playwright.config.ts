@@ -17,8 +17,19 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      testIgnore: /isolation\.spec\.ts/,
+      testIgnore: /(isolation|cross-browser)\.spec\.ts/,
       use: { baseURL: deployed ?? "http://localhost:4173/Oryx/" },
+    },
+    // Core journeys in the other two engines (Safari ships WebKit).
+    {
+      name: "firefox",
+      testMatch: /cross-browser\.spec\.ts/,
+      use: { ...devices["Desktop Firefox"], baseURL: deployed ?? "http://localhost:4173/Oryx/" },
+    },
+    {
+      name: "webkit",
+      testMatch: /cross-browser\.spec\.ts/,
+      use: { ...devices["Desktop Safari"], baseURL: deployed ?? "http://localhost:4173/Oryx/" },
     },
     {
       name: "pages-like",
