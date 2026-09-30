@@ -104,8 +104,14 @@ func (r *Router) handleUpsert(w http.ResponseWriter, req *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("need one vector per label"))
 		return
 	}
+	// Check every vector: a total-length check alone would accept, say, a 3- and a 5-value vector in
+	// a 4-dimension index and store both misaligned.
 	flat := make([]float32, 0, len(body.Vectors)*r.cfg.Dim)
-	for _, v := range body.Vectors {
+	for i, v := range body.Vectors {
+		if len(v) != r.cfg.Dim {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("vector %d has %d dimensions, expected %d", i, len(v), r.cfg.Dim))
+			return
+		}
 		flat = append(flat, v...)
 	}
 	result, err := r.Upsert(req.Context(), body.Labels, flat)
