@@ -58,10 +58,12 @@ test("searches 29,825 photos by text, photo and camera, with the debugger and ra
   await debuggerBar.getByRole("button", { name: "Next step" }).click();
   await expect(debuggerBar.locator(".inspector")).toContainText("distance");
   const step = async () => Number((await debuggerBar.locator(".count").textContent())!.split("/")[0].replace(/,/g, ""));
+  // Back then forward: works whether the search was still replaying or already shown finished (as it
+  // is with reduced motion, or on a GPU-less machine).
   const before = await step();
-  await page.keyboard.press("ArrowRight");
-  await expect.poll(step).toBe(before + 1); // paused: one event per keypress
   await page.keyboard.press("ArrowLeft");
+  await expect.poll(step).toBe(before - 1); // paused: one event per keypress
+  await page.keyboard.press("ArrowRight");
   await expect.poll(step).toBe(before);
 
   // Race against the exact scan.
