@@ -2,6 +2,7 @@
 // the whole app, so the graph is built once and survives navigation between pages.
 import { cachedFetch } from "../cached-fetch";
 import { isolationSettled } from "../isolation";
+import { UNSUPPORTED_BROWSER, wasmSimdSupported } from "../support";
 import type { Evaluation, FromWorker, GraphInfo, Neighborhood, Query, Request, Trace } from "./protocol";
 
 export interface Meta {
@@ -58,6 +59,8 @@ class Engine {
   /** Recall and speed of the current graph, measured in this tab after each (re)build. */
   evaluation = $state.raw<Evaluation | null>(null);
   evaluating = $state(false);
+  /** The browser can't run the engine at all (no WebAssembly SIMD): retrying won't help. */
+  unsupported = $state(false);
 
   private worker: Worker | null = null;
   private pending = new Map<number, { resolve: (o: SearchOutcome) => void; reject: (e: Error) => void; ef: number }>();
@@ -88,6 +91,11 @@ class Engine {
   private graphParams = { M: 16, efConstruction: 128 };
 
   private async load() {
+    if (!wasmSimdSupported()) {
+      this.fail(UNSUPPORTED_BROWSER);
+      this.unsupported = true;
+      return;
+    }
     this.status = "loading";
     this.stage = "Loading the dataset";
     // Only the tiny manifest is needed before the big downloads start. The vectors (in the worker),
