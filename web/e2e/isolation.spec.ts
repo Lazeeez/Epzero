@@ -49,3 +49,20 @@ test("when isolation is impossible, it says so and stays usable, without reload 
   await page.waitForTimeout(3000);
   expect(loads).toBe(1); // no automatic reload loop
 });
+
+test("after one visit, the playground works offline", async ({ page, context }) => {
+  test.setTimeout(300_000);
+  await page.goto("try");
+  const panel = page.getByRole("complementary", { name: "Search" });
+  await expect(panel.locator(".result")).toHaveCount(12, { timeout: 150_000 });
+  await expect.poll(() => isolated(page), { timeout: 30_000 }).toBe(true);
+  await page.waitForTimeout(2000); // let the service worker finish writing the downloads to its cache
+
+  await context.setOffline(true);
+  await page.reload();
+  await expect(panel.locator(".result")).toHaveCount(12, { timeout: 60_000 });
+  await panel.locator(".result").nth(1).click();
+  await expect(panel.locator(".results h2")).toContainText("Photos like");
+  expect(await isolated(page)).toBe(true); // still multithreaded offline
+  await context.setOffline(false);
+});
