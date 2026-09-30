@@ -2,6 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <!-- Only this site's own code runs (no injected scripts or eval; WebAssembly allowed). The one
+         inline script, the theme bootstrap, is added to script-src by its hash at build time.
+         Photos come from Flickr. GitHub Pages can't send this as a header, so it's a meta tag. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.staticflickr.com; media-src 'self' blob:; font-src 'self' data:; connect-src 'self' blob: data: https://*.staticflickr.com; object-src 'none'; base-uri 'self'; form-action 'self'"
+    />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Oryx · A vector database, running in your browser</title>
     <meta
@@ -19,15 +27,14 @@
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" href="%BASE_URL%favicon.svg" type="image/svg+xml" />
     <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
-    <!-- Applies the saved theme before first paint (no flash of the wrong theme). -->
-    <script>
-      document.documentElement.classList.add("js");
-      try {
-        if (localStorage.getItem("oryx-theme") === "light") document.documentElement.dataset.theme = "light";
-      } catch {}
-    </script>
-    <!-- Cross-origin isolation (for WebAssembly threads) and offline caching on a static host. -->
-    <script src="%BASE_URL%sw-register.js"></script>
+    <link rel="canonical" href="https://lazeeez.github.io/Oryx/" />
+    <!-- The text font is needed for the first paint: fetch it alongside the styles, not after them. -->
+    <link rel="preload" href="/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <!-- Applies the saved theme before first paint (no flash of the wrong theme); inlined at build. -->
+    <script src="/src/boot.js"></script>
+    <!-- Cross-origin isolation (for WebAssembly threads) and offline caching on a static host.
+         Deferred: it runs before the app's module script, which waits for its verdict. -->
+    <script defer src="%BASE_URL%sw-register.js"></script>
     <script type="module" src="/src/main.ts"></script>
   </head>
   <body>
