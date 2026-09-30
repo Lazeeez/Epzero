@@ -279,6 +279,9 @@
     gap: 5px;
     font: 11px var(--mono);
   }
+  .node .num {
+    min-width: 6ch; /* ids have 1 to 5 digits: a fixed width keeps the explanation beside them still */
+  }
   .node :global(.thumb) {
     width: 30px;
     height: 30px;
@@ -296,6 +299,7 @@
   .explain {
     flex: 1 1 280px;
     min-width: 0;
+    min-height: 2.9em; /* two lines, so stepping between short and long explanations doesn't jolt the dock */
     line-height: 1.45;
     overflow-wrap: anywhere;
   }
