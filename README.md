@@ -47,6 +47,83 @@ the 3D view; browsers too old for WebAssembly SIMD get a clear explanation.
   <img alt="Recall versus QPS on SIFT1M: Oryx is above hnswlib and FAISS at every recall level" src="docs/img/sift1m-recall-qps-light.svg">
 </picture>
 
+## Why
+
+Vector search sits under semantic search, recommendations and retrieval for
+LLMs, but most people only ever call it through a library. Oryx builds every
+layer itself: the graph algorithm, the SIMD distance kernels, lock-free
+concurrency, quantization, a crash-safe storage engine, replication with
+failover, and a browser build that lets anyone watch a search happen. Each
+choice is measured against the best existing libraries, and the ones that
+didn't pay off are documented too.
+
+The name comes from Destiny's Oryx, *the First Navigator*. An HNSW search is
+navigation: it starts on a sparse top layer, takes long hops toward the target,
+and descends layer by layer to refine the route. The site's star-map visuals and
+navigator HUD lean on that idea.
+
+## Highlights
+
+- **Faster than the reference libraries** on SIFT1M: 1.46× hnswlib's and 1.41×
+  FAISS's queries per second at equal recall, and a 1M-vector build in 42.9 s
+  (hnswlib 55.4 s, FAISS 68.4 s).
+- **Hand-written SIMD** for AVX2, AVX-512, NEON and WebAssembly SIMD128, picked
+  at runtime; up to 10.9× faster than scalar code.
+- **8-bit quantization** with exact re-ranking: +48% QPS at identical recall.
+- **Crash safety proven by fault injection:** the write-ahead log survives a
+  torn write at every byte offset, mid-log corruption and random `kill -9`s.
+- **A replicated cluster** whose failover is tested on every push with real
+  processes, a primary killed mid-traffic and zero lost writes.
+- **The whole engine in the browser:** 29,825 photos searched by text, photo or
+  webcam on the visitor's own CPU, with every query checked against an exact
+  scan.
+- **A production-grade site:** Lighthouse scores 100 for accessibility, best
+  practices and SEO on all four pages, with a layout-shift score of 0.01 or
+  less; it works offline and is tested in Chromium, Firefox and WebKit on every
+  push.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph core["C++20 engine (engine/)"]
+    HNSW["HNSW index<br/>lock-free search, SQ8"]
+    SIMD["Distance kernels<br/>AVX2 · AVX-512 · NEON · SIMD128"]
+    DB["Database<br/>write-ahead log, snapshots"]
+    HNSW --> SIMD
+    DB --> HNSW
+  end
+  core --> PY["Python module<br/>(pybind11)"]
+  core --> BENCH["Benchmarks<br/>vs. hnswlib, FAISS"]
+  core --> WASM["WebAssembly<br/>threaded + single-threaded"]
+  core --> NODE["oryx-node<br/>(gRPC data node)"]
+  WASM --> SITE["Website (web/)<br/>Svelte 5, three.js, CLIP in the browser"]
+  NODE --> ROUTER["Go router (cluster/)<br/>sharding, replication, failover"]
+  PIPE["Dataset pipeline (pipeline/)<br/>CLIP, UMAP, int8, prebuilt graph"] --> SITE
+```
+
+| Directory | Contents |
+|---|---|
+| [`engine/`](engine) | The C++ library: HNSW, SIMD kernels, quantization, `Database` (WAL), snapshots, tests, benchmarks, Python bindings, the gRPC node server and the WebAssembly bindings |
+| [`web/`](web) | The website: Svelte 5 pages, the three.js scene, Web Workers for the engine and the CLIP encoders, the service worker, and Playwright tests |
+| [`cluster/`](cluster) | The Go router, its HTTP API and CLI, and the three-node failover test |
+| [`proto/`](proto) | The gRPC service between the router and the nodes |
+| [`pipeline/`](pipeline) | Builds the demo dataset from Open Images |
+| [`bench/`](bench) | Library comparison scripts and the measured results the site's charts use |
+| [`deploy/`](deploy) | Terraform, systemd units and a rolling deploy script for the cluster |
+| [`docs/`](docs) | The performance log and charts |
+
+**Tech stack.**
+
+| Area | Tools |
+|---|---|
+| Engine | C++20, CMake, AVX2 / AVX-512 / NEON / WASM SIMD128 intrinsics, pybind11 + scikit-build-core |
+| Cluster | Go 1.27, gRPC, Protocol Buffers, Prometheus text metrics |
+| Web | Svelte 5, TypeScript, Vite, three.js, Emscripten (pthreads, SIMD), transformers.js on ONNX Runtime Web (CLIP ViT-B/32), service worker |
+| Data | PyTorch + CLIP, UMAP, Open Images V7 |
+| Testing and CI | CTest, ThreadSanitizer, AddressSanitizer + UBSan, pytest, Go race detector, govulncheck, Playwright (Chromium, Firefox, WebKit), axe-core, GitHub Actions on x86-64 and ARM64 |
+| Hosting | GitHub Pages; Terraform for Oracle Cloud (Ampere A1) |
+
 ## Results
 
 **SIFT1M** (1M × 128-dim, 10k queries, official ground truth), 1 search thread,
@@ -173,8 +250,9 @@ dispatch level. Two modules are shipped:
 GitHub Pages can't send the isolation headers, so a service worker adds them
 (recovering by itself after a hard refresh, which bypasses it) and caches the
 site for offline use. The page also sets a Content Security Policy: only the
-site's own code runs, with no inline scripts and no `eval` (the bindings are
-built with `-sDYNAMIC_EXECUTION=0`). The whole C++ test suite also runs as
+site's own code runs, with no `eval` (the bindings are built with
+`-sDYNAMIC_EXECUTION=0`) and one inline script, the theme bootstrap, allowed by
+a hash computed at build time. The whole C++ test suite also runs as
 WebAssembly under Node in CI.
 
 ```bash
@@ -190,8 +268,20 @@ automated WCAG 2.1 AA audit (axe-core), the webcam path and every camera error,
 offline use, a browser without WebGL, one without WebAssembly SIMD, and a
 server that sends no isolation headers (as GitHub Pages does).
 
-The page runs the engine in a Web Worker, so the UI never blocks while every
-core builds the graph.
+The engine and both CLIP encoders run in Web Workers, so the page never blocks
+on a search, an encode or an index rebuild. Other details of the site:
+- **Fast first load.** Data files download in parallel and are read straight
+  from the cache on repeat visits; the models load only once the index is
+  ready, and are warmed in the background only on capable devices.
+- **No layout shift.** Web fonts fall back to size-matched local fonts, and
+  every live element (loading status, results sheet, debugger) reserves its
+  space.
+- **Machines without a GPU.** When WebGL runs on the CPU, the 3D scene detects
+  it and switches to a calm mode that draws only when something changes, so
+  the page stays responsive. Frame cost is measured everywhere, and quality
+  steps down on slow GPUs.
+- **Accessible.** WCAG 2.1 AA colour contrast in both themes, keyboard
+  shortcuts (`?` lists them), reduced-motion support and screen-reader labels.
 
 ## Demo dataset
 
