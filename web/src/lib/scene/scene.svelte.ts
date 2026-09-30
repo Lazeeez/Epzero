@@ -14,6 +14,8 @@ class SceneController {
   /** Debugger playhead: event index into the current trace, total events, whether it's playing. */
   playhead = $state({ event: -1, total: 0, playing: false });
   ready = $state(false);
+  /** WebGL isn't available (disabled GPU, some remote desktops): the site works without the 3D view. */
+  unavailable = $state(false);
   /** A photo picked by a tap (touch screens have no hover): shown as a card with actions. */
   selected = $state<{ id: number; x: number; y: number } | null>(null);
   autoRotate = $state(true);
@@ -34,7 +36,14 @@ class SceneController {
   attach(host: HTMLElement): Promise<void> {
     this.creating ??= (async () => {
       const { GraphScene } = await import("./graph-scene");
-      const scene = new GraphScene(host);
+      let scene: GraphScene;
+      try {
+        scene = new GraphScene(host);
+      } catch (error) {
+        console.warn("3D view unavailable:", error);
+        this.unavailable = true;
+        return;
+      }
       host.addEventListener("dblclick", () => this.cancelClick(), true); // a double-click zooms, not searches
       scene.onHover((hover) => (this.hover = hover));
       scene.onTap((tap) => this.tap(tap));
