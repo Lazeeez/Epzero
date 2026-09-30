@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Trace } from "../../lib/engine/protocol";
   import { reveal } from "../../lib/reveal";
+  import { UNSUPPORTED_BROWSER, wasmSimdSupported } from "../../lib/support";
   import { buildToy, type ToyGraph } from "../../lib/toy/toy";
   import type { ToyRenderer, ToyStage } from "../../lib/toy/toy-renderer";
 
@@ -301,7 +302,9 @@
               : `An HNSW graph of ${count} points and a search through it`}
           ></canvas>
           {#if !graph}
-            <div class="placeholder">{failed ? "The demo couldn't load WebAssembly." : "Building the index…"}</div>
+            <div class="placeholder">
+              {failed ? (wasmSimdSupported() ? "The demo couldn't load WebAssembly." : UNSUPPORTED_BROWSER) : "Building the index…"}
+            </div>
           {/if}
           <div class="readout num" aria-live="polite">
             {#if trace && active >= 3}
@@ -349,11 +352,17 @@
     flex-direction: column;
     justify-content: center;
     padding: 24px 0;
-    opacity: 0.28;
-    transition: opacity 0.5s var(--ease);
   }
-  .step.active {
-    opacity: 1;
+  /* Steps other than the current one recede by color, not transparency: the muted color keeps
+     WCAG AA contrast (>= 5:1 in both themes), so they stay readable ahead of time. */
+  .step :global(*) {
+    transition: color 0.5s var(--ease);
+  }
+  .step:not(.active) h3,
+  .step:not(.active) p,
+  .step:not(.active) :global(code),
+  .step:not(.active) :global(strong) {
+    color: var(--muted);
   }
   .step.last {
     min-height: 70vh;
@@ -481,8 +490,11 @@
     inset: 0;
     display: grid;
     place-items: center;
+    padding: 24px;
     color: var(--muted);
     font: 13px var(--mono);
+    line-height: 1.6;
+    text-align: center;
   }
   .readout {
     position: absolute;
@@ -508,7 +520,7 @@
     color: var(--warn);
   }
   .dim {
-    opacity: 0.7;
+    color: var(--muted); /* already the muted color: no opacity on top, to keep contrast */
   }
   /* Phones: the figure pins to the top and the steps scroll up beneath it as cards. A flex column
      (not a grid) so the sticky figure's containing block is the whole section. */
@@ -535,7 +547,6 @@
     .step,
     .step.last {
       min-height: 0;
-      opacity: 1;
       padding: 20px;
       border: 1px solid var(--border);
       border-radius: var(--radius);
