@@ -53,11 +53,27 @@ function isolate(response) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
+// Same-origin files are re-requested as a plain GET rather than by passing the page's request
+// through: Safari (WebKit) rejects a service worker's fetch of a module worker script's original
+// request ("FetchEvent.respondWith received an error: Load failed"), which stopped the search
+// engine's worker from starting on every visit after the first.
+function plain(request) {
+  return new URL(request.url).origin === self.location.origin
+    ? new Request(request.url, { credentials: "same-origin" })
+    : request;
+}
+
+// Cached entries match by URL alone. The server marks responses "Vary: Origin", and a module
+// worker's request carries an Origin header the stored one doesn't: honouring Vary made the engine's
+// own files miss the cache for the worker, so the site failed offline. For these static files the
+// header makes no difference to the content.
+const MATCH = { ignoreSearch: true, ignoreVary: true };
+
 async function cacheFirst(request, cacheName) {
   const cache = await caches.open(cacheName);
-  const hit = await cache.match(request, { ignoreSearch: true });
+  const hit = await cache.match(request, MATCH);
   if (hit) return hit;
-  const response = await fetch(request);
+  const response = await fetch(plain(request));
   if (response.ok) cache.put(request, response.clone());
   return response;
 }
@@ -65,11 +81,12 @@ async function cacheFirst(request, cacheName) {
 async function networkFirst(request, cacheName, fallbackToShell) {
   const cache = await caches.open(cacheName);
   try {
-    const response = await fetch(request);
+    // Navigations must keep their own request (mode "navigate", redirects); other files go plain.
+    const response = await fetch(request.mode === "navigate" ? request : plain(request));
     if (response.ok) cache.put(request, response.clone());
     return response;
   } catch {
-    const hit = (await cache.match(request)) || (fallbackToShell && (await cache.match(BASE + "index.html")));
+    const hit = (await cache.match(request, MATCH)) || (fallbackToShell && (await cache.match(BASE + "index.html", MATCH)));
     if (hit) return hit;
     throw new Error("offline and not cached");
   }
