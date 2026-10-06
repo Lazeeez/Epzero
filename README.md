@@ -26,7 +26,8 @@ WebAssembly (SIMD128 + threads), running entirely in your browser:
   **Blend** a photo with words ("in the snow") and slide between them live;
   **tune and rebuild** the whole index with new `M` / `efConstruction` and
   compare measured recall and speed; orbit, zoom and tap through the 3D
-  graph with a navigator HUD following each search.
+  graph with a navigator HUD following each search. **Free look** (`H`) hides
+  every panel, leaving just the graph to explore.
 - **[Play](https://lazeeez.github.io/Oryx/play).** *Out-navigate Oryx*: hop
   from photo to photo along the real base-layer links to reach a target,
   then see the route Oryx's search took through its express layers.
