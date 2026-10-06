@@ -3,8 +3,6 @@
   import { sceneController } from "../../lib/scene/scene.svelte";
   import Shortcuts from "./Shortcuts.svelte";
 
-  let { panelHidden, ontogglepanel }: { panelHidden: boolean; ontogglepanel: () => void } = $props();
-
   const layers = $derived(engine.graph ? engine.graph.maxLevel + 1 : 0);
   const coarse = matchMedia("(pointer: coarse)").matches;
   const HINT_KEY = "oryx-view-hint";
@@ -98,18 +96,6 @@
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
   </button>
   <button class="help" onclick={() => (shortcutsOpen = true)} aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">?</button>
-  <span class="sep" aria-hidden="true"></span>
-  <button
-    class:on={panelHidden}
-    onclick={ontogglepanel}
-    aria-pressed={panelHidden}
-    aria-label={panelHidden ? "Show the search panel" : "Hide the search panel"}
-    title={panelHidden ? "Show the search panel" : "Hide the panel to explore"}
-  >
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      {#if panelHidden}<path d="M4 6h16v12H4zM9 6v12" />{:else}<path d="M4 6h16v12H4zM9 6v12M15 10l-2 2 2 2" />{/if}
-    </svg>
-  </button>
 </div>
 
 {#if shortcutsOpen}
