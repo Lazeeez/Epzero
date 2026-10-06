@@ -69,12 +69,35 @@ function plain(request) {
 // header makes no difference to the content.
 const MATCH = { ignoreSearch: true, ignoreVary: true };
 
+// Storing can fail (storage full, private browsing): the response is still served.
+const store = (cache, request, response) => cache.put(request, response).catch(() => {});
+
 async function cacheFirst(request, cacheName) {
   const cache = await caches.open(cacheName);
   const hit = await cache.match(request, MATCH);
   if (hit) return hit;
   const response = await fetch(plain(request));
-  if (response.ok) cache.put(request, response.clone());
+  if (response.ok) store(cache, request, response.clone());
+  return response;
+}
+
+// Photo thumbnails: cached like other files, but the cache is capped (oldest dropped first) so
+// browsing thousands of photos can't fill the device, and a retry (?retry=n) goes to the network.
+const IMAGE_LIMIT = 800;
+let imagesStored = 0;
+async function cachedImage(request) {
+  const cache = await caches.open(IMAGE_CACHE);
+  const retry = new URL(request.url).searchParams.has("retry");
+  const hit = !retry && (await cache.match(request, MATCH));
+  if (hit) return hit;
+  const response = await fetch(request);
+  if (response.ok) {
+    await store(cache, request.url.split("?")[0], response.clone());
+    if (++imagesStored % 50 === 0) {
+      const keys = await cache.keys();
+      await Promise.all(keys.slice(0, Math.max(0, keys.length - IMAGE_LIMIT)).map((key) => cache.delete(key)));
+    }
+  }
   return response;
 }
 
@@ -83,7 +106,7 @@ async function networkFirst(request, cacheName, fallbackToShell) {
   try {
     // Navigations must keep their own request (mode "navigate", redirects); other files go plain.
     const response = await fetch(request.mode === "navigate" ? request : plain(request));
-    if (response.ok) cache.put(request, response.clone());
+    if (response.ok) store(cache, request, response.clone());
     return response;
   } catch {
     const hit = (await cache.match(request, MATCH)) || (fallbackToShell && (await cache.match(BASE + "index.html", MATCH)));
@@ -111,8 +134,9 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Photo thumbnails (Flickr sends CORS headers): keep the ones already seen for offline use.
+  // Photo thumbnails (Flickr sends CORS headers): keep the ones already seen for offline use. If the
+  // cache itself is unusable, the photo still loads straight from the network.
   if (url.hostname.endsWith("staticflickr.com") && request.mode === "cors") {
-    event.respondWith(cacheFirst(request, IMAGE_CACHE));
+    event.respondWith(cachedImage(request).catch(() => fetch(request)));
   }
 });
