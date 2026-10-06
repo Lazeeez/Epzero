@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { tick } from "svelte";
+  import { FREE_LOOK_TOGGLE, freeLook } from "../lib/free-look.svelte";
   import { imageEncoder, textEncoder } from "../lib/engine/encoders.svelte";
   import { engine, type SearchOutcome } from "../lib/engine/engine.svelte";
   import type { Query } from "../lib/engine/protocol";
@@ -20,7 +22,7 @@
   let raceOpen = $state(false);
   let tuneOpen = $state(false);
   // Hide the search panel to explore the graph with the whole screen.
-  let panelHidden = $state(false);
+  const panelHidden = $derived(freeLook.on);
   // The photo the Blend tab mixes words into: the latest photo query, or else the top result.
   let blendBase = $state.raw<BlendBase | null>(null);
   let panel: HTMLElement | undefined = $state();
@@ -134,6 +136,11 @@
   // Share the current search: the native share sheet on phones, the clipboard elsewhere.
   let toast = $state("");
   let toastTimer = 0;
+  function say(message: string, ms = 2600) {
+    toast = message;
+    clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => (toast = ""), ms);
+  }
   async function share() {
     const url = location.href;
     try {
@@ -142,27 +149,63 @@
         return;
       }
       await navigator.clipboard.writeText(url);
-      toast = "Link copied: it opens this exact search";
+      say("Link copied: it opens this exact search");
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return; // share sheet dismissed
-      toast = "Couldn't copy the link; copy it from the address bar";
+      say("Couldn't copy the link; copy it from the address bar");
     }
-    clearTimeout(toastTimer);
-    toastTimer = window.setTimeout(() => (toast = ""), 2600);
   }
 
   function searchSelected() {
     const pick = sceneController.selected;
     if (!pick) return;
     sceneController.selected = null;
-    if (panelHidden && innerWidth <= 900) panelHidden = false; // show the results
+    if (panelHidden && innerWidth <= 900) setFreeLook(false); // show the results
     searchId(pick.id);
   }
+
+  // Free look: everything on the page slides away (search, settings, debugger, HUD, view controls),
+  // leaving the graph under the top bar, which holds the button that brings it all back. Hovering
+  // or tapping a star still shows its photo.
+  let hideButton: HTMLButtonElement | undefined = $state();
+  async function setFreeLook(on: boolean) {
+    if (on === freeLook.on) return;
+    const toggle = document.getElementById(FREE_LOOK_TOGGLE);
+    const hadFocus = document.activeElement === hideButton || document.activeElement === toggle;
+    freeLook.on = on;
+    if (on) tuneOpen = false;
+    await tick();
+    // The keyboard focus follows the button that undoes what was just done.
+    if (hadFocus) (on ? toggle : hideButton)?.focus();
+  }
+  $effect(() => () => void (freeLook.on = false)); // leaving the page ends it
+  $effect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || document.querySelector("dialog[open]")) return;
+      if ((event.target as HTMLElement).closest("input, textarea, select, [contenteditable]")) return;
+      if (event.key === "h" || event.key === "H") setFreeLook(!panelHidden);
+      else if (event.key === "Escape" && panelHidden && !sceneController.selected) setFreeLook(false);
+      else return;
+      event.preventDefault();
+    };
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  });
 </script>
 
 <div class="try">
   <aside class="panel card" class:collapsed={panelHidden} bind:this={panel} aria-label="Search" inert={panelHidden}>
     <header>
+      <button
+        class="hide"
+        bind:this={hideButton}
+        onclick={() => setFreeLook(true)}
+        aria-label="Hide the panels"
+        title="Free look: hide everything and explore the graph (H)"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
+        <span>Free look</span>
+      </button>
       <p class="eyebrow">Playground</p>
       <h1>Search {engine.count ? engine.count.toLocaleString() : "30,000"} photos, locally.</h1>
       <p class="lede">
@@ -188,7 +231,7 @@
     {/if}
   </aside>
 
-  <div class="knobs card" role="group" aria-label="Search settings">
+  <div class="knobs card" class:away={panelHidden} inert={panelHidden} role="group" aria-label="Search settings">
     <label class="ef">
       <span><span class="wide-only">Beam width&nbsp;</span><code>ef</code></span>
       <input type="range" min="16" max="256" step="16" value={ef} oninput={(e) => onEf(Number((e.currentTarget as HTMLInputElement).value))} />
@@ -220,8 +263,8 @@
     <!-- Without WebGL there's no 3D view; search, results and the race all still work. -->
     <p class="no-3d card" role="note">3D view unavailable: WebGL is turned off in this browser. Search works as normal.</p>
   {:else}
-    <div class="view-anchor" class:low={panelHidden}>
-      <ViewControls {panelHidden} ontogglepanel={() => (panelHidden = !panelHidden)} />
+    <div class="view-anchor" class:away={panelHidden} inert={panelHidden}>
+      <ViewControls />
     </div>
   {/if}
 
@@ -232,8 +275,8 @@
   {/if}
 
   {#if outcome}
-    <NavHud {outcome} />
-    <div class="dock" class:wide={panelHidden}>
+    {#if !panelHidden}<NavHud {outcome} />{/if}
+    <div class="dock" class:away={panelHidden} inert={panelHidden}>
       <Timeline {outcome} />
     </div>
   {/if}
@@ -386,15 +429,65 @@
     left: 448px;
     right: 88px;
     bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-    transition: left 0.35s var(--ease);
   }
-  .dock.wide {
-    left: 24px;
-  }
-  .panel {
+  .panel,
+  .knobs,
+  .dock,
+  .view-anchor {
     transition:
       transform 0.4s var(--ease),
       opacity 0.3s;
+  }
+  /* Free look: the settings bar, the debugger and the view controls slide off with the panel. */
+  .knobs.away,
+  .dock.away,
+  .view-anchor.away {
+    opacity: 0;
+    pointer-events: none !important;
+  }
+  .view-anchor.away {
+    transform: translateX(calc(100% + 32px));
+  }
+  .knobs.away {
+    transform: translateY(-24px);
+  }
+  .dock.away {
+    transform: translateY(calc(100% + 32px));
+  }
+  .panel header {
+    position: relative;
+  }
+  .hide {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 32px;
+    padding: 0 11px 0 9px;
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--text-2);
+    font: 550 12.5px var(--font);
+    cursor: pointer;
+    transition:
+      color 0.2s,
+      border-color 0.2s;
+  }
+  .hide:hover {
+    border-color: var(--text-2);
+    color: var(--text);
+  }
+  .hide svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
   .panel.collapsed {
     opacity: 0;
@@ -603,6 +696,22 @@
     .panel header .eyebrow {
       display: none;
     }
+    /* Phones: the button is just its icon, beside the one-line heading. */
+    .panel header {
+      padding-right: 40px;
+    }
+    .hide {
+      top: -5px;
+      right: -4px;
+      width: 34px;
+      height: 34px;
+      padding: 0;
+      justify-content: center;
+    }
+    .hide span {
+      display: none;
+    }
+
     h1 {
       font-size: 19px;
     }
@@ -661,9 +770,7 @@
       bottom: calc(52dvh + 24px + env(safe-area-inset-bottom, 0px));
       transition: bottom 0.35s var(--ease);
     }
-    .view-anchor.low {
-      bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-    }
+
     .loading {
       left: 50%;
       top: 35%;
