@@ -31,6 +31,7 @@
         [["0"], "Reset the view"],
         [["R"], "Auto-rotate on / off"],
         [["L"], "Isolate the next layer (Shift: previous)"],
+        [["H"], "Free look: hide or show the panels"],
         [["?"], "This list"],
       ],
     },
