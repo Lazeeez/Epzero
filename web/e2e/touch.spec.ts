@@ -15,10 +15,21 @@ test("touch: tap a star for its photo card, search from it, hide and show the pa
   const panel = page.getByRole("complementary", { name: "Search" });
   await expect(panel.locator(".result")).toHaveCount(12, { timeout: 150_000 });
 
-  // Hide the panel to explore full screen.
-  await page.getByRole("button", { name: "Hide the search panel" }).click();
+  // Free look: hide the panel to explore full screen; the button to bring it back is in reach.
+  await page.getByRole("button", { name: "Hide the panels" }).click();
   await expect(panel).toHaveClass(/collapsed/);
-  await page.getByRole("button", { name: "Auto-rotate" }).click(); // hold the camera still
+  await expect(page.locator(".knobs")).toHaveClass(/away/);
+  await expect(page.locator(".view-anchor")).toHaveClass(/away/);
+  // The way back is in the top bar, which still fits the phone's width.
+  const show = page.getByRole("button", { name: "Show the panels" });
+  await expect(show).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await show.click();
+  await expect(panel).not.toHaveClass(/collapsed/);
+  await expect(page.getByRole("button", { name: "Switch to light theme" })).toBeVisible();
+  await page.getByRole("button", { name: "Hide the panels" }).click();
+  await expect(panel).toHaveClass(/collapsed/);
+  await page.keyboard.press("r"); // hold the camera still (the view controls are hidden too)
 
   // Tap around the graph until a star is hit.
   const card = page.getByRole("dialog", { name: "Selected photo" });
