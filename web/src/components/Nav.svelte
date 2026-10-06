@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { FREE_LOOK_TOGGLE, freeLook } from "../lib/free-look.svelte";
   import { router } from "../lib/router.svelte";
   import { isDark, toggleTheme } from "../lib/theme";
   import Logo from "./Logo.svelte";
@@ -31,6 +32,24 @@
       <a href={router.href("benchmarks")} class="link" aria-current={router.route === "benchmarks" ? "page" : undefined}>Benchmarks</a>
     </nav>
     <div class="right">
+      {#if router.route === "try"}
+        <!-- Free look hides everything on the playground but this bar, so the way back lives here. -->
+        <button
+          id={FREE_LOOK_TOGGLE}
+          class="look"
+          class:on={freeLook.on}
+          type="button"
+          onclick={() => (freeLook.on = !freeLook.on)}
+          aria-pressed={freeLook.on}
+          aria-label={freeLook.on ? "Show the panels" : "Free look"}
+          title={freeLook.on ? "Show the panels again (H or Esc)" : "Free look: hide everything and explore the graph (H)"}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            {#if freeLook.on}<path d="M4 5h16v14H4zM10 5v14" />{:else}<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />{/if}
+          </svg>
+          <span>{freeLook.on ? "Show panels" : "Free look"}</span>
+        </button>
+      {/if}
       <button class="icon" type="button" onclick={theme} aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}>
         {#if dark}
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" /><path d="M12 2.5v2.2M12 19.3v2.2M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6" /></svg>
@@ -133,6 +152,43 @@
     stroke-width: 1.8;
     stroke-linecap: round;
   }
+  .look {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 36px;
+    padding: 0 12px 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--text-2);
+    font: 550 13.5px var(--font);
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      color 0.2s,
+      border-color 0.2s,
+      background 0.2s;
+  }
+  .look:hover {
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+  /* While everything else is hidden, the way back is the one bright thing in the bar. */
+  .look.on {
+    border-color: var(--accent);
+    background: var(--accent-wash);
+    color: var(--accent-strong);
+  }
+  .look svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
   .cta {
     display: inline-flex;
     align-items: center;
@@ -160,6 +216,25 @@
     .overlay .inner {
       width: calc(100% - 32px);
       gap: 12px;
+    }
+  }
+  /* Narrow bars: the free-look toggle is just its icon. */
+  @media (max-width: 720px) {
+    .look {
+      width: 36px;
+      padding: 0;
+      justify-content: center;
+    }
+    .look span {
+      display: none;
+    }
+  }
+  /* Phones have no room for one more button: free look starts from the panel's own Hide button,
+     and while it's on, the way back takes the theme toggle's place. */
+  @media (max-width: 520px) {
+    .look:not(.on),
+    .look.on + .icon {
+      display: none;
     }
   }
   /* Three links, the logo and the theme toggle share a phone's width: the logo drops its name. */
