@@ -203,6 +203,38 @@ test("searches 29,825 photos by text, photo and camera, with the debugger and ra
   }
   expect(searched).toBe(true);
 
+  // Shift-clicking a star opens its details, which say whether it is a result and, if not, why not.
+  await page.waitForTimeout(3000); // the search above flew the camera: let it settle
+  const card = page.getByRole("dialog", { name: "Selected photo" });
+  for (let i = 0; i < 60 && !(await card.isVisible()); i++) {
+    const angle = i * 2.4;
+    const radius = 14 * Math.sqrt(i);
+    await page.mouse.move(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius);
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    if (!(await hovercard.isVisible())) continue;
+    await page.keyboard.down("Shift");
+    await page.mouse.down();
+    await page.mouse.up();
+    await page.keyboard.up("Shift");
+  }
+  await expect(card).toBeVisible();
+  await expect(card.locator(".why")).toHaveText(/Result #\d|Not a miss|A miss|Filtered out/, { timeout: 15_000 });
+  if (shots) await page.screenshot({ path: `${shots}/why-not.png` });
+  await card.getByRole("button", { name: "Close" }).click();
+  await expect(card).toHaveCount(0);
+
+  // The recall guard: switched on, it measures recall over every search and moves ef to hold the
+  // target; a burst of random searches shows it working.
+  const guard = panel.getByRole("region", { name: "Recall guard" });
+  await guard.getByRole("switch", { name: "Hold recall at a target" }).click();
+  await expect(guard.getByRole("switch", { name: "Hold recall at a target" })).toHaveAttribute("aria-checked", "true");
+  await guard.getByRole("button", { name: "Run 30 random searches" }).click();
+  await expect(guard.getByRole("button", { name: "Run 30 random searches" })).toBeEnabled({ timeout: 120_000 });
+  await expect(guard.locator(".numbers strong")).toHaveText(/^0\.\d{3}$|^1\.000$/);
+  await expect(guard.locator("polyline")).toHaveCount(1);
+  if (shots) await page.screenshot({ path: `${shots}/recall-guard.png` });
+  await guard.getByRole("switch", { name: "Hold recall at a target" }).click();
+
   // Changing ef re-runs the query live.
   const ef = page.getByRole("slider", { name: /Beam width/ });
   await ef.fill("128");
