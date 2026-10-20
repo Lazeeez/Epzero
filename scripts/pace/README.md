@@ -59,6 +59,15 @@ sbatch scripts/pace/scaling.sbatch      # after sift1m.sbatch; reuses its saved 
 1 to 12 threads on one socket, then 12 to 24 over both sockets with interleaved memory, at ef=80
 and ef=200, three runs per point.
 
+## Filtered search and churn
+
+```bash
+sbatch scripts/pace/filter.sbatch       # every filter strategy at 0.1%-90% selectivity (~45 min)
+sbatch scripts/pace/churn.sbatch        # search p99 under writes; delete/re-insert cycles (~15 min)
+```
+
+Both reuse SIFT1M; `filter.sbatch` also reuses the index saved by `sift1m.sbatch`.
+
 ## Notes
 
 - Nodes differ (`sinfo -p ice-cpu -o "%D %c %m %f"` lists the types). Benchmarks run on the
