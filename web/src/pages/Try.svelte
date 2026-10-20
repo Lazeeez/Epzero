@@ -8,6 +8,7 @@
   import Thumb from "../components/Thumb.svelte";
   import Race from "../components/try/Race.svelte";
   import ResultsGrid from "../components/try/ResultsGrid.svelte";
+  import CategoryFilter from "../components/try/CategoryFilter.svelte";
   import SearchBox from "../components/try/SearchBox.svelte";
   import SearchStats from "../components/try/SearchStats.svelte";
   import Timeline from "../components/try/Timeline.svelte";
@@ -179,6 +180,10 @@
     if (hadFocus) (on ? toggle : hideButton)?.focus();
   }
   $effect(() => () => void (freeLook.on = false)); // leaving the page ends it
+  // The category filter belongs to this page: other pages (the live hero, the game) search everything.
+  $effect(() => () => {
+    if (engine.filter) engine.setFilter([]).catch(() => {});
+  });
   $effect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || document.querySelector("dialog[open]")) return;
@@ -222,6 +227,8 @@
       {blendBase}
       {initialBlend}
     />
+
+    <CategoryFilter onchange={() => outcome && search(outcome.query)} disabled={engine.status !== "ready" || engine.rebuilding} />
 
     {#if searchError}<p class="search-error" role="alert">Search failed: {searchError}</p>{/if}
 
@@ -275,7 +282,8 @@
   {/if}
 
   {#if outcome}
-    {#if !panelHidden}<NavHud {outcome} />{/if}
+    <!-- An exact scan of a filter's few photos has no route through the graph to navigate. -->
+    {#if !panelHidden && outcome.trace.strategy !== "exact"}<NavHud {outcome} />{/if}
     <div class="dock" class:away={panelHidden} inert={panelHidden}>
       <Timeline {outcome} />
     </div>
