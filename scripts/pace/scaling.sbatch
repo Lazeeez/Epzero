@@ -13,6 +13,7 @@
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --constraint=gold6226
+#SBATCH --partition=coc-cpu,ice-cpu   # the partitions with Gold 6226 nodes
 #SBATCH --time=00:45:00
 #SBATCH --output=scaling-%j.log
 set -euo pipefail
