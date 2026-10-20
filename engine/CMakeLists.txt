@@ -51,6 +51,7 @@ add_library(oryx_engine
   src/distance.cpp
   src/distance_scalar.cpp
   src/hnsw.cpp
+  src/recall.cpp
   src/database.cpp
   src/brute_force.cpp
   src/dataset.cpp
@@ -85,7 +86,7 @@ if(ORYX_BUILD_TESTS)
   FetchContent_MakeAvailable(googletest)
 
   enable_testing()
-  add_executable(oryx_tests tests/distance_test.cpp tests/hnsw_test.cpp tests/dataset_test.cpp tests/database_test.cpp)
+  add_executable(oryx_tests tests/distance_test.cpp tests/hnsw_test.cpp tests/recall_test.cpp tests/dataset_test.cpp tests/database_test.cpp)
   target_link_libraries(oryx_tests PRIVATE oryx_engine GTest::gtest_main)
   if(EMSCRIPTEN)
     # Runs under Node (CMAKE_CROSSCOMPILING_EMULATOR); workers are pre-spawned for the
@@ -105,6 +106,8 @@ if(ORYX_BUILD_BENCH)
   target_link_libraries(bench_filter PRIVATE oryx_engine)
   add_executable(bench_churn bench/bench_churn.cpp)
   target_link_libraries(bench_churn PRIVATE oryx_engine)
+  add_executable(bench_guard bench/bench_guard.cpp)
+  target_link_libraries(bench_guard PRIVATE oryx_engine)
 endif()
 
 if(ORYX_BUILD_FUZZ)
