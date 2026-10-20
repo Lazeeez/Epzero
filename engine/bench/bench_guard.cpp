@@ -42,6 +42,7 @@ struct Options {
   std::size_t n = 0, num_queries = 8'000, dim = 128, k = 10, threads = 0;
   std::size_t M = 16, ef_construction = 200;
   double target = 0.95, noise = 0.0, sample_rate = 0.05, filter_share = 0.05;
+  std::size_t reference_ef = 0;  // 0: exact checks
   std::size_t batch = 500, passes = 4;
 };
 
@@ -68,6 +69,7 @@ Options parse(int argc, char** argv) {
     else if (arg == "--noise") o.noise = std::stod(value());
     else if (arg == "--sample-rate") o.sample_rate = std::stod(value());
     else if (arg == "--filter-share") o.filter_share = std::stod(value());
+    else if (arg == "--reference-ef") o.reference_ef = std::stoul(value());
     else if (arg == "--batch") o.batch = std::stoul(value());
     else if (arg == "--passes") o.passes = std::stoul(value());
     else throw std::invalid_argument("unknown argument " + arg);
@@ -212,7 +214,8 @@ int main(int argc, char** argv) try {
     parallel_for(0, base.n, opt.threads, [&](std::size_t i) { fresh.add(i, base.row(i)); });
     RecallGuard guard(fresh, {.target = opt.target, .initial_ef = tuned, .min_ef = 16, .max_ef = 2048,
                               .min_samples = 100, .margin = 0.01,
-                              .monitor = {.sample_rate = opt.sample_rate, .window = 400, .queue = 256}});
+                              .monitor = {.sample_rate = opt.sample_rate, .window = 400, .queue = 256,
+                                          .reference_ef = opt.reference_ef}});
     for (std::size_t p = 0; p < 4; ++p) {
       Phase& ph = phases[p];
       if (p == 2) {  // churn the fresh index the same way
@@ -266,7 +269,7 @@ int main(int argc, char** argv) try {
     std::ofstream out(opt.json);
     out << "{\n  \"n\": " << base.n << ", \"dim\": " << dim << ", \"k\": " << opt.k << ", \"target\": " << opt.target
         << ", \"batch\": " << B << ", \"passes\": " << opt.passes << ", \"noise\": " << noise
-        << ", \"sample_rate\": " << opt.sample_rate << ", \"filter_share\": " << opt.filter_share
+        << ", \"sample_rate\": " << opt.sample_rate << ", \"reference_ef\": " << opt.reference_ef << ", \"filter_share\": " << opt.filter_share
         << ", \"fixed_tuned_ef\": " << tuned << ", \"fixed_worst_ef\": " << worst << ",\n  \"batches\": [\n";
     for (std::size_t i = 0; i < rows.size(); ++i) {
       const Batch& r = rows[i];
