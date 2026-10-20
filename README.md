@@ -7,6 +7,17 @@ tuning. On SIFT1M, on a dedicated server where every library gets huge pages,
 it serves **1.13× the queries per second of hnswlib and 1.17× FAISS at the same
 recall**, builds the graph fastest, and scales to 10× on a 12-core socket.
 
+**It also makes recall visible and keeps it on target.** Every approximate
+index trades accuracy for speed, and in production nobody measures the
+accuracy: it drifts with deletes, filters and new kinds of queries, and a RAG
+system then answers from the wrong documents without anyone noticing. Oryx's
+recall guard re-answers a small sample of real queries exactly in the
+background, reports live recall with a confidence interval, and moves the
+search effort to hold a target. Under drift on SIFT1M it held 0.95 recall where
+a fixed setting fell to 0.94, at 15% less cost than over-provisioning, and its
+estimates were within 0.007 of the truth. It can also say why any given
+document wasn't retrieved. [How it works and the evidence →](docs/recall-guard.md)
+
 The same engine runs on three targets: native (benchmarks and servers),
 WebAssembly (a live, in-browser demo) and a sharded, replicated cluster (C++
 data nodes behind a Go router).
@@ -27,8 +38,11 @@ WebAssembly (SIMD128 + threads), running entirely in your browser:
   **Blend** a photo with words ("in the snow") and slide between them live;
   **tune and rebuild** the whole index with new `M` / `efConstruction` and
   compare measured recall and speed; orbit, zoom and tap through the 3D
-  graph with a navigator HUD following each search. **Free look** (`H`) hides
-  every panel, leaving just the graph to explore.
+  graph with a navigator HUD following each search. **Filter by category**
+  ("dogs only") and see which strategy the engine picked; turn on the **recall
+  guard** and watch it hold a recall target live; shift-click (or tap) any star
+  to learn **why it is or isn't a result**. **Free look** (`H`) hides every
+  panel, leaving just the graph to explore.
 - **[Play](https://lazeeez.github.io/Oryx/play).** *Out-navigate Oryx*: hop
   from photo to photo along the real base-layer links to reach a target,
   then see the route Oryx's search took through its express layers.
@@ -40,9 +54,10 @@ The site works in Chrome, Edge, Firefox and Safari (16.4+), on desktop and
 mobile, and offline after one visit. Browsers without WebGL get everything but
 the 3D view; browsers too old for WebAssembly SIMD get a clear explanation.
 
-> **Status:** milestones 1–7 of 9 are done, and milestone 8's cluster is built
-> and tested in CI (a real three-node failover on every push); its cloud
-> deployment is on hold. See the [roadmap](#roadmap).
+> **Status:** milestones 1–9 are done: milestone 8's cluster is built and tested
+> in CI (a real three-node failover on every push), with its cloud deployment on
+> hold, and the wider competitive benchmarks (10) are under way. See the
+> [roadmap](#roadmap).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/sift1m-recall-qps-dark.svg">
@@ -66,6 +81,16 @@ navigator HUD lean on that idea.
 
 ## Highlights
 
+- **Recall you can see and keep:** live recall estimates with confidence
+  intervals from sampled exact checks, a guard that holds a recall target as
+  the workload drifts, and an explanation for any miss
+  ([details](docs/recall-guard.md)).
+- **Filtered search that chooses its own strategy:** an exact scan of the
+  allowed vectors, a graph walk that skips excluded ones, or a two-hop walk
+  across them, picked per query by how selective the filter is.
+- **Hardened against malformed files:** libFuzzer runs on every parser of
+  untrusted bytes in CI; it found four crash bugs in the index loaders, all
+  fixed and kept as regression cases.
 - **Faster than the reference libraries** on SIFT1M, at every recall level: 1.13×
   hnswlib's and 1.17× FAISS's queries per second at recall 0.95 on a dedicated
   server, and the fastest 1M-vector build (26.1 s on 24 threads, against 27.8 s
@@ -235,8 +260,17 @@ accumulators.
   `kill -9` a writer process at random moments; every acknowledged write
   survives.
 - **Persistence.** A versioned binary snapshot format that doesn't depend on
-  the in-memory layout. Every link is validated on load, so a corrupt file
-  can't cause out-of-bounds reads.
+  the in-memory layout. Every link is validated on load (it must name a node
+  that exists on that link's layer), headers are checked against the file size
+  before anything is allocated, and loading can be capped by memory. Fuzzing in
+  CI keeps it that way.
+- **Filtered search.** A filter is compiled once against the index (a bitset
+  plus the allowed slots) and reused by every query. Each query then picks a
+  strategy from the filter's selectivity: score the allowed vectors directly
+  when few pass, walk the graph keeping only allowed results when most pass,
+  and in between walk only allowed nodes, stepping past an excluded neighbour
+  to its own neighbours (the idea behind ACORN) so the walk stays connected.
+- **Recall monitoring and control.** See [docs/recall-guard.md](docs/recall-guard.md).
 
 ## Python
 
@@ -256,6 +290,16 @@ index.save("sift.oryx"); index = oryx.Index.load("sift.oryx")
 # 8-bit quantization: train on a sample, then add as usual
 sq8 = oryx.Index(dim=128, quantization="sq8")
 sq8.train(vectors[:100_000]); sq8.add(vectors, threads=12)
+
+# Filtered search: a compiled filter is reused across queries
+dogs = index.filter(dog_labels)                  # oryx.Filter: dogs.allowed, dogs.selectivity
+labels, _ = index.search(queries, k=10, ef=80, filter=dogs)
+
+# Recall you can see and keep
+guard = oryx.RecallGuard(index, target=0.95, sample_rate=0.01, reference_ef=1024)
+labels, _ = guard.search(queries, k=10)
+print(guard.report())                           # per segment: ef, recall estimate, 95% interval
+print(index.explain(queries[0], k=10, label=4217, ef=80))   # why it was or wasn't returned
 
 # Durable collection with a write-ahead log and crash recovery
 db = oryx.Database.open("./vectors.db", dim=128, sync="always")
@@ -383,8 +427,16 @@ python bench/compare_libs.py --data data/sift --cache data/indexes --out bench/r
 ```
 
 Sanitizers: `-DORYX_SANITIZE=thread` or `-DORYX_SANITIZE=address,undefined`.
-CI runs GCC and Clang on x86-64, GCC on AArch64 (NEON), both sanitizer
-configurations, the Python tests, and the test suite as WebAssembly under Node.
+Fuzzing (Clang): `-DORYX_BUILD_FUZZ=ON` builds libFuzzer targets for snapshot
+loading, graph import and write-ahead-log recovery. CI runs GCC and Clang on
+x86-64, GCC on AArch64 (NEON), both sanitizer configurations, a minute of
+fuzzing per target plus every past finding, the Python tests, and the test
+suite as WebAssembly under Node.
+
+More benchmarks: `bench_filter` (every filtered-search strategy across
+selectivities), `bench_churn` (search latency under concurrent writes; recall
+through delete/re-insert cycles) and `bench_guard` (recall under drift). The
+dedicated-server runs are in [`scripts/pace/`](scripts/pace/).
 
 ## Roadmap
 
@@ -396,7 +448,8 @@ configurations, the Python tests, and the test suite as WebAssembly under Node.
 6. ✅ In-browser text-to-image search (CLIP text encoder on ONNX Runtime Web, self-hosted)
 7. ✅ Deletes, write-ahead log, crash recovery; 8-bit scalar quantization
 8. ✅ Cluster: Go router, sharded C++ nodes, replication, failover testing in CI (cloud deployment on hold)
-9. Filtered search, observability, write-ups
+9. ✅ Filtered search; recall monitoring, the recall guard and the miss explainer; fuzzing
+10. Competitive benchmarks on more datasets (GIST1M, GloVe-100, text embeddings, DEEP10M) against Glass, VSAG, USearch and tuned FAISS
 
 ## License
 
