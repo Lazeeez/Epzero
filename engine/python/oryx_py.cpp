@@ -255,11 +255,11 @@ py::dict estimate_to_dict(const oryx::RecallEstimate& e) {
 class Guard {
  public:
   Guard(const Index& index, double target, std::size_t initial_ef, std::size_t min_ef, std::size_t max_ef,
-        std::size_t min_samples, double margin, double sample_rate, std::size_t window)
+        std::size_t min_samples, double margin, double sample_rate, std::size_t window, std::size_t reference_ef)
       : index_(index),
         guard_(index.raw(), {.target = target, .initial_ef = initial_ef, .min_ef = min_ef, .max_ef = max_ef,
                              .min_samples = min_samples, .margin = margin,
-                             .monitor = {.sample_rate = sample_rate, .window = window}}) {}
+                             .monitor = {.sample_rate = sample_rate, .window = window, .reference_ef = reference_ef}}) {}
 
   py::tuple search(const FloatArray& queries, std::size_t k, std::size_t threads, const py::object& filter) {
     oryx::SearchFilter compiled;
@@ -427,10 +427,11 @@ PYBIND11_MODULE(oryx, m) {
   py::class_<Guard>(m, "RecallGuard",
                     "Searches an Index at the smallest beam width that keeps live, measured recall above a\n"
                     "target. A sample of queries is re-answered exactly in the background.")
-      .def(py::init<const Index&, double, std::size_t, std::size_t, std::size_t, std::size_t, double, double, std::size_t>(),
+      .def(py::init<const Index&, double, std::size_t, std::size_t, std::size_t, std::size_t, double, double, std::size_t,
+                    std::size_t>(),
            py::arg("index"), py::arg("target") = 0.95, py::arg("initial_ef") = 64, py::arg("min_ef") = 16,
            py::arg("max_ef") = 2048, py::arg("min_samples") = 200, py::arg("margin") = 0.01,
-           py::arg("sample_rate") = 0.01, py::arg("window") = 1000,
+           py::arg("sample_rate") = 0.01, py::arg("window") = 1000, py::arg("reference_ef") = 0,
            py::keep_alive<1, 2>())  // the guard holds the index
       .def("search", &Guard::search, py::arg("queries"), py::arg("k") = 10, py::arg("threads") = 1,
            py::arg("filter") = py::none(), "Returns (labels, distances), like Index.search.")
