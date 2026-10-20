@@ -1,8 +1,12 @@
 // Headline numbers derived from the committed benchmark results, so every page quotes the same
-// figures as bench/results/sift1m-compare.json.
-import compare from "../../../bench/results/sift1m-compare.json";
+// figures as the comparison run on a dedicated server node (bench/results/pace/gold6226/). There,
+// the kernel gives every library 2 MiB huge pages, so the comparison is on equal footing.
+import compare from "../../../bench/results/pace/gold6226/sift1m-compare.json";
 
 export { compare };
+
+/** Where the comparison ran. */
+export const MACHINE = "2 × Intel Xeon Gold 6226, clock fixed at 2.7 GHz";
 
 type Library = keyof typeof compare.libraries;
 interface Point {
@@ -25,11 +29,11 @@ function qpsAtRecall(sweep: Point[], recall: number): number {
   return NaN;
 }
 
-/** The operating point quoted everywhere: Oryx at ef = 48 (recall ≈ 0.943). */
-export const OPERATING_EF = 48;
-export const operating = compare.libraries.oryx.sweep.find((p) => p.ef === OPERATING_EF)!;
+/** The operating point quoted everywhere: recall@10 = 0.95, each library interpolated to it. */
+export const OPERATING_RECALL = 0.95;
+export const operating = { recall: OPERATING_RECALL, qps: qpsAtRecall(compare.libraries.oryx.sweep, OPERATING_RECALL) };
 
-/** Oryx's QPS divided by `other`'s, at equal recall (Oryx's recall at the operating point). */
+/** Oryx's QPS divided by `other`'s, at equal recall (the operating point). */
 export function speedup(other: Exclude<Library, "oryx">): number {
   return operating.qps / qpsAtRecall(compare.libraries[other].sweep, operating.recall);
 }
