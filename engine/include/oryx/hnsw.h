@@ -3,10 +3,12 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <random>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -41,9 +43,41 @@ struct SearchResult {
   float distance;
 };
 
+// How a filtered search finds its results. Auto picks one per query from the filter's size.
+enum class FilterStrategy : std::uint8_t {
+  Auto,
+  Exact,   // score only the allowed vectors, one by one: exact, and cheapest when few pass
+  Inline,  // the normal graph walk, keeping only allowed nodes as results: best when most pass
+  TwoHop,  // walk allowed nodes only; past a filtered-out neighbor, continue to its neighbors
+           // (the idea behind ACORN), so the walk stays connected when many nodes are excluded
+};
+std::string_view to_string(FilterStrategy strategy) noexcept;
+
 struct SearchStats {
   std::size_t distance_computations = 0;
   std::size_t nodes_expanded = 0;
+  FilterStrategy strategy = FilterStrategy::Auto;  // what a filtered search used
+};
+
+// Which labels a search may return. Compiled against one index by HnswIndex::make_filter(), so
+// any number of queries can reuse it: a bitset over the index's node slots, plus the list of
+// allowed slots for exact scans. Nodes added after it was made are not allowed.
+class SearchFilter {
+ public:
+  std::size_t allowed() const noexcept { return ids_.size(); }
+  // Allowed share of the live nodes when the filter was made (1.0 when nothing is filtered out).
+  double selectivity() const noexcept {
+    return universe_ == 0 ? 0.0 : static_cast<double>(ids_.size()) / static_cast<double>(universe_);
+  }
+
+ private:
+  friend class HnswIndex;
+  bool allows(std::uint32_t id) const noexcept {
+    return (id >> 6) < bits_.size() && ((bits_[id >> 6] >> (id & 63)) & 1u) != 0;
+  }
+  std::vector<std::uint64_t> bits_;
+  std::vector<std::uint32_t> ids_;
+  std::size_t universe_ = 0;
 };
 
 // One step of a search: while expanding `from` on `layer`, the neighbor `to` was scored.
@@ -70,6 +104,9 @@ struct SearchOptions {
   std::size_t rerank = 0;
   SearchStats* stats = nullptr;     // optional
   SearchTrace* trace = nullptr;     // optional; costs nothing when null
+  // Optional: only labels the filter allows are returned. Must come from this index's make_filter().
+  const SearchFilter* filter = nullptr;
+  FilterStrategy strategy = FilterStrategy::Auto;  // with a filter: force a strategy (benchmarks)
 };
 
 // Hierarchical Navigable Small World index (Malkov & Yashunin, 2016).
@@ -109,6 +146,11 @@ class HnswIndex {
   // Returns up to k nearest live neighbors, closest first.
   std::vector<SearchResult> search(const float* query, std::size_t k,
                                    const SearchOptions& options = {}) const;
+
+  // Compiles a filter for search(): `allow` is asked once for each live node's label.
+  SearchFilter make_filter(const std::function<bool(std::uint64_t label)>& allow) const;
+  // The same, from a list of allowed labels; labels not in the index are ignored.
+  SearchFilter make_filter(const std::uint64_t* labels, std::size_t count) const;
 
   // A fresh index holding only the live vectors (same parameters), for reclaiming the space of
   // deleted nodes. Requires full-precision vectors (always true unless SQ8 without keep_vectors,
@@ -188,6 +230,15 @@ class HnswIndex {
                       SearchTrace* trace) const;
   std::vector<Candidate> search_layer(const Scorer& scorer, id_t entry, std::size_t ef, int layer,
                                       SearchStats& stats, SearchTrace* trace) const;
+  // Layer-0 beam search that only returns nodes the filter allows (Inline or TwoHop).
+  std::vector<Candidate> search_layer_filtered(const Scorer& scorer, id_t entry, std::size_t ef,
+                                               const SearchFilter& filter, bool two_hop, SearchStats& stats,
+                                               SearchTrace* trace) const;
+  // Exact: scores every allowed node and keeps the best `keep`.
+  std::vector<Candidate> scan_allowed(const Scorer& scorer, const SearchFilter& filter, std::size_t keep,
+                                      SearchStats& stats) const;
+  FilterStrategy choose_strategy(const SearchFilter& filter, std::size_t ef) const noexcept;
+  SearchFilter filter_from_ids(std::vector<id_t> ids) const;
   // The neighbor-selection heuristic (Algorithm 4 in the paper): keep a candidate only if it is
   // closer to the base point than to every neighbor already kept. This keeps links pointing in
   // diverse directions, which is what makes the graph navigable across clusters.
