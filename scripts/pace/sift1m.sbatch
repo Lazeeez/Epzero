@@ -4,7 +4,8 @@
 #   1. Build once on all cores (timed) and save the index.
 #   2. Search three times from the saved index, pinned to one socket and its local memory, so a
 #      search never reads the other socket's RAM. The README reports the median of the three.
-# Results: bench/results/pace/gold6226/sift1m-{build,run1,run2,run3}.json
+# Results: pace-results/gold6226/sift1m-{build,run1,run2,run3}.json (untracked; copy them back with
+# scp, and they're committed to bench/results/pace/ from there)
 #
 # Submit from the repository root, after scripts/download_sift1m.sh on the login node:
 #   sbatch scripts/pace/sift1m.sbatch
@@ -20,7 +21,7 @@ source scripts/pace/env.sh
 [ -x "$ORYX_BUILD/bench_recall" ] || { echo "build first: scripts/pace/build.sh"; exit 1; }
 [ -f data/sift/sift_base.fvecs ] || { echo "download first: scripts/download_sift1m.sh"; exit 1; }
 
-OUT=bench/results/pace/gold6226
+OUT=pace-results/gold6226
 mkdir -p "$OUT" data/indexes
 INDEX=data/indexes/sift1m-M16-efc200.oryx
 SIFT=(--base data/sift/sift_base.fvecs --query data/sift/sift_query.fvecs --gt data/sift/sift_groundtruth.ivecs
