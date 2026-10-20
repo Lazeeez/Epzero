@@ -4,7 +4,7 @@
 # median QPS, single-threaded search).
 #   1. Build all three indexes on every core (timed, cached).
 #   2. Measure search from the cached indexes, pinned to one socket and its local memory.
-# Result: bench/results/pace/gold6226/sift1m-compare.json
+# Result: pace-results/gold6226/sift1m-compare.json (untracked; copy it back with scp)
 #
 # Submit from the repository root, after scripts/download_sift1m.sh and scripts/pace/bench-env.sh:
 #   sbatch scripts/pace/compare.sbatch
@@ -24,7 +24,7 @@ VENV="$ORYX_ROOT/.pace-bench"
 # hnswlib, compiled for this node's CPU (-march=native), as it would be when installed on it.
 "$VENV/bin/pip" install --quiet --no-index --no-build-isolation --force-reinstall "$VENV"/src/hnswlib-*.tar.gz
 
-OUT=bench/results/pace/gold6226
+OUT=pace-results/gold6226
 CACHE=data/indexes/compare-gold6226
 mkdir -p "$OUT" "$CACHE"
 COMMON=(--data data/sift --cache "$CACHE" --M 16 --efc 200 --threads "$(nproc)")
