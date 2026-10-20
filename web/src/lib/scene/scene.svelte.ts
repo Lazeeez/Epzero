@@ -30,6 +30,7 @@ class SceneController {
   private laidOut = false;
   /** The graph the scene currently shows; a rebuild replaces it with a new object. */
   private shownGraph: GraphInfo | null = null;
+  private shownFilter: Uint32Array | null = null;
   private creating: Promise<void> | null = null;
 
   /** Creates the WebGL scene in `host` (lazily loads three.js). */
@@ -116,6 +117,11 @@ class SceneController {
       this.shownGraph = engine.graph;
     } else if (!engine.graph) {
       scene.setBuilt(engine.built);
+    }
+    const filter = engine.filter?.ids ?? null;
+    if (filter !== this.shownFilter) {
+      scene.setAllowed(filter);
+      this.shownFilter = filter;
     }
   }
 
