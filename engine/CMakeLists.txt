@@ -20,6 +20,18 @@ if(ORYX_SANITIZE)
   add_link_options(-fsanitize=${ORYX_SANITIZE})
 endif()
 
+# Fuzzing (Clang + libFuzzer): every parser of untrusted bytes, under AddressSanitizer and UBSan.
+# The engine is instrumented for coverage; only the fuzz targets link libFuzzer's main().
+option(ORYX_BUILD_FUZZ "Build the libFuzzer targets (Clang only)" OFF)
+if(ORYX_BUILD_FUZZ)
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    message(FATAL_ERROR "ORYX_BUILD_FUZZ needs Clang (libFuzzer)")
+  endif()
+  add_compile_options(-fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=undefined
+                      -fno-omit-frame-pointer -g)
+  add_link_options(-fsanitize=address,undefined)
+endif()
+
 # WebAssembly: fixed-width SIMD is supported by every browser the demo targets, so the whole
 # build uses it (there is no runtime feature detection in WASM). Threads map to Web Workers
 # sharing one SharedArrayBuffer, which requires a cross-origin isolated page.
@@ -91,6 +103,18 @@ if(ORYX_BUILD_BENCH)
   target_link_libraries(bench_recall PRIVATE oryx_engine)
   add_executable(bench_filter bench/bench_filter.cpp)
   target_link_libraries(bench_filter PRIVATE oryx_engine)
+  add_executable(bench_churn bench/bench_churn.cpp)
+  target_link_libraries(bench_churn PRIVATE oryx_engine)
+endif()
+
+if(ORYX_BUILD_FUZZ)
+  foreach(target snapshot graph wal)
+    add_executable(fuzz_${target} fuzz/fuzz_${target}.cpp)
+    target_link_libraries(fuzz_${target} PRIVATE oryx_engine)
+    target_link_options(fuzz_${target} PRIVATE -fsanitize=fuzzer)
+  endforeach()
+  add_executable(fuzz_seeds fuzz/make_seeds.cpp)
+  target_link_libraries(fuzz_seeds PRIVATE oryx_engine)
 endif()
 
 # Writes the web demo's prebuilt graph (see tools/export_graph.cpp and web/scripts/build-graph.sh).
