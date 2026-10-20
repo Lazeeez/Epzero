@@ -27,6 +27,11 @@ kept only if an interleaved A/B test on SIFT1M showed a gain.
   into one process and queried in interleaved rounds, each through its own C++
   batch loop, so Python call overhead isn't part of the timing.
   See [`bench/compare_libs.py`](../bench/compare_libs.py).
+- **Server runs.** The library comparison and the scaling numbers come from a dedicated node on
+  Georgia Tech's PACE cluster: 2 × Xeon Gold 6226, AVX-512, clock fixed at 2.7 GHz, no other jobs
+  on the node (Slurm `--exclusive`), search pinned with `numactl` to one socket and its memory.
+  Runs agree within 0.5%, against a few percent on the laptop. The job scripts are in
+  [`scripts/pace/`](../scripts/pace/).
 
 ## Where the time goes
 
@@ -68,14 +73,57 @@ instruction-level changes.
   <img alt="Recall versus QPS on SIFT1M: Oryx is above hnswlib and FAISS at every recall level" src="img/sift1m-recall-qps-light.svg">
 </picture>
 
-At the same recall, Oryx serves **1.46× hnswlib's QPS and 1.40× FAISS's**, and
-builds the graph faster (42.9 s vs 55.4 s and 68.4 s on 12 threads). Raw data:
+The reference run is on a dedicated server node: 2 × Intel Xeon Gold 6226 (Cascade Lake, 24
+cores, AVX-512, clock fixed at 2.7 GHz), Slurm `--exclusive`, search pinned to one socket and its
+local memory. Repeated runs agree within 0.5%. At the same recall (0.95), Oryx serves **1.13×
+hnswlib's QPS and 1.17× FAISS's**, and the lead holds at every recall level (1.12–1.14× and
+1.16–1.24× between recall 0.80 and 0.995). It also builds the graph fastest: 26.1 s, against 27.8 s
+and 37.8 s, on 24 threads. Raw data:
+[`bench/results/pace/gold6226/sift1m-compare.json`](../bench/results/pace/gold6226/sift1m-compare.json).
+
+All three libraries implement the same algorithm, and graph quality is essentially identical
+(recall matches at each `ef`). The difference is memory-system engineering: batched prefetching,
+the node layout and the visited set.
+
+### Why the laptop showed a bigger lead (huge pages)
+
+The first comparison, on the development laptop, measured **1.46× hnswlib and 1.40× FAISS**.
+The server's smaller lead is explained by transparent huge pages:
+
+| Setup (SIFT1M, equal recall, one search thread) | vs hnswlib | vs FAISS |
+|---|---|---|
+| Laptop: huge pages opt-in (`madvise`); only Oryx asks for them | 1.44–1.55× | 1.39–1.55× |
+| Laptop: no library on huge pages (`ORYX_NO_HUGEPAGES=1`) | 1.18–1.25× | 1.21–1.35× |
+| Server: huge pages for every program (`always`) | 1.12–1.14× | 1.16–1.24× |
+
+A random walk over a 765 MB graph misses the TLB on almost every node with 4 KiB pages. Oryx
+requests 2 MiB pages for its graph (`MADV_HUGEPAGE`), which is worth about 16% on its own: turning
+the request off cut its QPS at recall 0.97 from 11,556 to 9,999, and the kernel reported no huge
+pages in use. hnswlib and FAISS don't ask, so they get huge pages only where the kernel hands them
+to every program. Asking for them is still a real advantage on kernels where they are opt-in; but
+the like-for-like comparison is on equal pages, and there Oryx's design is worth about 1.13–1.25×
+depending on the CPU. Laptop data:
 [`bench/results/sift1m-compare.json`](../bench/results/sift1m-compare.json).
 
-To be clear about where the gain comes from: all three libraries implement the
-same algorithm, and graph quality is essentially identical (recall matches at
-each `ef`). The difference is memory-system engineering, mainly batched
-prefetching and huge pages, which hnswlib and FAISS's HNSW don't use by default.
+### Thread scaling
+
+Search throughput on the same server node, SIFT1M, ef = 80 (recall 0.974), median of three runs
+([`bench/results/pace/gold6226/`](../bench/results/pace/gold6226/)):
+
+| Threads | Placement | QPS | Speedup | Efficiency | p99 |
+|---|---|---|---|---|---|
+| 1 | one socket | 5,987 | 1.0× | 100% | 218 µs |
+| 4 | one socket | 22,793 | 3.8× | 95% | 229 µs |
+| 12 | one socket | 59,636 | 10.0× | 83% | 266 µs |
+| 12 | both sockets, interleaved memory | 48,051 | 8.0× | 67% | 334 µs |
+| 24 | both sockets, interleaved memory | 83,746 | 14.0× | 58% | 387 µs |
+
+Lock-free reads scale nearly linearly within a socket; the loss there comes from sharing the L3
+cache and memory bandwidth. Spreading the same 12 threads over both sockets costs 19%, because
+about half of the memory reads then cross to the other socket. The index is small enough (765 MB)
+to keep one copy per socket and route each socket's queries to its own copy; if each socket
+matched its 12-thread result, the node would serve about 119k QPS instead of 84k. That is an
+estimate, not yet measured.
 
 ## 8-bit scalar quantization (SQ8)
 
