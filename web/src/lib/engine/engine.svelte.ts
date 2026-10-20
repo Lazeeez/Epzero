@@ -3,7 +3,7 @@
 import { cachedFetch } from "../cached-fetch";
 import { isolationSettled } from "../isolation";
 import { UNSUPPORTED_BROWSER, wasmSimdSupported } from "../support";
-import type { Evaluation, FilterInfo, FromWorker, GraphInfo, Neighborhood, Query, Request, Trace } from "./protocol";
+import type { Evaluation, Explanation, FilterInfo, FromWorker, GraphInfo, Neighborhood, Query, Request, Trace } from "./protocol";
 
 export interface Meta {
   id: string[];
@@ -255,6 +255,11 @@ class Engine {
   /** A photo's base-layer neighbours and how similar each is to `target`. */
   neighbors(id: number, target: number): Promise<Neighborhood> {
     return this.request({ method: "neighbors", id, target });
+  }
+
+  /** Why `label` is or isn't among the results of `query` at this beam width (honoring the filter). */
+  explain(query: Query, label: number, ef: number, k = 12): Promise<Explanation> {
+    return this.request({ method: "explain", query, label, k, ef });
   }
 
   similarity(a: number, b: number): Promise<number> {
