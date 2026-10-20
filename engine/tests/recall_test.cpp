@@ -110,6 +110,22 @@ TEST_F(RecallTest, MonitorEstimatesTheTrueRecall) {
   EXPECT_EQ(monitor.checked(), kQueries);
 }
 
+TEST_F(RecallTest, AWideBeamReferenceEstimatesNearlyTheSame) {
+  // Comparing against a far wider search instead of an exact scan: much cheaper, and off by at most
+  // the reference's own misses (in either direction), which are all but none at ef = 512 here.
+  RecallMonitor exact(*index_, {.sample_rate = 1.0, .window = 10'000, .queue = kQueries});
+  RecallMonitor wide(*index_, {.sample_rate = 1.0, .window = 10'000, .queue = kQueries, .reference_ef = 512});
+  for (std::size_t q = 0; q < kQueries; ++q) {
+    const float* query = data_.queries.row(q);
+    const auto got = index_->search(query, kK, {.ef = 12});
+    exact.observe(query, kK, got);
+    wide.observe(query, kK, got);
+  }
+  exact.drain();
+  wide.drain();
+  EXPECT_NEAR(wide.estimate().recall, exact.estimate().recall, 0.01);
+}
+
 TEST_F(RecallTest, MonitorSamplesAndNeverBlocks) {
   RecallMonitor monitor(*index_, {.sample_rate = 0.1, .window = 1000, .queue = 1});
   for (std::size_t i = 0; i < 2000; ++i) {
