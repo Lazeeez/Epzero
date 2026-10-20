@@ -2,7 +2,7 @@
 // (or builds the graph on every core when there isn't one, and on request), and answers searches
 // with full traversal traces. Nothing here touches the DOM.
 import { cachedFetch } from "../cached-fetch";
-import type { Evaluation, FilterInfo, FromWorker, Neighborhood, Request, ToWorker, Trace } from "./protocol";
+import type { Evaluation, Explanation, FilterInfo, FromWorker, Neighborhood, Request, ToWorker, Trace } from "./protocol";
 
 interface Collection {
   load(vectors: Int8Array, scales: Float32Array, dim: number): void;
@@ -15,6 +15,8 @@ interface Collection {
   searchById(id: number, k: number, ef: number): Trace;
   evaluate(samples: number, k: number, ef: number, threads: number): Omit<Evaluation, "ef">;
   setFilter(ids: Uint32Array | null): FilterInfo;
+  explain(query: Float32Array, k: number, label: number, ef: number): Explanation;
+  explainById(id: number, k: number, label: number, ef: number): Explanation;
   info(): { maxLevel: number; memoryBytes: number };
 }
 
@@ -183,6 +185,12 @@ function answer(request: Request): { value: unknown; transfer: Transferable[] } 
     case "filter": {
       filterIds = request.ids;
       return { value: collection.setFilter(request.ids), transfer: [] };
+    }
+    case "explain": {
+      const { query, label, k, ef } = request;
+      const value =
+        query.kind === "id" ? collection.explainById(query.id, k, label, ef) : collection.explain(query.vector, k, label, ef);
+      return { value, transfer: [] };
     }
   }
 }
