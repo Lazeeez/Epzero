@@ -27,6 +27,7 @@ import concurrent.futures as futures
 import csv
 import json
 import os
+import re
 import time
 import urllib.request
 
@@ -247,19 +248,8 @@ def stage_export(rows, emb, xy, out, check):
     np.rint((xy + 1) / 2 * 65535).clip(0, 65535).astype(np.uint16).tofile(os.path.join(out, "layout.u16"))
 
     licenses = sorted({r["license"] for r in rows})
-    meta = {
-        # Column-oriented for compactness; thumbnail URL = FLICKR with host/path/size.
-        "id": [r["id"] for r in rows],
-        "host": [r["host"] for r in rows],
-        "path": [r["path"] for r in rows],
-        "labels": [r["labels"] for r in rows],
-        "title": [r["title"][:80] for r in rows],
-        "author": [r["author"][:60] for r in rows],
-        "landing": [r["landing"] for r in rows],
-        "license": [licenses.index(r["license"]) for r in rows],
-        "licenses": licenses,
-    }
-    with open(os.path.join(out, "meta.json"), "w", encoding="utf-8") as f:
+    meta = compact_meta(rows, licenses)
+    with open(os.path.join(out, META_FILE), "w", encoding="utf-8") as f:
         json.dump(meta, f, separators=(",", ":"), ensure_ascii=False)
     manifest = {
         "name": "Open Images V7 (validation) × CLIP ViT-B/32",
@@ -268,7 +258,7 @@ def stage_export(rows, emb, xy, out, check):
         "model": MODEL,
         "browserTextModel": "Xenova/clip-vit-base-patch32",
         "metric": "cosine",
-        "files": {"vectors": "vectors.i8", "scales": "scales.f32", "layout": "layout.u16", "meta": "meta.json"},
+        "files": {"vectors": "vectors.i8", "scales": "scales.f32", "layout": "layout.u16", "meta": META_FILE},
         "quantization": {"scheme": "int8 symmetric per-dimension", "recallAt10VsFloat": round(recall, 4)},
         "thumbnail": "https://c{host}.staticflickr.com/{path}_{size}.jpg",
         "attribution": ("Images from Open Images V7 (Google), hosted on Flickr under the licenses listed per image "
@@ -280,6 +270,40 @@ def stage_export(rows, emb, xy, out, check):
     sizes = {name: os.path.getsize(os.path.join(out, name)) for name in os.listdir(out)}
     print(f"export: int8 recall@10 vs float = {recall:.4f}; licenses {licenses}; files: " +
           ", ".join(f"{k} {v / 1e6:.2f} MB" for k, v in sorted(sizes.items())))
+
+
+# Photo metadata, column-oriented. Version 2 carries only what the site shows, compactly (1.3 MB
+# gzipped instead of 1.9 MB): label names once with an index per photo, titles only where they are
+# the caption (photos without labels), and the Flickr owner instead of the whole photo-page URL.
+# The version is in the file name, so browsers that cached an older format fetch this one fresh.
+META_FILE = "meta.v2.json"
+LANDING = re.compile(r"flickr\.com/(?:photos/)?([^/?#]+)/(\d+)")
+
+
+def owner_of(landing, path):
+    """The Flickr account in a photo-page URL, or the URL itself if it doesn't name this photo."""
+    match = LANDING.search(landing)
+    photo_id = path.split("/")[-1].split("_")[0]
+    return match.group(1) if match and match.group(2) == photo_id else landing
+
+
+def compact_meta(rows, licenses):
+    names = sorted({label for r in rows for label in r["labels"]})
+    index = {name: i for i, name in enumerate(names)}
+    return {
+        "format": 2,
+        # Thumbnail: https://c{host}.staticflickr.com/{path}_{size}.jpg
+        "host": [int(r["host"]) for r in rows],
+        "path": [r["path"] for r in rows],
+        "labelNames": names,
+        "labels": [[index[label] for label in r["labels"]] for r in rows],
+        "title": ["" if r["labels"] else r["title"][:80] for r in rows],
+        "author": [r["author"][:60] for r in rows],
+        # Photo page: https://www.flickr.com/photos/{owner}/{photo id from path}/ (or a full URL)
+        "owner": [owner_of(r["landing"], r["path"]) for r in rows],
+        "license": [licenses.index(r["license"]) for r in rows],
+        "licenses": licenses,
+    }
 
 
 def main():
