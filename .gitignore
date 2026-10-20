@@ -2,6 +2,8 @@
 build/
 out/
 cmake-build-*/
+build-pace/
+.pace-tools/
 compile_commands.json
 
 # Datasets and generated indexes (download with scripts/); the demo dataset is published with the site
