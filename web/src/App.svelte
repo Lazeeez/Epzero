@@ -40,6 +40,7 @@
     void engine.layout;
     void engine.built;
     void engine.graph;
+    void engine.filter;
     void sceneController.ready;
     sceneController.sync();
   });
