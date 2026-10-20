@@ -1,0 +1,12 @@
+Model name:                              Intel(R) Xeon(R) Gold 6226 CPU @ 2.70GHz
+Thread(s) per core:                      1
+Core(s) per socket:                      12
+Socket(s):                               2
+CPU max MHz:                             2700.0000
+L1d cache:                               768 KiB (24 instances)
+L1i cache:                               768 KiB (24 instances)
+L2 cache:                                24 MiB (24 instances)
+L3 cache:                                38.5 MiB (2 instances)
+NUMA node(s):                            2
+Memory (GB): 187
+gcc (Spack GCC) 13.3.0
