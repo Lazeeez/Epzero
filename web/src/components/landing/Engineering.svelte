@@ -33,11 +33,11 @@
     <div class="bento">
       <article class="card tile wide" use:reveal>
         <div class="copy">
-          <span class="kicker">Throughput at equal recall</span>
+          <span class="kicker">Throughput at equal recall, on a dedicated server</span>
           <h3><span class="big num">{vsHnswlib.toFixed(2)}×</span> hnswlib, {vsFaiss.toFixed(2)}× FAISS</h3>
           <p>
-            Same algorithm, same graph quality. The difference is memory-system engineering: search is bound by DRAM latency, at
-            ~63 ns per distance, so the wins come from keeping more cache misses in flight.
+            Same algorithm, same graph quality, every library on huge pages. The difference is memory-system engineering: search is
+            bound by DRAM latency, at ~63 ns per distance, so the wins come from keeping more cache misses in flight.
           </p>
         </div>
         <div class="bars" role="img" aria-label="Relative queries per second: {libraries.map((l) => `${l.name} ${l.value.toFixed(2)}`).join(', ')}">
@@ -61,7 +61,7 @@
             </li>
           {/each}
         </ol>
-        <p class="small">QPS on SIFT1M, one thread. Prefetch the next 32 neighbours at once; back layer 0 with huge pages.</p>
+        <p class="small">QPS on SIFT1M, one thread, development laptop. Prefetch the next 32 neighbours at once; back layer 0 with huge pages.</p>
       </article>
 
       <article class="card tile" use:reveal={0.16}>
