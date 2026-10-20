@@ -15,8 +15,11 @@
   import TunePanel from "../components/try/TunePanel.svelte";
   import NavHud from "../components/try/NavHud.svelte";
   import ViewControls from "../components/try/ViewControls.svelte";
+  import RecallGuard from "../components/try/RecallGuard.svelte";
+  import WhyNot from "../components/try/WhyNot.svelte";
   import type { BlendBase } from "../components/try/BlendBox.svelte";
 
+  const EF_MAX = 512;
   let ef = $state(64);
   let outcome = $state.raw<SearchOutcome | null>(null);
   let encodeMs = $state<number | null>(null);
@@ -236,12 +239,23 @@
       <SearchStats {outcome} {encodeMs} />
       <ResultsGrid {outcome} onpick={searchId} />
     {/if}
+    <RecallGuard
+      {outcome}
+      {ef}
+      onef={(next) => {
+        ef = next;
+        if (outcome) search(outcome.query, { live: true });
+      }}
+      onburst={async (count) => {
+        for (let i = 0; i < count; i++) await search({ kind: "id", id: engine.randomId() }, { live: true });
+      }}
+    />
   </aside>
 
   <div class="knobs card" class:away={panelHidden} inert={panelHidden} role="group" aria-label="Search settings">
     <label class="ef">
       <span><span class="wide-only">Beam width&nbsp;</span><code>ef</code></span>
-      <input type="range" min="16" max="256" step="16" value={ef} oninput={(e) => onEf(Number((e.currentTarget as HTMLInputElement).value))} />
+      <input type="range" min="16" max={EF_MAX} step="16" value={ef} oninput={(e) => onEf(Number((e.currentTarget as HTMLInputElement).value))} />
       <output class="num">{ef}</output>
     </label>
     <div class="buttons">
@@ -303,12 +317,13 @@
     </div>
   {/if}
 
-  {#if hover}
+  <!-- The details card replaces the hover preview, which would sit under it. -->
+  {#if hover && !selected}
     <div class="hovercard card" style:left="{Math.min(Math.max(hover.x, 130), innerWidth - 130)}px" style:top="{Math.max(hover.y, 220)}px">
       <Thumb id={hover.id} size="n" alt={engine.caption(hover.id)} />
       <div>
         <strong>{engine.caption(hover.id)}</strong>
-        <span>© {engine.author(hover.id)} · CC BY 2.0 · click to search</span>
+        <span>© {engine.author(hover.id)} · CC BY 2.0 · click to search · shift-click for details</span>
       </div>
     </div>
   {/if}
@@ -338,6 +353,12 @@
           aria-label="Close">×</button
         >
       </div>
+      {#if outcome}
+        <WhyNot id={selected.id} {outcome} onwiden={(wider) => {
+            ef = Math.min(wider, EF_MAX);
+            if (outcome) search(outcome.query);
+          }} />
+      {/if}
     </div>
   {/if}
 
