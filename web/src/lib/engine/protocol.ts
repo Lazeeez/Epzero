@@ -15,6 +15,18 @@ export interface Trace {
   /** The same query answered by an exact scan of every vector, for recall and speedup. */
   exact: Uint32Array;
   exactMicros: number;
+  /** With a filter: how the engine honored it, and how many photos it allowed. */
+  strategy?: FilterStrategy;
+  allowed?: number;
+}
+
+/** How a filtered search ran: scan the allowed photos, or walk the graph (keeping only allowed
+ * results, or stepping past excluded neighbours to theirs). */
+export type FilterStrategy = "exact" | "inline" | "two-hop";
+
+export interface FilterInfo {
+  allowed: number;
+  selectivity: number;
 }
 
 export interface GraphInfo {
@@ -55,7 +67,8 @@ export type Request =
   | { method: "vector"; id: number } // -> Float32Array (normalized)
   | { method: "neighbors"; id: number; target: number } // -> Neighborhood on the base layer
   | { method: "similarity"; a: number; b: number } // -> number (cosine)
-  | { method: "evaluate"; ef: number; samples: number }; // -> Evaluation
+  | { method: "evaluate"; ef: number; samples: number } // -> Evaluation
+  | { method: "filter"; ids: Uint32Array | null }; // -> FilterInfo; restricts later searches to these photos
 
 export interface Neighborhood {
   ids: Uint32Array;
