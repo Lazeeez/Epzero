@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <thread>
 #include <vector>
 
@@ -400,6 +401,141 @@ TEST_F(HnswTest, ConcurrentInsertRemoveAndSearch) {
   EXPECT_EQ(index.size(), kBase);
   EXPECT_GT(index.deleted_count(), 0u);
   for (const auto& hit : index.search(data_.queries.row(1), kK, {.ef = 64})) EXPECT_TRUE(index.contains(hit.label));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Filtered search
+
+// Exact top-k among the allowed labels, by brute force over just those rows.
+std::vector<std::vector<std::uint32_t>> filtered_truth(const SyntheticData& data, const std::vector<std::uint64_t>& allowed,
+                                                       Metric metric) {
+  std::vector<float> rows;
+  for (const auto label : allowed) rows.insert(rows.end(), data.base.row(label), data.base.row(label) + kDim);
+  std::vector<std::vector<std::uint32_t>> truth;
+  for (std::size_t q = 0; q < data.queries.n; ++q) {
+    std::vector<std::uint32_t> t;
+    for (const auto& e : brute_force_search(rows.data(), allowed.size(), kDim, data.queries.row(q), kK, metric)) {
+      t.push_back(static_cast<std::uint32_t>(allowed[e.label]));
+    }
+    truth.push_back(std::move(t));
+  }
+  return truth;
+}
+
+// Runs every query under `strategy`, checks that only allowed labels come back, and returns recall.
+double filtered_recall(const HnswIndex& index, const SyntheticData& data, const SearchFilter& filter,
+                       const std::vector<std::uint64_t>& allowed, FilterStrategy strategy, std::size_t ef,
+                       FilterStrategy* used = nullptr) {
+  std::vector<bool> is_allowed(kBase, false);
+  for (const auto label : allowed) is_allowed[label] = true;
+  std::vector<std::vector<SearchResult>> results;
+  for (std::size_t q = 0; q < data.queries.n; ++q) {
+    SearchStats stats;
+    auto r = index.search(data.queries.row(q), kK, {.ef = ef, .stats = &stats, .filter = &filter, .strategy = strategy});
+    for (const auto& hit : r) EXPECT_TRUE(is_allowed[hit.label]) << "label " << hit.label << " is filtered out";
+    if (used != nullptr) *used = stats.strategy;
+    results.push_back(std::move(r));
+  }
+  return recall_at_k(results, filtered_truth(data, allowed, Metric::L2), kK);
+}
+
+std::vector<std::uint64_t> labels_where(const std::function<bool(std::uint64_t)>& keep) {
+  std::vector<std::uint64_t> out;
+  for (std::uint64_t i = 0; i < kBase; ++i) {
+    if (keep(i)) out.push_back(i);
+  }
+  return out;
+}
+
+TEST_F(HnswTest, FilteredSearchHonorsTheFilterUnderEveryStrategy) {
+  HnswIndex index(params_for(Metric::L2));
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  // 50% and 10% of the labels, uncorrelated with position in the vector space.
+  for (const std::uint64_t every : {2u, 10u}) {
+    const auto allowed = labels_where([&](std::uint64_t l) { return (l * 7919) % every == 0; });
+    const SearchFilter filter = index.make_filter([&](std::uint64_t l) { return (l * 7919) % every == 0; });
+    ASSERT_EQ(filter.allowed(), allowed.size());
+    EXPECT_NEAR(filter.selectivity(), 1.0 / every, 0.01);
+    EXPECT_DOUBLE_EQ(filtered_recall(index, data_, filter, allowed, FilterStrategy::Exact, 100), 1.0);
+    EXPECT_GE(filtered_recall(index, data_, filter, allowed, FilterStrategy::Inline, 100), 0.95) << "1/" << every;
+    EXPECT_GE(filtered_recall(index, data_, filter, allowed, FilterStrategy::TwoHop, 100), 0.95) << "1/" << every;
+    EXPECT_GE(filtered_recall(index, data_, filter, allowed, FilterStrategy::Auto, 100), 0.95) << "1/" << every;
+  }
+}
+
+TEST_F(HnswTest, AutoPicksAStrategyBySelectivity) {
+  HnswIndex index(params_for(Metric::L2));
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  FilterStrategy used = FilterStrategy::Auto;
+  // A handful of labels: scoring them outright is exact and cheapest.
+  const auto few = labels_where([](std::uint64_t l) { return l % 250 == 3; });
+  filtered_recall(index, data_, index.make_filter(few.data(), few.size()), few, FilterStrategy::Auto, 10, &used);
+  EXPECT_EQ(used, FilterStrategy::Exact);
+  // Most labels pass: walk the graph and skip the excluded ones.
+  const auto most = labels_where([](std::uint64_t l) { return l % 5 != 0; });
+  filtered_recall(index, data_, index.make_filter(most.data(), most.size()), most, FilterStrategy::Auto, 10, &used);
+  EXPECT_EQ(used, FilterStrategy::Inline);
+  // In between (and too many to scan at this ef): the two-hop walk.
+  const auto some = labels_where([](std::uint64_t l) { return l % 5 == 0; });
+  filtered_recall(index, data_, index.make_filter(some.data(), some.size()), some, FilterStrategy::Auto, 10, &used);
+  EXPECT_EQ(used, FilterStrategy::TwoHop);
+}
+
+TEST_F(HnswTest, FilterEdgeCases) {
+  HnswIndex index(params_for(Metric::L2, kBase + 10));
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  const float* q = data_.queries.row(0);
+
+  // Nothing allowed: no results, under any strategy.
+  const SearchFilter none = index.make_filter([](std::uint64_t) { return false; });
+  EXPECT_EQ(none.allowed(), 0u);
+  for (const auto strategy : {FilterStrategy::Auto, FilterStrategy::Exact, FilterStrategy::Inline, FilterStrategy::TwoHop}) {
+    EXPECT_TRUE(index.search(q, kK, {.ef = 50, .filter = &none, .strategy = strategy}).empty());
+  }
+
+  // Fewer allowed than k: all of them come back, closest first.
+  const std::vector<std::uint64_t> three = {11, 4000, 2500, 11, 999999};  // a duplicate and an unknown label
+  const SearchFilter small = index.make_filter(three.data(), three.size());
+  EXPECT_EQ(small.allowed(), 3u);
+  const auto r = index.search(q, kK, {.ef = 50, .filter = &small});
+  ASSERT_EQ(r.size(), 3u);
+  EXPECT_LE(r[0].distance, r[1].distance);
+  EXPECT_LE(r[1].distance, r[2].distance);
+
+  // Removed labels are not allowed, even if the filter names them.
+  index.remove(4000);
+  const SearchFilter after = index.make_filter(three.data(), three.size());
+  EXPECT_EQ(after.allowed(), 2u);
+  for (const auto& hit : index.search(q, kK, {.ef = 50, .filter = &after})) EXPECT_NE(hit.label, 4000u);
+  // ...and a filter made before the removal still never returns it.
+  for (const auto strategy : {FilterStrategy::Exact, FilterStrategy::Inline, FilterStrategy::TwoHop}) {
+    for (const auto& hit : index.search(q, kK, {.ef = 50, .filter = &small, .strategy = strategy})) {
+      EXPECT_NE(hit.label, 4000u);
+    }
+  }
+  // Nodes added after the filter was made are not allowed by it.
+  index.add(kBase + 1, data_.queries.row(0));
+  for (const auto& hit : index.search(q, kK, {.ef = 50, .filter = &small})) EXPECT_NE(hit.label, kBase + 1);
+}
+
+TEST_F(HnswTest, FilteredSearchWorksWithSq8) {
+  HnswParams p = params_for(Metric::L2);
+  p.quantization = Quantization::SQ8;
+  HnswIndex index(p);
+  index.train(data_.base.data.data(), kBase);
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  const auto allowed = labels_where([](std::uint64_t l) { return l % 4 == 1; });
+  const SearchFilter filter = index.make_filter(allowed.data(), allowed.size());
+  for (const auto strategy : {FilterStrategy::Exact, FilterStrategy::Inline, FilterStrategy::TwoHop}) {
+    EXPECT_GE(filtered_recall(index, data_, filter, allowed, strategy, 100), 0.93) << to_string(strategy);
+  }
+}
+
+TEST(Hnsw, FilterStrategyNames) {
+  EXPECT_EQ(to_string(FilterStrategy::Auto), "auto");
+  EXPECT_EQ(to_string(FilterStrategy::Exact), "exact");
+  EXPECT_EQ(to_string(FilterStrategy::Inline), "inline");
+  EXPECT_EQ(to_string(FilterStrategy::TwoHop), "two-hop");
 }
 
 TEST(Hnsw, LoadRejectsGarbage) {
