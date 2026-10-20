@@ -16,7 +16,7 @@ class SceneController {
   ready = $state(false);
   /** WebGL isn't available (disabled GPU, some remote desktops): the site works without the 3D view. */
   unavailable = $state(false);
-  /** A photo picked by a tap (touch screens have no hover): shown as a card with actions. */
+  /** A photo picked by a tap (touch screens have no hover) or a shift-click: a card with actions. */
   selected = $state<{ id: number; x: number; y: number } | null>(null);
   autoRotate = $state(true);
   /** -1: all layers lit; otherwise only this layer. */
@@ -67,7 +67,7 @@ class SceneController {
   // space clears the selection.
   private tap(tap: Tap) {
     clearTimeout(this.clickTimer);
-    if (tap.pointerType === "mouse") {
+    if (tap.pointerType === "mouse" && !tap.details) {
       this.selected = null;
       if (tap.id >= 0) this.clickTimer = window.setTimeout(() => this.clickHandler?.(tap.id), 260);
       return;
