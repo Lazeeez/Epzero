@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <filesystem>
@@ -248,6 +249,49 @@ TEST_F(HnswTest, GraphImportRejectsCorruptOrMismatchedInput) {
                std::runtime_error);  // built for L2
   EXPECT_THROW(HnswIndex::import_graph(params_for(Metric::L2), vectors, kBase - 1, bytes.data(), bytes.size()),
                std::runtime_error);  // fewer vectors than nodes
+}
+
+// Found by fuzzing: an upper-layer link to a node that only exists on layer 0. A search following
+// it would read that node's (non-existent) upper-layer list.
+TEST_F(HnswTest, GraphImportRejectsLinksToNodesNotOnThatLayer) {
+  HnswIndex index(params_for(Metric::L2));
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  auto bytes = index.export_graph();
+  // export_graph's layout: a 57-byte header, then per node its label (u64), level (i8) and, for
+  // each of its layers, a u8 link count and that many u16 links (fewer than 65,536 nodes).
+  std::size_t pos = 57;
+  std::size_t upper_link = 0;  // offset of a layer-1 link
+  std::vector<int> levels;
+  for (std::size_t id = 0; id < kBase; ++id) {
+    pos += 8;
+    const int level = static_cast<std::int8_t>(bytes[pos++]);
+    levels.push_back(level);
+    for (int layer = 0; layer <= level; ++layer) {
+      const std::size_t count = bytes[pos++];
+      if (layer == 1 && count > 0 && upper_link == 0) upper_link = pos;
+      pos += 2 * count;
+    }
+  }
+  ASSERT_EQ(pos, bytes.size());
+  ASSERT_NE(upper_link, 0u);
+  const auto base_only = static_cast<std::uint16_t>(std::find(levels.begin(), levels.end(), 0) - levels.begin());
+  bytes[upper_link] = static_cast<std::uint8_t>(base_only & 0xff);
+  bytes[upper_link + 1] = static_cast<std::uint8_t>(base_only >> 8);
+  EXPECT_THROW(HnswIndex::import_graph(params_for(Metric::L2), data_.base.data.data(), kBase, bytes.data(), bytes.size()),
+               std::runtime_error);
+}
+
+TEST_F(HnswTest, LoadRespectsAMemoryLimit) {
+  HnswIndex index(params_for(Metric::L2));
+  for (std::size_t i = 0; i < 100; ++i) index.add(i, data_.base.row(i));
+  const auto path = (std::filesystem::temp_directory_path() / "oryx_limit.idx").string();
+  index.save(path);
+  // The index was made with room for kBase vectors: what loading it would allocate.
+  const std::size_t needed = HnswIndex::estimated_bytes(params_for(Metric::L2));
+  EXPECT_THROW(HnswIndex::load(path, needed / 2), std::runtime_error);
+  EXPECT_EQ(HnswIndex::load(path, needed)->size(), 100u);
+  EXPECT_EQ(HnswIndex::load(path)->size(), 100u);  // no limit
+  std::filesystem::remove(path);
 }
 
 // ---------- SQ8 quantization ----------
