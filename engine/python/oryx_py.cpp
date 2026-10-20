@@ -30,6 +30,14 @@ oryx::Quantization parse_quantization(const std::string& name) {
   throw std::invalid_argument("quantization must be 'none' or 'sq8'");
 }
 
+oryx::FilterStrategy parse_strategy(const std::string& name) {
+  for (const auto s : {oryx::FilterStrategy::Auto, oryx::FilterStrategy::Exact, oryx::FilterStrategy::Inline,
+                       oryx::FilterStrategy::TwoHop}) {
+    if (name == oryx::to_string(s)) return s;
+  }
+  throw std::invalid_argument("strategy must be 'auto', 'exact', 'inline' or 'two-hop'");
+}
+
 oryx::SyncMode parse_sync(const std::string& name) {
   if (name == "always") return oryx::SyncMode::Always;
   if (name == "batch") return oryx::SyncMode::Batch;
@@ -125,10 +133,33 @@ class Index {
 
   bool remove(std::uint64_t label) { return index_->remove(label); }
 
-  py::tuple search(const FloatArray& queries, std::size_t k, std::size_t ef, std::size_t rerank, std::size_t threads) const {
+  // `filter` is None, an oryx.Filter from filter(), or a sequence of allowed labels (compiled
+  // for this call; build an oryx.Filter once to reuse it across calls).
+  py::tuple search(const FloatArray& queries, std::size_t k, std::size_t ef, std::size_t rerank, std::size_t threads,
+                   const py::object& filter, const std::string& strategy) const {
+    const oryx::FilterStrategy chosen = parse_strategy(strategy);
+    oryx::SearchFilter compiled;
+    const oryx::SearchFilter* active = nullptr;
+    if (py::isinstance<oryx::SearchFilter>(filter)) {
+      active = filter.cast<const oryx::SearchFilter*>();
+    } else if (!filter.is_none()) {
+      compiled = make_filter(filter.cast<LabelArray>());
+      active = &compiled;
+    }
     return batch_search(queries, index_->params().dim, k, threads, [&](const float* q, std::size_t kk) {
-      return index_->search(q, kk, {.ef = ef, .rerank = rerank});
+      return index_->search(q, kk, {.ef = ef, .rerank = rerank, .filter = active, .strategy = chosen});
     });
+  }
+
+  oryx::SearchFilter make_filter(const LabelArray& labels) const {
+    if (labels.ndim() != 1) throw std::invalid_argument("filter labels must be a 1-D sequence");
+    std::vector<std::uint64_t> allowed(static_cast<std::size_t>(labels.shape(0)));
+    for (std::size_t i = 0; i < allowed.size(); ++i) {
+      if (labels.data()[i] < 0) throw std::invalid_argument("labels must be non-negative");
+      allowed[i] = static_cast<std::uint64_t>(labels.data()[i]);
+    }
+    py::gil_scoped_release release;
+    return index_->make_filter(allowed.data(), allowed.size());
   }
 
   // One query with its full traversal, for the visualizer and debugging.
@@ -257,6 +288,15 @@ PYBIND11_MODULE(oryx, m) {
   m.def("simd_level", [] { return std::string(oryx::to_string(oryx::active_simd_level())); },
         "SIMD instruction set used by the distance kernels on this CPU");
 
+  py::class_<oryx::SearchFilter>(m, "Filter",
+                                 "The labels a search may return, compiled by Index.filter() for reuse across queries.")
+      .def_property_readonly("allowed", &oryx::SearchFilter::allowed, "How many live vectors pass.")
+      .def_property_readonly("selectivity", &oryx::SearchFilter::selectivity, "The share of live vectors that pass.")
+      .def("__repr__", [](const oryx::SearchFilter& f) {
+        return "<oryx.Filter allowing " + std::to_string(f.allowed()) + " vectors (" +
+               std::to_string(f.selectivity() * 100.0).substr(0, 5) + "%)>";
+      });
+
   py::class_<Index>(m, "Index")
       .def(py::init<std::size_t, const std::string&, std::size_t, std::size_t, std::size_t, std::uint64_t,
                     const std::string&, bool>(),
@@ -268,7 +308,12 @@ PYBIND11_MODULE(oryx, m) {
            "Insert rows of `data`; labels default to consecutive ids starting at the number of slots used.")
       .def("remove", &Index::remove, py::arg("label"), "Tombstone a label; returns False if it is absent.")
       .def("search", &Index::search, py::arg("queries"), py::arg("k") = 10, py::arg("ef") = 64,
-           py::arg("rerank") = 0, py::arg("threads") = 1, "Returns (labels, distances), each of shape (n, k).")
+           py::arg("rerank") = 0, py::arg("threads") = 1, py::arg("filter") = py::none(), py::arg("strategy") = "auto",
+           "Returns (labels, distances), each of shape (n, k). With `filter` (an oryx.Filter or a list of\n"
+           "allowed labels), only those labels are returned; `strategy` forces 'exact', 'inline' or\n"
+           "'two-hop' instead of choosing by selectivity.")
+      .def("filter", &Index::make_filter, py::arg("labels"),
+           "Compiles the allowed labels into an oryx.Filter, reusable across searches.")
       .def("trace", &Index::trace, py::arg("query"), py::arg("k") = 10, py::arg("ef") = 64)
       .def("compact", &Index::compact, py::arg("threads") = 0, "A new index without deleted vectors.")
       .def("save", &Index::save, py::arg("path"))
