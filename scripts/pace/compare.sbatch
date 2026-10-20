@@ -22,7 +22,7 @@ VENV="$ORYX_ROOT/.pace-bench"
 [ -f data/sift/sift_base.fvecs ] || { echo "download first: scripts/download_sift1m.sh"; exit 1; }
 
 # hnswlib, compiled for this node's CPU (-march=native), as it would be when installed on it.
-"$VENV/bin/pip" install --quiet --no-index --no-build-isolation --force-reinstall "$VENV"/src/hnswlib-*.tar.gz
+"$VENV/bin/pip" install --quiet --no-index --no-build-isolation --no-deps --force-reinstall "$VENV"/src/hnswlib-*.tar.gz
 
 OUT=pace-results/gold6226
 CACHE=data/indexes/compare-gold6226
