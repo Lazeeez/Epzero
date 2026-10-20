@@ -14,10 +14,16 @@ git clone https://github.com/Lazeeez/Oryx.git
 cd Oryx
 ```
 
+Then, on the login node (compute nodes may have no internet access), fetch the build tools once:
+
+```bash
+source scripts/pace/env.sh   # makes .pace-tools/ with CMake and Ninja from pip
+```
+
 ## Build and check a node
 
 ```bash
-srun -N1 --exclusive -t 0:30:00 bash scripts/pace/build.sh 2>&1 | tee build-pace.log
+srun -N1 --exclusive -C gold6226 -t 0:30:00 bash scripts/pace/build.sh 2>&1 | tee build-pace.log
 ```
 
 This builds with GCC 13, runs the full test suite, measures the distance kernels at every SIMD
@@ -25,7 +31,9 @@ level the CPU supports (AVX-512 on the Xeon nodes) and does a quick recall run.
 
 ## Notes
 
-- Nodes differ (`sinfo -p ice-cpu -o "%D %c %m %f"` lists the types). All benchmark runs target
-  one node type, chosen with `--constraint`, so results are comparable.
+- Nodes differ (`sinfo -p ice-cpu -o "%D %c %m %f"` lists the types). Benchmarks run on the
+  `gold6226` nodes (2 × Xeon Gold 6226, 24 cores, AVX-512, clock fixed at 2.7 GHz), of which there
+  are plenty, so results are comparable; `-C gold6226` picks one. The 64-core AMD EPYC and the
+  192-core Granite Rapids nodes are for thread-scaling runs.
 - Benchmark output records hardware facts only (CPU model, cores, memory), never user or account
   names.
