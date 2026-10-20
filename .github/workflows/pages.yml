@@ -3,7 +3,7 @@ name: pages
 on:
   push:
     branches: [main]
-    paths: ["engine/**", "web/**", "scripts/build_wasm.sh", ".github/workflows/pages.yml"]
+    paths: ["engine/**", "web/**", "bench/results/**", "scripts/build_wasm.sh", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:
