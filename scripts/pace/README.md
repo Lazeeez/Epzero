@@ -37,7 +37,8 @@ sbatch scripts/pace/sift1m.sbatch       # build on 24 cores, then 3 pinned singl
 squeue -u $USER                         # wait for it; the log is sift1m-<jobid>.log
 ```
 
-Results land in `bench/results/pace/gold6226/`; copy that folder back with `scp -r`.
+Results land in `pace-results/gold6226/`, which git ignores, so a later `git pull` never collides
+with them. Copy that folder back with `scp -r`; it's committed to `bench/results/pace/` from there.
 
 ## Oryx vs hnswlib vs FAISS
 
