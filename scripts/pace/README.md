@@ -39,6 +39,16 @@ squeue -u $USER                         # wait for it; the log is sift1m-<jobid>
 
 Results land in `bench/results/pace/gold6226/`; copy that folder back with `scp -r`.
 
+## Oryx vs hnswlib vs FAISS
+
+```bash
+bash scripts/pace/bench-env.sh          # login node, once: Python env with FAISS and Oryx's module
+sbatch scripts/pace/compare.sbatch      # builds all three on 24 cores, then pinned search rounds
+```
+
+hnswlib is compiled inside the job, on the benchmark node, because it builds with `-march=native`
+and the login node has a newer CPU than the benchmark nodes.
+
 ## Notes
 
 - Nodes differ (`sinfo -p ice-cpu -o "%D %c %m %f"` lists the types). Benchmarks run on the
