@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { MACHINE, compare, operating, speedup } from "../lib/bench";
+  import { DRIFT_POLICIES, MACHINE, compare, drift, driftEstimates, driftSummary, operating, speedup } from "../lib/bench";
+  import DriftChart from "../components/bench/DriftChart.svelte";
   import Lab from "../components/bench/Lab.svelte";
   import Optimizations from "../components/bench/Optimizations.svelte";
   import Quantization from "../components/bench/Quantization.svelte";
@@ -22,6 +23,7 @@
     { name: "FAISS", s: libs.faiss.build_seconds },
   ];
   const maxBuild = Math.max(...builds.map((b) => b.s));
+  const maxDriftCost = Math.max(...driftSummary.map((p) => p.cost));
 
   const removed = [
     {
@@ -96,6 +98,56 @@
       gets 2 MiB huge pages, because the kernel enables them for all programs. Where huge pages are opt-in, as on many desktops, only
       Oryx asks for them, and its lead grows to about 1.46× (measured on a laptop).
     </p>
+  </section>
+
+  <section class="container block" aria-labelledby="drift-title">
+    <h2 id="drift-title" class="block-title" use:reveal>Recall that holds as the workload drifts</h2>
+    <p class="caption lead" use:reveal>
+      An approximate index trades accuracy for speed, and in production nobody measures the accuracy. Here, {drift.batch.toLocaleString()}
+      queries at a time stream through four kinds of drift on SIFT1M: steady traffic, harder queries, 20% of the vectors deleted and
+      re-inserted, and a 5% filter. A beam width tuned once falls below the {drift.target} target without anyone noticing. The recall
+      guard measures recall on a {(drift.sample_rate * 100).toFixed(0)}% sample of queries and moves the beam width to hold the target.
+    </p>
+    <dl class="stats drift" use:reveal>
+      <div>
+        <dt>Phases at target</dt>
+        <dd class="num">{driftSummary[0].adapted} of {driftSummary[0].phases}</dd>
+        <dd class="note">guard, once adapted · tuned-once: {driftSummary[1].adapted} of {driftSummary[1].phases}</dd>
+      </div>
+      <div>
+        <dt>Cost vs over-provisioning</dt>
+        <dd class="num">−{((1 - driftSummary[0].cost / driftSummary[2].cost) * 100).toFixed(0)}%</dd>
+        <dd class="note">distances per query, whole stream</dd>
+      </div>
+      <div>
+        <dt>Guard's own estimate</dt>
+        <dd class="num">±{driftEstimates.error.toFixed(3)}</dd>
+        <dd class="note">mean error · truth inside its interval {driftEstimates.covered}/{driftEstimates.total}</dd>
+      </div>
+    </dl>
+    <div class="card panel" use:reveal>
+      <div class="panel-head">
+        <h2>Recall per batch, by policy</h2>
+        <p>Hover a batch to compare the policies; the shaded band is the interval the guard measured for itself.</p>
+      </div>
+      <DriftChart
+        batches={drift.batches}
+        series={DRIFT_POLICIES}
+        target={drift.target}
+        label="Recall per batch of queries through steady, harder, churn and filtered phases: the fixed beam tuned once falls below the target in two phases; the recall guard holds it after adapting"
+      />
+      <div class="drift-cost">
+        <h3>Search cost</h3>
+        {#each driftSummary as p (p.policy)}
+          <div class="build-row wide">
+            <span>{p.name}</span>
+            <span class="track"><i class:accent={p.policy === "guard"} style:width="{(p.cost / maxDriftCost) * 100}%"></i></span>
+            <b class="num">{Math.round(p.cost).toLocaleString()}</b>
+          </div>
+        {/each}
+        <p class="sub small">Mean distance computations per query over the whole stream. Measured on the development laptop.</p>
+      </div>
+    </div>
   </section>
 
   <section class="container block two" aria-label="Where the speed comes from">
@@ -213,6 +265,32 @@
   }
   .block {
     margin-top: clamp(56px, 8vw, 96px);
+  }
+  .stats.drift {
+    grid-template-columns: repeat(3, 1fr);
+    margin: 0 0 16px;
+  }
+  .drift-cost {
+    display: grid;
+    gap: 10px;
+    max-width: 640px;
+    margin-top: 28px;
+  }
+  .drift-cost h3 {
+    margin: 0 0 4px;
+    font-size: 15px;
+  }
+  .build-row.wide {
+    grid-template-columns: 150px 1fr 60px;
+  }
+  @media (max-width: 640px) {
+    .stats.drift {
+      grid-template-columns: 1fr;
+    }
+    .build-row.wide {
+      grid-template-columns: 112px 1fr 52px;
+      font-size: 13px;
+    }
   }
   .panel {
     padding: clamp(18px, 3vw, 28px);
