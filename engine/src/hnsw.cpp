@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <limits>
 #include <queue>
 #include <stdexcept>
@@ -179,6 +180,9 @@ class ChunkedWriter {
   std::FILE* file_;
   std::vector<char> buffer_;
 };
+
+// Largest M a snapshot may declare: far above any useful value, low enough that sizes can't overflow.
+constexpr std::size_t kMaxM = 1024;
 
 // Filtered search: Auto's choice of strategy (see choose_strategy). Exact wins while the allowed set
 // is small enough to score outright; Inline while most nodes pass, since it walks the graph at
@@ -909,6 +913,17 @@ std::vector<std::uint64_t> HnswIndex::neighbors_of(std::uint64_t label, int laye
   return result;
 }
 
+// What an index with these parameters allocates up front, mirroring the constructor's layout:
+// the layer-0 block plus, for SQ8 with kept vectors, the full-precision copies.
+std::size_t HnswIndex::estimated_bytes(const HnswParams& params) noexcept {
+  const bool sq8 = params.quantization == Quantization::SQ8;
+  const std::size_t links0 = sq8 ? round_up(sizeof(float) + params.dim, sizeof(id_t)) : params.dim * sizeof(float);
+  const std::size_t stride = round_up(links0 + (1 + 2 * params.M) * sizeof(id_t), 64);
+  std::size_t bytes = stride * params.max_elements;
+  if (sq8 && params.keep_vectors) bytes += params.max_elements * params.dim * sizeof(float);
+  return bytes;
+}
+
 std::size_t HnswIndex::memory_bytes() const noexcept {
   std::size_t bytes = node_stride_ * params_.max_elements;
   if (full_) bytes += params_.max_elements * params_.dim * sizeof(float);
@@ -974,7 +989,23 @@ void HnswIndex::save(const std::string& path) const {
   out.finish();
 }
 
-std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path) {
+// Every link must name a loaded node that exists on the link's layer: a search follows links
+// blindly, and an upper-layer list of a node that doesn't reach that layer doesn't exist (a corrupt
+// file could otherwise make it read out of bounds or through a null list).
+bool HnswIndex::links_are_valid(std::size_t count) const noexcept {
+  for (id_t id = 0; id < count; ++id) {
+    for (int layer = 0; layer <= levels_[id]; ++layer) {
+      const id_t* links = links_of(id, layer);
+      if (links[0] > max_links(layer)) return false;
+      for (id_t i = 1; i <= links[0]; ++i) {
+        if (links[i] >= count || levels_[links[i]] < layer) return false;
+      }
+    }
+  }
+  return true;
+}
+
+std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t max_bytes) {
   ChunkedReader in(path);
   char magic[sizeof(kMagic)];
   in.read(magic, sizeof(magic));
@@ -998,8 +1029,19 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path) {
   const std::size_t count = in.pod<std::uint64_t>();
   const std::uint64_t entry = in.pod<std::uint64_t>();
   if (version >= 2) (void)in.pod<std::uint64_t>();  // deleted count, recomputed from the flags
-  if (params.dim == 0 || params.dim > (1u << 20) || count > params.max_elements) {
+  if (params.dim == 0 || params.dim > (1u << 20) || params.M < 2 || params.M > kMaxM || count > params.max_elements ||
+      params.max_elements >= std::numeric_limits<id_t>::max()) {
     throw std::runtime_error(path + ": corrupt header");
+  }
+  // Every node stores at least its vector (or codes), its layer-0 list, label and level: a header
+  // claiming more nodes than the file can hold is corrupt, and is caught before allocating.
+  const bool sq8_file = params.quantization == Quantization::SQ8;
+  const std::size_t per_node = (sq8_file ? sizeof(float) + params.dim : params.dim * sizeof(float)) +
+                               (1 + 2 * params.M) * sizeof(id_t) + sizeof(std::uint64_t) + 1;
+  if (count > std::filesystem::file_size(path) / per_node) throw std::runtime_error(path + ": truncated");
+  if (max_bytes != 0 && estimated_bytes(params) > max_bytes) {
+    throw std::runtime_error(path + ": the index would need " + std::to_string(estimated_bytes(params) >> 20) +
+                             " MiB, over the " + std::to_string(max_bytes >> 20) + " MiB limit");
   }
 
   auto index = std::make_unique<HnswIndex>(params);
@@ -1039,20 +1081,11 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path) {
     }
   }
 
-  // Reject any link that points outside the loaded nodes, so a corrupt file cannot cause
-  // out-of-bounds reads during search.
-  auto valid = [&](const id_t* links, std::size_t capacity) {
-    if (links[0] > capacity) return false;
-    return std::all_of(links + 1, links + 1 + links[0], [&](id_t n) { return n < count; });
-  };
-  for (id_t id = 0; id < count; ++id) {
-    bool ok = valid(index->links_of(id, 0), index->max_links0_);
-    for (int layer = 1; ok && layer <= index->levels_[id]; ++layer) ok = valid(index->links_of(id, layer), params.M);
-    if (!ok) throw std::runtime_error(path + ": corrupt neighbor list");
-  }
+  if (!index->links_are_valid(count)) throw std::runtime_error(path + ": corrupt neighbor list");
   const id_t entry_id = static_cast<id_t>(entry & 0xffffffffu);
-  const int entry_level = static_cast<int>(entry >> 32) - 1;
-  if (count > 0 && (entry_id >= count || entry_level != index->levels_[entry_id])) {
+  const std::uint64_t entry_level_plus_one = entry >> 32;  // unsigned: a crafted value can't overflow
+  // An empty index has no entry point; otherwise it must be a node on its own top layer.
+  if (count == 0 ? entry != kEmpty : (entry_id >= count || entry_level_plus_one != static_cast<std::uint64_t>(index->levels_[entry_id]) + 1)) {
     throw std::runtime_error(path + ": corrupt entry point");
   }
 
@@ -1182,9 +1215,10 @@ std::unique_ptr<HnswIndex> HnswIndex::import_graph(const HnswParams& params, con
     }
   }
   if (!in.done()) throw std::runtime_error("graph: trailing bytes");
+  if (!index->links_are_valid(count)) throw std::runtime_error("graph: link to a node not on that layer");
   const id_t entry_id = static_cast<id_t>(entry & 0xffffffffu);
-  const int entry_level = static_cast<int>(entry >> 32) - 1;
-  if (count > 0 && (entry_id >= count || entry_level != index->levels_[entry_id])) {
+  const std::uint64_t entry_level_plus_one = entry >> 32;  // unsigned: a crafted value can't overflow
+  if (count == 0 ? entry != kEmpty : (entry_id >= count || entry_level_plus_one != static_cast<std::uint64_t>(index->levels_[entry_id]) + 1)) {
     throw std::runtime_error("graph: corrupt entry point");
   }
   index->count_.store(count, std::memory_order_release);
