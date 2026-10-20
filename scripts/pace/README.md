@@ -29,6 +29,16 @@ srun -N1 --exclusive -C gold6226 -t 0:30:00 bash scripts/pace/build.sh 2>&1 | te
 This builds with GCC 13, runs the full test suite, measures the distance kernels at every SIMD
 level the CPU supports (AVX-512 on the Xeon nodes) and does a quick recall run.
 
+## SIFT1M
+
+```bash
+scripts/download_sift1m.sh              # login node, once (~160 MB)
+sbatch scripts/pace/sift1m.sbatch       # build on 24 cores, then 3 pinned single-thread search runs
+squeue -u $USER                         # wait for it; the log is sift1m-<jobid>.log
+```
+
+Results land in `bench/results/pace/gold6226/`; copy that folder back with `scp -r`.
+
 ## Notes
 
 - Nodes differ (`sinfo -p ice-cpu -o "%D %c %m %f"` lists the types). Benchmarks run on the
