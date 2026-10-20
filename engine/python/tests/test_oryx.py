@@ -30,6 +30,33 @@ def test_search_matches_exact_neighbors(data):
     assert np.all(np.diff(distances, axis=1) >= 0)
 
 
+def test_filtered_search_returns_only_allowed_labels(data):
+    base, queries = data
+    index = oryx.Index(dim=24, max_elements=len(base))
+    index.add(base, threads=4)
+    allowed = np.arange(0, len(base), 7)  # every 7th vector
+    keep = np.zeros(len(base), dtype=bool)
+    keep[allowed] = True
+    # Exact top-10 among the allowed vectors only.
+    truth = allowed[exact_knn(base[allowed], queries, 10)]
+
+    compiled = index.filter(allowed)
+    assert compiled.allowed == len(allowed)
+    assert abs(compiled.selectivity - len(allowed) / len(base)) < 1e-9
+    assert "oryx.Filter" in repr(compiled)
+    for flt in (compiled, allowed, list(allowed)):  # compiled once, or compiled per call
+        for strategy in ("auto", "exact", "inline", "two-hop"):
+            labels, _ = index.search(queries, k=10, ef=100, filter=flt, strategy=strategy)
+            assert keep[labels].all(), strategy
+            recall = np.mean([len(set(l) & set(t)) / 10 for l, t in zip(labels, truth)])
+            assert recall >= (1.0 if strategy == "exact" else 0.95), strategy
+
+    labels, distances = index.search(queries[:1], k=10, filter=[3, 5])  # fewer than k allowed
+    assert set(labels[0][:2]) == {3, 5} and (labels[0][2:] == -1).all() and np.isinf(distances[0][2:]).all()
+    with pytest.raises(ValueError):
+        index.search(queries, k=10, filter=allowed, strategy="sideways")
+
+
 def test_custom_labels_and_missing_results(data):
     base, _ = data
     index = oryx.Index(dim=24, max_elements=10)
