@@ -91,7 +91,7 @@
       />
     </div>
 
-    <span class="count num">{Math.max(playhead.event + 1, 0).toLocaleString()} / {total.toLocaleString()}</span>
+    <span class="count num">{Math.min(Math.max(playhead.event + 1, 0), total).toLocaleString()} / {total.toLocaleString()}</span>
 
     <div class="speeds" role="group" aria-label="Replay speed">
       {#each speeds as s (s)}
@@ -123,6 +123,11 @@
         {:else}
           (best so far <span class="num">{fmt(current.bound)}</span>)
         {/if}
+      </span>
+    {:else if total === 0 && outcome.trace.strategy === "exact"}
+      <span class="explain muted">
+        No graph walk to replay: only {(outcome.trace.allowed ?? 0).toLocaleString()} photos match the filter, so the engine scored
+        each of them directly.
       </span>
     {:else}
       <span class="explain muted">
