@@ -89,6 +89,8 @@ if(ORYX_BUILD_BENCH)
   target_link_libraries(bench_distance PRIVATE oryx_engine)
   add_executable(bench_recall bench/bench_recall.cpp)
   target_link_libraries(bench_recall PRIVATE oryx_engine)
+  add_executable(bench_filter bench/bench_filter.cpp)
+  target_link_libraries(bench_filter PRIVATE oryx_engine)
 endif()
 
 # Writes the web demo's prebuilt graph (see tools/export_graph.cpp and web/scripts/build-graph.sh).
