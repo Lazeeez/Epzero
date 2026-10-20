@@ -1,0 +1,9 @@
+{
+  "dataset": "data/sift/sift_base.fvecs", "n": 1000000, "dim": 128, "queries": 10000, "repeat": 8, "search_threads": 8, "k": 10,
+  "metric": "l2", "simd": "avx512", "M": 16, "ef_construction": 200,
+  "build_seconds": 0, "build_threads": 24, "memory_bytes": 802513432, "brute_force_qps": 0,
+  "sweep": [
+    {"ef": 80, "recall": 0.97432, "qps": 42655.2, "p50_us": 193.329, "p99_us": 247.24, "distances_per_query": 1483.61},
+    {"ef": 200, "recall": 0.99536, "qps": 19254.4, "p50_us": 431.837, "p99_us": 538.134, "distances_per_query": 3084.76}
+  ]
+}
