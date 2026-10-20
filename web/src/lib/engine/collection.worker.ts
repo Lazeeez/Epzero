@@ -2,7 +2,7 @@
 // (or builds the graph on every core when there isn't one, and on request), and answers searches
 // with full traversal traces. Nothing here touches the DOM.
 import { cachedFetch } from "../cached-fetch";
-import type { Evaluation, FromWorker, Neighborhood, Request, ToWorker, Trace } from "./protocol";
+import type { Evaluation, FilterInfo, FromWorker, Neighborhood, Request, ToWorker, Trace } from "./protocol";
 
 interface Collection {
   load(vectors: Int8Array, scales: Float32Array, dim: number): void;
@@ -14,6 +14,7 @@ interface Collection {
   search(query: Float32Array, k: number, ef: number): Trace;
   searchById(id: number, k: number, ef: number): Trace;
   evaluate(samples: number, k: number, ef: number, threads: number): Omit<Evaluation, "ef">;
+  setFilter(ids: Uint32Array | null): FilterInfo;
   info(): { maxLevel: number; memoryBytes: number };
 }
 
@@ -33,7 +34,8 @@ let dim = 0;
 let count = 0;
 // Base-layer adjacency (CSR), built on first use and dropped on rebuild.
 let adjacency: { offsets: Uint32Array; targets: Uint32Array } | null = null;
-
+// The page's filter (allowed photo ids), kept so it survives a rebuild of the index.
+let filterIds: Uint32Array | null = null;
 
 // Streams a binary file, reporting bytes as they arrive. A repeat visit reads straight from the
 // Cache API rather than through the service worker's fetch handler, which had to relay every chunk
@@ -106,6 +108,7 @@ function build(M: number, efConstruction: number) {
 // Sends the finished graph's topology to the page (for the 3D view and stats).
 function publish(M: number, efConstruction: number, buildMs: number, prebuilt: boolean) {
   const index = collection!;
+  if (filterIds) index.setFilter(filterIds); // a new index starts unfiltered
   const info = index.info();
   const edges: Uint32Array[] = [new Uint32Array(0)];
   for (let layer = 1; layer <= info.maxLevel; layer++) edges.push(index.edges(layer));
@@ -176,6 +179,10 @@ function answer(request: Request): { value: unknown; transfer: Transferable[] } 
     case "evaluate": {
       const value: Evaluation = { ...collection.evaluate(request.samples, 10, request.ef, threads), ef: request.ef };
       return { value, transfer: [] };
+    }
+    case "filter": {
+      filterIds = request.ids;
+      return { value: collection.setFilter(request.ids), transfer: [] };
     }
   }
 }
