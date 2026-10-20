@@ -612,6 +612,124 @@ std::vector<HnswIndex::Candidate> HnswIndex::scan_allowed(const Scorer& scorer, 
   return result;  // closest first
 }
 
+std::vector<SearchResult> HnswIndex::exact_search(const float* query, std::size_t k, const SearchFilter* filter) const {
+  if (k == 0) return {};
+  std::vector<float> normalized;
+  if (params_.metric == Metric::Cosine) {
+    normalized.assign(query, query + params_.dim);
+    normalize(normalized.data(), params_.dim);
+    query = normalized.data();
+  }
+  const Scorer scorer(*this, query, /*adc=*/!has_full_vectors());
+  const bool has_deletions = deleted_count_.load(std::memory_order_relaxed) > 0;
+  std::priority_queue<Candidate, std::vector<Candidate>, FartherFirst> best;  // farthest on top
+  const auto consider = [&](id_t id) {
+    if (has_deletions && is_deleted(id)) return;
+    const float d = scorer(id);
+    if (best.size() < k) {
+      best.push({d, id});
+    } else if (d < best.top().distance) {
+      best.pop();
+      best.push({d, id});
+    }
+  };
+  if (filter != nullptr) {
+    for (const id_t id : filter->ids_) consider(id);
+  } else {
+    const id_t n = static_cast<id_t>(size());
+    for (id_t id = 0; id < n; ++id) consider(id);
+  }
+  std::vector<SearchResult> results(best.size());
+  for (std::size_t i = results.size(); i-- > 0;) {
+    results[i] = {labels_[best.top().id], best.top().distance};
+    best.pop();
+  }
+  return results;
+}
+
+std::string_view to_string(MissExplanation::Cause cause) noexcept {
+  switch (cause) {
+    case MissExplanation::Cause::Returned: return "returned";
+    case MissExplanation::Cause::NotInIndex: return "not-in-index";
+    case MissExplanation::Cause::FilteredOut: return "filtered-out";
+    case MissExplanation::Cause::NotNearEnough: return "not-near-enough";
+    case MissExplanation::Cause::SearchMissed: return "search-missed";
+  }
+  return "unknown";
+}
+
+MissExplanation HnswIndex::explain(const float* query, std::size_t k, std::uint64_t label,
+                                   const SearchOptions& options) const {
+  using Cause = MissExplanation::Cause;
+  MissExplanation out;
+  id_t target;
+  {
+    std::lock_guard lock(label_lock_);
+    const auto it = label_to_id_.find(label);
+    if (it == label_to_id_.end()) return out;  // NotInIndex
+    target = it->second;
+  }
+  const SearchFilter* filter = options.filter;
+  if (filter != nullptr && !filter->allows(target)) {
+    out.cause = Cause::FilteredOut;
+    return out;
+  }
+
+  // Its exact distance, and how many live (allowed) vectors are strictly closer.
+  std::vector<float> normalized;
+  const float* q = query;
+  if (params_.metric == Metric::Cosine) {
+    normalized.assign(query, query + params_.dim);
+    normalize(normalized.data(), params_.dim);
+    q = normalized.data();
+  }
+  const Scorer exact(*this, q, /*adc=*/!has_full_vectors());
+  out.distance = exact(target);
+  const bool has_deletions = deleted_count_.load(std::memory_order_relaxed) > 0;
+  std::size_t closer = 0;
+  const auto count = [&](id_t id) {
+    if (id != target && !(has_deletions && is_deleted(id)) && exact(id) < out.distance) ++closer;
+  };
+  if (filter != nullptr) {
+    for (const id_t id : filter->ids_) count(id);
+  } else {
+    for (id_t id = 0; id < static_cast<id_t>(size()); ++id) count(id);
+  }
+  out.exact_rank = closer + 1;
+
+  // The search as it ran, traced to see whether the walk ever scored it.
+  SearchTrace trace;
+  SearchOptions traced = options;
+  traced.trace = &trace;
+  traced.stats = nullptr;
+  const auto results = search(query, k, traced);
+  if (!results.empty()) out.kth_distance = results.back().distance;
+  const auto found = [&](const std::vector<SearchResult>& r) {
+    return std::any_of(r.begin(), r.end(), [&](const SearchResult& hit) { return hit.label == label; });
+  };
+  if (found(results)) {
+    out.cause = Cause::Returned;
+    return out;
+  }
+  if (out.exact_rank > k) {
+    out.cause = Cause::NotNearEnough;
+    return out;
+  }
+  out.cause = Cause::SearchMissed;
+  out.scored = std::any_of(trace.events.begin(), trace.events.end(), [&](const TraceEvent& e) { return e.to == label; });
+  SearchOptions wider = options;
+  wider.trace = nullptr;
+  wider.stats = nullptr;
+  for (std::size_t ef = std::max<std::size_t>(options.ef, k) * 2; ef <= 4096; ef *= 2) {
+    wider.ef = ef;
+    if (found(search(query, k, wider))) {
+      out.ef_needed = ef;
+      break;
+    }
+  }
+  return out;
+}
+
 FilterStrategy HnswIndex::choose_strategy(const SearchFilter& filter, std::size_t ef) const noexcept {
   if (filter.allowed() <= kExactPerEf * ef) return FilterStrategy::Exact;
   if (filter.selectivity() >= kInlineSelectivity) return FilterStrategy::Inline;
