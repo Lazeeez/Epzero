@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="480" viewBox="0 0 760 480" role="img" aria-labelledby="t d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
 <title id="t">Oryx vs hnswlib vs FAISS on SIFT1M</title>
-<desc id="d">Recall versus queries per second. Oryx: recall 0.706 at 46,331 QPS, recall 0.800 at 37,287 QPS, recall 0.865 at 28,166 QPS, recall 0.903 at 22,931 QPS, recall 0.943 at 16,325 QPS, recall 0.963 at 13,038 QPS, recall 0.982 at 9,436 QPS, recall 0.989 at 7,294 QPS, recall 0.995 at 5,067 QPS, recall 0.997 at 3,939 QPS, recall 0.998 at 2,740 QPS, recall 0.999 at 2,113 QPS; hnswlib: recall 0.709 at 31,862 QPS, recall 0.800 at 24,366 QPS, recall 0.865 at 19,198 QPS, recall 0.903 at 15,343 QPS, recall 0.943 at 11,205 QPS, recall 0.963 at 8,827 QPS, recall 0.981 at 6,454 QPS, recall 0.989 at 5,064 QPS, recall 0.995 at 3,503 QPS, recall 0.997 at 2,668 QPS, recall 0.999 at 1,883 QPS, recall 0.999 at 1,468 QPS; FAISS HNSW: recall 0.716 at 32,908 QPS, recall 0.808 at 25,379 QPS, recall 0.874 at 19,258 QPS, recall 0.911 at 15,739 QPS, recall 0.948 at 10,999 QPS, recall 0.967 at 8,662 QPS, recall 0.983 at 5,925 QPS, recall 0.990 at 4,615 QPS, recall 0.995 at 3,169 QPS, recall 0.997 at 2,390 QPS, recall 0.999 at 1,609 QPS, recall 0.999 at 1,186 QPS</desc>
+<desc id="d">Recall versus queries per second. Oryx: recall 0.705 at 28,696 QPS, recall 0.838 at 17,861 QPS, recall 0.926 at 10,517 QPS, recall 0.974 at 5,919 QPS, recall 0.988 at 4,159 QPS, recall 0.995 at 2,650 QPS, recall 0.998 at 1,430 QPS; hnswlib: recall 0.709 at 24,547 QPS, recall 0.838 at 15,641 QPS, recall 0.926 at 9,277 QPS, recall 0.974 at 5,222 QPS, recall 0.988 at 3,668 QPS, recall 0.996 at 2,333 QPS, recall 0.999 at 1,261 QPS; FAISS HNSW: recall 0.716 at 22,209 QPS, recall 0.846 at 14,043 QPS, recall 0.934 at 8,355 QPS, recall 0.978 at 4,715 QPS, recall 0.989 at 3,310 QPS, recall 0.996 at 2,113 QPS, recall 0.999 at 1,121 QPS</desc>
 <rect x="0.5" y="0.5" width="759" height="479" rx="12" fill="#fcfcfb" stroke="rgba(11,11,11,0.10)"/>
 <text x="24.0" y="38.0" font-size="17" font-weight="600" fill="#0b0b0b" text-anchor="start" >Oryx vs. hnswlib vs. FAISS on SIFT1M</text>
-<text x="24.0" y="60.0" font-size="12.5" font-weight="400" fill="#52514e" text-anchor="start" >1,000,000 × 128-d vectors · 10,000 queries · 1 search thread</text>
-<text x="24.0" y="78.0" font-size="12.5" font-weight="400" fill="#52514e" text-anchor="start" >Same graph parameters (M=16, efConstruction=200) · median of 7 interleaved runs · up and to the right is better</text>
+<text x="24.0" y="60.0" font-size="12.5" font-weight="400" fill="#52514e" text-anchor="start" >1,000,000 × 128-d vectors · 10,000 queries · 1 search thread · 2x Xeon Gold 6226</text>
+<text x="24.0" y="78.0" font-size="12.5" font-weight="400" fill="#52514e" text-anchor="start" >Same graph parameters (M=16, efConstruction=200) · median of 5 interleaved runs · up and to the right is better</text>
 <line x1="24" y1="106" x2="42" y2="106" stroke="#2a78d6" stroke-width="2" stroke-linecap="round"/>
 <circle cx="33" cy="106" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
 <text x="50.0" y="110.5" font-size="12.5" font-weight="400" fill="#52514e" text-anchor="start" >Oryx</text>
@@ -45,46 +45,31 @@
 <line x1="70" y1="422" x2="732" y2="422" stroke="#c3c2b7" stroke-width="1"/>
 <text x="401.0" y="466.0" font-size="12" font-weight="400" fill="#52514e" text-anchor="middle" >Recall@10 (log scale of 1 − recall)</text>
 <text x="18.0" y="279.0" font-size="12" font-weight="400" fill="#52514e" text-anchor="middle" transform="rotate(-90 18 279.0)">Queries per second (log scale)</text>
-<path d="M75.6,166.6 L115.9,185.6 L159.4,205.8 L195.5,220.5 L252.3,246.7 L299.9,264.2 L369.9,291.9 L426.2,310.2 L504.2,337.7 L560.2,358.3 L636.4,387.2 L665.6,409.5" fill="none" stroke="#1baf7a" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-<circle cx="75.6" cy="166.6" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>FAISS HNSW: recall 0.7157, 32,908 QPS</title></circle>
-<circle cx="115.9" cy="185.6" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>FAISS HNSW: recall 0.8075, 25,379 QPS</title></circle>
-<circle cx="159.4" cy="205.8" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>FAISS HNSW: recall 0.8735, 19,258 QPS</title></circle>
-<circle cx="195.5" cy="220.5" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>FAISS HNSW: recall 0.9108, 15,739 QPS</title></circle>
-<circle cx="252.3" cy="246.7" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>FAISS HNSW: recall 0.9485, 10,999 QPS</title></circle>
-<circle cx="299.9" cy="264.2" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>FAISS HNSW: recall 0.9675, 8,662 QPS</title></circle>
-<circle cx="369.9" cy="291.9" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>FAISS HNSW: recall 0.9835, 5,925 QPS</title></circle>
-<circle cx="426.2" cy="310.2" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>FAISS HNSW: recall 0.9904, 4,615 QPS</title></circle>
-<circle cx="504.2" cy="337.7" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>FAISS HNSW: recall 0.9955, 3,169 QPS</title></circle>
-<circle cx="560.2" cy="358.3" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>FAISS HNSW: recall 0.9974, 2,390 QPS</title></circle>
-<circle cx="636.4" cy="387.2" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>FAISS HNSW: recall 0.9987, 1,609 QPS</title></circle>
-<circle cx="665.6" cy="409.5" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>FAISS HNSW: recall 0.9990, 1,186 QPS</title></circle>
-<path d="M73.1,168.9 L112.1,188.6 L152.9,206.0 L186.9,222.4 L242.2,245.3 L287.7,262.8 L357.6,285.7 L412.0,303.4 L497.1,330.3 L556.3,350.3 L629.2,375.7 L664.5,394.0" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-<circle cx="73.1" cy="168.9" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>hnswlib: recall 0.7089, 31,862 QPS</title></circle>
-<circle cx="112.1" cy="188.6" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>hnswlib: recall 0.8003, 24,366 QPS</title></circle>
-<circle cx="152.9" cy="206.0" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>hnswlib: recall 0.8654, 19,198 QPS</title></circle>
-<circle cx="186.9" cy="222.4" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>hnswlib: recall 0.9031, 15,343 QPS</title></circle>
-<circle cx="242.2" cy="245.3" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>hnswlib: recall 0.9432, 11,205 QPS</title></circle>
-<circle cx="287.7" cy="262.8" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>hnswlib: recall 0.9634, 8,827 QPS</title></circle>
-<circle cx="357.6" cy="285.7" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>hnswlib: recall 0.9814, 6,454 QPS</title></circle>
-<circle cx="412.0" cy="303.4" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>hnswlib: recall 0.9890, 5,064 QPS</title></circle>
-<circle cx="497.1" cy="330.3" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>hnswlib: recall 0.9952, 3,503 QPS</title></circle>
-<circle cx="556.3" cy="350.3" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>hnswlib: recall 0.9973, 2,668 QPS</title></circle>
-<circle cx="629.2" cy="375.7" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>hnswlib: recall 0.9987, 1,883 QPS</title></circle>
-<circle cx="664.5" cy="394.0" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>hnswlib: recall 0.9990, 1,468 QPS</title></circle>
-<path d="M72.2,141.6 L111.7,157.4 L153.0,178.0 L186.4,193.0 L242.3,217.8 L286.9,234.3 L358.7,257.9 L413.8,276.7 L494.3,303.4 L553.7,321.8 L611.6,348.3 L648.5,367.3" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-<circle cx="72.2" cy="141.6" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>Oryx: recall 0.7064, 46,331 QPS</title></circle>
-<circle cx="111.7" cy="157.4" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>Oryx: recall 0.7996, 37,287 QPS</title></circle>
-<circle cx="153.0" cy="178.0" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>Oryx: recall 0.8655, 28,166 QPS</title></circle>
-<circle cx="186.4" cy="193.0" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>Oryx: recall 0.9026, 22,931 QPS</title></circle>
-<circle cx="242.3" cy="217.8" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>Oryx: recall 0.9432, 16,325 QPS</title></circle>
-<circle cx="286.9" cy="234.3" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>Oryx: recall 0.9631, 13,038 QPS</title></circle>
-<circle cx="358.7" cy="257.9" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>Oryx: recall 0.9816, 9,436 QPS</title></circle>
-<circle cx="413.8" cy="276.7" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>Oryx: recall 0.9892, 7,294 QPS</title></circle>
-<circle cx="494.3" cy="303.4" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>Oryx: recall 0.9950, 5,067 QPS</title></circle>
-<circle cx="553.7" cy="321.8" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>Oryx: recall 0.9972, 3,939 QPS</title></circle>
-<circle cx="611.6" cy="348.3" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>Oryx: recall 0.9984, 2,740 QPS</title></circle>
-<circle cx="648.5" cy="367.3" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>Oryx: recall 0.9989, 2,113 QPS</title></circle>
+<path d="M75.6,195.3 L138.8,228.8 L226.2,266.8 L338.1,308.6 L412.0,334.5 L513.2,367.3 L641.4,413.7" fill="none" stroke="#1baf7a" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="75.6" cy="195.3" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>FAISS HNSW: recall 0.7157, 22,209 QPS</title></circle>
+<circle cx="138.8" cy="228.8" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>FAISS HNSW: recall 0.8457, 14,043 QPS</title></circle>
+<circle cx="226.2" cy="266.8" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>FAISS HNSW: recall 0.9337, 8,355 QPS</title></circle>
+<circle cx="338.1" cy="308.6" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>FAISS HNSW: recall 0.9775, 4,715 QPS</title></circle>
+<circle cx="412.0" cy="334.5" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>FAISS HNSW: recall 0.9890, 3,310 QPS</title></circle>
+<circle cx="513.2" cy="367.3" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>FAISS HNSW: recall 0.9959, 2,113 QPS</title></circle>
+<circle cx="641.4" cy="413.7" r="4" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"><title>FAISS HNSW: recall 0.9988, 1,121 QPS</title></circle>
+<path d="M73.2,188.0 L134.0,221.0 L215.0,259.1 L324.4,301.2 L401.7,327.0 L504.6,360.1 L633.9,405.1" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="73.2" cy="188.0" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>hnswlib: recall 0.7092, 24,547 QPS</title></circle>
+<circle cx="134.0" cy="221.0" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>hnswlib: recall 0.8383, 15,641 QPS</title></circle>
+<circle cx="215.0" cy="259.1" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>hnswlib: recall 0.9261, 9,277 QPS</title></circle>
+<circle cx="324.4" cy="301.2" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>hnswlib: recall 0.9743, 5,222 QPS</title></circle>
+<circle cx="401.7" cy="327.0" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>hnswlib: recall 0.9878, 3,668 QPS</title></circle>
+<circle cx="504.6" cy="360.1" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>hnswlib: recall 0.9955, 2,333 QPS</title></circle>
+<circle cx="633.9" cy="405.1" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"><title>hnswlib: recall 0.9987, 1,261 QPS</title></circle>
+<path d="M71.9,176.6 L133.5,211.3 L215.5,250.0 L323.4,292.0 L400.1,317.8 L501.4,350.7 L615.6,395.8" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="71.9" cy="176.6" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>Oryx: recall 0.7055, 28,696 QPS</title></circle>
+<circle cx="133.5" cy="211.3" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>Oryx: recall 0.8375, 17,861 QPS</title></circle>
+<circle cx="215.5" cy="250.0" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>Oryx: recall 0.9264, 10,517 QPS</title></circle>
+<circle cx="323.4" cy="292.0" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>Oryx: recall 0.9741, 5,919 QPS</title></circle>
+<circle cx="400.1" cy="317.8" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>Oryx: recall 0.9876, 4,159 QPS</title></circle>
+<circle cx="501.4" cy="350.7" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>Oryx: recall 0.9954, 2,650 QPS</title></circle>
+<circle cx="615.6" cy="395.8" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"><title>Oryx: recall 0.9985, 1,430 QPS</title></circle>
 <line x1="255.4" y1="136" x2="255.4" y2="422" stroke="#c3c2b7" stroke-width="1"/>
 <text x="263.4" y="154.0" font-size="12" font-weight="400" fill="#52514e" text-anchor="start" >At recall 0.95, Oryx serves</text>
-<text x="263.4" y="171.0" font-size="12.5" font-weight="600" fill="#0b0b0b" text-anchor="start" >1.46× the QPS of hnswlib · 1.40× the QPS of FAISS HNSW</text>
+<text x="263.4" y="171.0" font-size="12.5" font-weight="600" fill="#0b0b0b" text-anchor="start" >1.13× the QPS of hnswlib · 1.17× the QPS of FAISS HNSW</text>
 </svg>
