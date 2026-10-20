@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { compare, operating, speedup } from "../lib/bench";
+  import { MACHINE, compare, operating, speedup } from "../lib/bench";
   import Lab from "../components/bench/Lab.svelte";
   import Optimizations from "../components/bench/Optimizations.svelte";
   import Quantization from "../components/bench/Quantization.svelte";
@@ -50,7 +50,7 @@
     <p class="section-lede">
       SIFT1M, the standard ANN benchmark: {compare.n.toLocaleString()} × {compare.dim}-D vectors, {compare.queries.toLocaleString()}
       queries, exact ground truth. Every library builds the same graph (M = {compare.M}, efConstruction = {compare.ef_construction}) and
-      is queried from one process on one thread, in {compare.rounds} interleaved rounds.
+      is queried from one process on one thread, in {compare.rounds} interleaved rounds, on a dedicated server node ({MACHINE}).
     </p>
     <dl class="stats">
       <div><dt>vs hnswlib</dt><dd class="num">{vsHnswlib.toFixed(2)}×</dd><dd class="note">QPS at equal recall ({operating.recall.toFixed(3)})</dd></div>
@@ -92,14 +92,19 @@
     </div>
     <p class="caption" use:reveal>
       All three implement the same algorithm, and graph quality is essentially identical: recall matches at every <code>ef</code>. The
-      difference is memory-system engineering, mainly batched prefetching and huge pages, which hnswlib and FAISS don't use by default.
+      difference is memory-system engineering: batched prefetching, the node layout and the visited set. On this server every library
+      gets 2 MiB huge pages, because the kernel enables them for all programs. Where huge pages are opt-in, as on many desktops, only
+      Oryx asks for them, and its lead grows to about 1.46× (measured on a laptop).
     </p>
   </section>
 
   <section class="container block two" aria-label="Where the speed comes from">
     <div class="card panel" use:reveal>
       <h2>Where the 31% came from</h2>
-      <p class="sub">Profiling showed search is bound by memory latency (~63 ns per distance), not arithmetic. So each change targets memory.</p>
+      <p class="sub">
+        Profiling showed search is bound by memory latency (~63 ns per distance), not arithmetic. So each change targets memory.
+        Measured on the development laptop, one search thread.
+      </p>
       <Optimizations />
     </div>
     <div class="card panel" use:reveal={0.1}>
