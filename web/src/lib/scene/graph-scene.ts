@@ -132,6 +132,8 @@ export interface Hover {
 export interface Tap {
   id: number;
   pointerType: string;
+  /** Shift-click: open the photo's details instead of searching from it. */
+  details?: boolean;
   x: number;
   y: number;
 }
@@ -270,7 +272,13 @@ export class GraphScene {
       const hit = this.nodeAt(event.clientX, event.clientY, event.pointerType === "touch" ? 1.6 : 0.55);
       if (hit) this.showMarker(hit.index);
       const box = canvas.getBoundingClientRect();
-      this.tapListener?.({ id: hit ? hit.node : -1, pointerType: event.pointerType, x: event.clientX - box.left, y: event.clientY - box.top });
+      this.tapListener?.({
+        id: hit ? hit.node : -1,
+        pointerType: event.pointerType,
+        details: event.shiftKey,
+        x: event.clientX - box.left,
+        y: event.clientY - box.top,
+      });
     });
     // Double-click / double-tap: fly in to that spot.
     canvas.addEventListener("dblclick", (event) => {
