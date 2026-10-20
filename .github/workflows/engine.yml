@@ -87,3 +87,37 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
           TSAN_OPTIONS: halt_on_error=1
         run: ctest --test-dir build --output-on-failure
+
+  fuzz:
+    name: fuzz (snapshot, graph, write-ahead log)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y ninja-build
+      - name: Build the fuzzers (libFuzzer + ASan + UBSan)
+        run: >-
+          cmake -S engine -B build -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DORYX_BUILD_FUZZ=ON -DORYX_BUILD_TESTS=OFF -DORYX_BUILD_BENCH=OFF -DORYX_BUILD_NODE=OFF
+          && cmake --build build
+      - name: Seed corpus (one valid file of each kind)
+        run: build/fuzz_seeds corpus
+      - name: Replay the inputs fuzzing has found bugs with
+        env:
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          for input in engine/fuzz/regressions/*; do
+            target=$(basename "$input" | cut -d- -f1)   # graph-... or snapshot-...
+            build/fuzz_$target "$input"
+          done
+      - name: Fuzz each target for a minute
+        env:
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          for target in snapshot graph wal; do
+            build/fuzz_$target corpus/$target -max_total_time=60 -max_len=4096 -timeout=10 -artifact_prefix=fuzz-$target-
+          done
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-findings
+          path: fuzz-*
