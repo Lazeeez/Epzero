@@ -24,6 +24,19 @@ export interface Trace {
  * results, or stepping past excluded neighbours to theirs). */
 export type FilterStrategy = "exact" | "inline" | "two-hop";
 
+/** Why a photo is or isn't among a search's results (see HnswIndex::explain). */
+export interface Explanation {
+  cause: "returned" | "not-in-index" | "filtered-out" | "not-near-enough" | "search-missed";
+  /** 1-based rank by exact distance among the photos the search could return. */
+  exactRank: number;
+  distance: number;
+  kthDistance: number;
+  /** search-missed: the walk scored it but kept closer ones (otherwise it never reached it). */
+  scored: boolean;
+  /** search-missed: the smallest beam width that returns it (0: none up to 4096). */
+  efNeeded: number;
+}
+
 export interface FilterInfo {
   allowed: number;
   selectivity: number;
@@ -68,7 +81,8 @@ export type Request =
   | { method: "neighbors"; id: number; target: number } // -> Neighborhood on the base layer
   | { method: "similarity"; a: number; b: number } // -> number (cosine)
   | { method: "evaluate"; ef: number; samples: number } // -> Evaluation
-  | { method: "filter"; ids: Uint32Array | null }; // -> FilterInfo; restricts later searches to these photos
+  | { method: "filter"; ids: Uint32Array | null } // -> FilterInfo; restricts later searches to these photos
+  | { method: "explain"; query: Query; label: number; k: number; ef: number }; // -> Explanation
 
 export interface Neighborhood {
   ids: Uint32Array;
