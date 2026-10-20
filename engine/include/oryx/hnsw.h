@@ -158,7 +158,12 @@ class HnswIndex {
   std::unique_ptr<HnswIndex> compacted(std::size_t threads = 0) const;
 
   void save(const std::string& path) const;
-  static std::unique_ptr<HnswIndex> load(const std::string& path);
+  // Loads a snapshot; corrupt or truncated files throw. With max_bytes, a snapshot whose index
+  // would allocate more than that is refused before allocating (for untrusted files).
+  static std::unique_ptr<HnswIndex> load(const std::string& path, std::size_t max_bytes = 0);
+  // Memory an index with these parameters allocates up front (the layer-0 block, plus full
+  // vectors for SQ8 with keep_vectors), before any upper-layer lists.
+  static std::size_t estimated_bytes(const HnswParams& params) noexcept;
 
   // The graph without its vectors: every node's label, level and links. For shipping a prebuilt
   // index next to vectors that are stored elsewhere (e.g. the web demo's int8 file): a few bytes
@@ -238,6 +243,8 @@ class HnswIndex {
   std::vector<Candidate> scan_allowed(const Scorer& scorer, const SearchFilter& filter, std::size_t keep,
                                       SearchStats& stats) const;
   FilterStrategy choose_strategy(const SearchFilter& filter, std::size_t ef) const noexcept;
+  // Loaders: every link names one of the first `count` nodes, on a layer that node is on.
+  bool links_are_valid(std::size_t count) const noexcept;
   SearchFilter filter_from_ids(std::vector<id_t> ids) const;
   // The neighbor-selection heuristic (Algorithm 4 in the paper): keep a candidate only if it is
   // closer to the base point than to every neighbor already kept. This keeps links pointing in
