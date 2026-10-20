@@ -5,8 +5,8 @@ SVG is written directly (no plotting library) so marks follow the chart spec exa
 the system UI font. Colors come from a CVD-validated categorical palette (first three slots
 validate for every pair in both modes).
 
-    python bench/plot_results.py --compare bench/results/sift1m-compare.json \
-        --optimizations bench/results/optimizations.json --out docs/img
+    python bench/plot_results.py --compare bench/results/pace/gold6226/sift1m-compare.json \
+        --optimizations bench/results/optimizations.json --out docs/img --machine "2x Xeon Gold 6226"
 """
 
 import argparse
@@ -88,8 +88,8 @@ def compare_chart(data, theme):
 
     body = [
         text(left - 46, 38, "Oryx vs. hnswlib vs. FAISS on SIFT1M", 17, t["primary"], 600),
-        text(left - 46, 60, f"{data['n']:,} × {data['dim']}-d vectors · {data['queries']:,} queries · 1 search thread",
-             12.5, t["secondary"]),
+        text(left - 46, 60, f"{data['n']:,} × {data['dim']}-d vectors · {data['queries']:,} queries · 1 search thread"
+             + (f" · {data['machine']}" if data.get("machine") else ""), 12.5, t["secondary"]),
         text(left - 46, 78, f"Same graph parameters (M={data['M']}, efConstruction={data['ef_construction']}) · "
              f"median of {data['rounds']} interleaved runs · up and to the right is better", 12.5, t["secondary"]),
     ]
@@ -196,10 +196,13 @@ def main():
     parser.add_argument("--compare", required=True)
     parser.add_argument("--optimizations", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--machine", help="hardware the comparison ran on, shown in the chart's subtitle")
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
     with open(args.compare) as f:
         compare = json.load(f)
+    if args.machine:
+        compare["machine"] = args.machine
     with open(args.optimizations) as f:
         optimizations = json.load(f)
     for theme in THEMES:
