@@ -41,6 +41,11 @@ class RecallMonitor {
     std::size_t window = 1000;  // the estimate covers this many most recent samples per segment
     std::size_t queue = 64;     // pending exact checks; beyond this, samples are dropped
     double z = 1.96;            // confidence level of the interval (1.96: 95%)
+    // The reference each sample is compared with: 0 = an exact scan (the truth, at the cost of
+    // scoring every vector), or a beam width for a far wider search than production uses. On SIFT1M,
+    // ef 1024 is 31x cheaper than a scan with recall 0.9995: the estimate is off by at most the
+    // reference's own misses, in either direction.
+    std::size_t reference_ef = 0;
   };
 
   explicit RecallMonitor(const HnswIndex& index) : RecallMonitor(index, Options{}) {}
