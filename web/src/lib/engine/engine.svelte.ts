@@ -3,7 +3,7 @@
 import { cachedFetch } from "../cached-fetch";
 import { isolationSettled } from "../isolation";
 import { UNSUPPORTED_BROWSER, wasmSimdSupported } from "../support";
-import type { Evaluation, FromWorker, GraphInfo, Neighborhood, Query, Request, Trace } from "./protocol";
+import type { Evaluation, FilterInfo, FromWorker, GraphInfo, Neighborhood, Query, Request, Trace } from "./protocol";
 
 export interface Meta {
   id: string[];
@@ -26,6 +26,18 @@ interface Manifest {
 }
 
 export type EngineStatus = "idle" | "loading" | "building" | "ready" | "error";
+
+/** A category filter: photos carrying any of these labels. */
+export interface ActiveFilter extends FilterInfo {
+  labels: string[];
+  /** Allowed photo ids, for the 3D view. */
+  ids: Uint32Array;
+}
+
+export interface Category {
+  label: string;
+  count: number;
+}
 
 export interface SearchOutcome {
   query: Query;
@@ -61,6 +73,8 @@ class Engine {
   evaluating = $state(false);
   /** The browser can't run the engine at all (no WebAssembly SIMD): retrying won't help. */
   unsupported = $state(false);
+  /** The category filter every search honors (null: all photos). */
+  filter = $state.raw<ActiveFilter | null>(null);
 
   private worker: Worker | null = null;
   private pending = new Map<number, { resolve: (o: SearchOutcome) => void; reject: (e: Error) => void; ef: number }>();
@@ -272,7 +286,38 @@ class Engine {
   }
 
   randomId(): number {
+    const ids = this.filter?.ids;
+    if (ids?.length) return ids[Math.floor(Math.random() * ids.length)];
     return Math.floor(Math.random() * this.count);
+  }
+
+  private categoryList: Category[] | null = null;
+
+  /** Every label in the dataset with how many photos carry it, most common first. */
+  categories(): Category[] {
+    if (this.categoryList || !this.meta) return this.categoryList ?? [];
+    const counts = new Map<string, number>();
+    for (const labels of this.meta.labels) for (const label of labels) counts.set(label, (counts.get(label) ?? 0) + 1);
+    this.categoryList = [...counts].map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
+    return this.categoryList;
+  }
+
+  /** Restricts every following search to photos with any of `labels` (none: all photos). */
+  async setFilter(labels: string[]): Promise<void> {
+    if (!this.meta) return;
+    if (labels.length === 0) {
+      await this.request<FilterInfo>({ method: "filter", ids: null });
+      this.filter = null;
+      return;
+    }
+    const wanted = new Set(labels);
+    const ids: number[] = [];
+    this.meta.labels.forEach((photo, id) => {
+      if (photo.some((label) => wanted.has(label))) ids.push(id);
+    });
+    const allowed = Uint32Array.from(ids);
+    const info = await this.request<FilterInfo>({ method: "filter", ids: allowed });
+    this.filter = { ...info, labels, ids: allowed };
   }
 
   // ---- Photo metadata helpers ----
