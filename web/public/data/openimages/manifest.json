@@ -9,7 +9,7 @@
     "vectors": "vectors.i8",
     "scales": "scales.f32",
     "layout": "layout.u16",
-    "meta": "meta.json",
+    "meta": "meta.v2.json",
     "graph": "graph.bin"
   },
   "quantization": {
