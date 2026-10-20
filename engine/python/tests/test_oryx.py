@@ -57,6 +57,36 @@ def test_filtered_search_returns_only_allowed_labels(data):
         index.search(queries, k=10, filter=allowed, strategy="sideways")
 
 
+def test_exact_search_explain_and_recall_guard(data):
+    base, queries = data
+    index = oryx.Index(dim=24, max_elements=len(base), M=8, ef_construction=40)
+    index.add(base, threads=4)
+
+    labels, _ = index.exact_search(queries, k=10, threads=2)
+    assert (labels == exact_knn(base, queries, 10)).all()
+
+    # Explain: a returned result, a far-away vector, and a missed neighbour at a tiny beam.
+    q = queries[0]
+    top, _ = index.search(q, k=10, ef=64)
+    assert index.explain(q, 10, int(top[0][0]), ef=64)["cause"] == "returned"
+    far = int(index.exact_search(q, k=len(base))[0][0][-1])
+    why = index.explain(q, 10, far, ef=64)
+    assert why["cause"] == "not-near-enough" and why["exact_rank"] == len(base)
+    assert index.explain(q, 10, 10**9)["cause"] == "not-in-index"
+    assert index.explain(q, 10, int(top[0][0]), filter=[1, 2])["cause"] in ("filtered-out", "returned")
+
+    # A guard starting below its target raises the beam until measured recall reaches it.
+    guard = oryx.RecallGuard(index, target=0.97, initial_ef=10, min_ef=10, min_samples=40, sample_rate=1.0, window=200)
+    for _ in range(30):
+        guard.search(queries, k=10, threads=2)
+        guard.drain()
+    (row,) = guard.report()
+    assert row["segment"] == "unfiltered" and row["ef"] > 10 and row["changes"] > 0
+    assert 0 <= row["lower"] <= row["recall"] <= row["upper"] <= 1
+    del index  # the guard keeps the index alive
+    assert guard.search(queries[:1], k=10)[0].shape == (1, 10)
+
+
 def test_custom_labels_and_missing_results(data):
     base, _ = data
     index = oryx.Index(dim=24, max_elements=10)
