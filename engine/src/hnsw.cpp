@@ -54,6 +54,7 @@ inline void store_link(std::uint32_t& slot, std::uint32_t value) noexcept {
 // +10-15% QPS and -16% p99 latency. The block is zeroed (every neighbor count starts at 0).
 // ORYX_NO_HUGEPAGES=1 turns the request off, so benchmarks can compare libraries on equal pages
 // (on a kernel where huge pages are opt-in, only a library that asks for them gets them).
+#if defined(__linux__) && !defined(__EMSCRIPTEN__)
 bool huge_pages_wanted() {
   static const bool wanted = [] {
     const char* off = std::getenv("ORYX_NO_HUGEPAGES");
@@ -61,6 +62,7 @@ bool huge_pages_wanted() {
   }();
   return wanted;
 }
+#endif
 
 void* allocate_block(std::size_t bytes) {
   constexpr std::size_t kHugePage = std::size_t{2} << 20;
@@ -178,7 +180,23 @@ class ChunkedWriter {
   std::vector<char> buffer_;
 };
 
+// Filtered search: Auto's choice of strategy (see choose_strategy). Exact wins while the allowed set
+// is small enough to score outright; Inline while most nodes pass, since it walks the graph at
+// almost full speed; TwoHop in between.
+constexpr std::size_t kExactPerEf = 64;  // scan when allowed <= kExactPerEf * ef
+constexpr double kInlineSelectivity = 0.5;
+
 }  // namespace
+
+std::string_view to_string(FilterStrategy strategy) noexcept {
+  switch (strategy) {
+    case FilterStrategy::Auto: return "auto";
+    case FilterStrategy::Exact: return "exact";
+    case FilterStrategy::Inline: return "inline";
+    case FilterStrategy::TwoHop: return "two-hop";
+  }
+  return "unknown";
+}
 
 // Scores nodes against one query vector. With `adc` it reads only the node's SQ8 codes
 // (asymmetric distance: the query stays in float, its dot product with the dequantized node is
@@ -474,6 +492,166 @@ std::vector<HnswIndex::Candidate> HnswIndex::search_layer(const Scorer& scorer, 
   return result;  // closest first
 }
 
+std::vector<HnswIndex::Candidate> HnswIndex::search_layer_filtered(const Scorer& scorer, id_t entry, std::size_t ef,
+                                                                   const SearchFilter& filter, bool two_hop,
+                                                                   SearchStats& stats, SearchTrace* trace) const {
+  auto visited = visited_pool_->acquire();
+  std::priority_queue<Candidate, std::vector<Candidate>, CloserFirst> candidates;  // closest on top
+  std::priority_queue<Candidate, std::vector<Candidate>, FartherFirst> best;       // farthest on top
+  const bool has_deletions = deleted_count_.load(std::memory_order_relaxed) > 0;
+  const auto keepable = [&](id_t id) { return filter.allows(id) && (!has_deletions || !is_deleted(id)); };
+  constexpr float kInfinity = std::numeric_limits<float>::infinity();
+
+  const float entry_dist = scorer(entry);
+  ++stats.distance_computations;
+  visited->test_and_set(entry);
+  candidates.push({entry_dist, entry});
+  if (keepable(entry)) best.push({entry_dist, entry});
+  float bound = best.empty() ? kInfinity : best.top().distance;
+
+  // TwoHop gathers up to two lists' worth of allowed nodes per expansion.
+  const std::size_t cap = two_hop ? 2 * max_links0_ : max_links0_;
+  std::vector<id_t> batch(cap);
+  std::vector<id_t> skipped;  // TwoHop: filtered-out neighbors, whose own lists are looked through
+  skipped.reserve(max_links0_);
+
+  while (!candidates.empty()) {
+    const Candidate current = candidates.top();
+    // Unlike the unfiltered walk, the beam must hold ef allowed results before it may stop.
+    if (current.distance > bound && best.size() >= ef) break;
+    candidates.pop();
+
+    const id_t* links = links_of(current.id, 0);
+    const id_t count = load_link(links[0]);
+    ++stats.nodes_expanded;
+
+    std::size_t pending = 0;
+    skipped.clear();
+    for (id_t i = 0; i < count; ++i) {
+      const id_t neighbor = load_link(links[1 + i]);
+      if (two_hop && !filter.allows(neighbor)) {
+        skipped.push_back(neighbor);
+        prefetch(links_of(neighbor, 0));
+        continue;
+      }
+      if (visited->test_and_set(neighbor)) continue;
+      batch[pending++] = neighbor;
+      prefetch(scorer.address(neighbor));
+    }
+    // A filtered-out neighbor is never scored, but its neighbors are reachable through it. Without
+    // this, a walk restricted to a small allowed set breaks into islands.
+    for (std::size_t s = 0; s < skipped.size() && pending < cap; ++s) {
+      const id_t via = skipped[s];
+      if (visited->test_and_set(via)) continue;  // its list was already looked through
+      const id_t* via_links = links_of(via, 0);
+      const id_t via_count = load_link(via_links[0]);
+      for (id_t i = 0; i < via_count && pending < cap; ++i) {
+        const id_t neighbor = load_link(via_links[1 + i]);
+        if (!filter.allows(neighbor) || visited->test_and_set(neighbor)) continue;
+        batch[pending++] = neighbor;
+        prefetch(scorer.address(neighbor));
+      }
+    }
+
+    for (std::size_t j = 0; j < pending; ++j) {
+      const id_t neighbor = batch[j];
+      const float d = scorer(neighbor);
+      ++stats.distance_computations;
+      const bool accepted = best.size() < ef || d < bound;
+      if (trace != nullptr) {
+        trace->events.push_back({0, labels_[current.id], labels_[neighbor], d, accepted});
+      }
+      if (accepted) {
+        candidates.push({d, neighbor});
+        if (keepable(neighbor)) {
+          best.push({d, neighbor});
+          if (best.size() > ef) best.pop();
+        }
+        bound = best.empty() ? kInfinity : best.top().distance;
+      }
+    }
+  }
+
+  std::vector<Candidate> result(best.size());
+  for (std::size_t i = result.size(); i-- > 0;) {
+    result[i] = best.top();
+    best.pop();
+  }
+  return result;  // closest first
+}
+
+std::vector<HnswIndex::Candidate> HnswIndex::scan_allowed(const Scorer& scorer, const SearchFilter& filter,
+                                                          std::size_t keep, SearchStats& stats) const {
+  const bool has_deletions = deleted_count_.load(std::memory_order_relaxed) > 0;
+  std::priority_queue<Candidate, std::vector<Candidate>, FartherFirst> best;  // farthest on top
+  const std::vector<id_t>& ids = filter.ids_;
+  // The allowed slots are sorted, so this mostly streams forward; prefetch a few rows ahead.
+  constexpr std::size_t kAhead = 8;
+  for (std::size_t i = 0; i < ids.size(); ++i) {
+    if (i + kAhead < ids.size()) prefetch(scorer.address(ids[i + kAhead]));
+    const id_t id = ids[i];
+    if (has_deletions && is_deleted(id)) continue;
+    const float d = scorer(id);
+    ++stats.distance_computations;
+    if (best.size() < keep) {
+      best.push({d, id});
+    } else if (d < best.top().distance) {
+      best.pop();
+      best.push({d, id});
+    }
+  }
+  std::vector<Candidate> result(best.size());
+  for (std::size_t i = result.size(); i-- > 0;) {
+    result[i] = best.top();
+    best.pop();
+  }
+  return result;  // closest first
+}
+
+FilterStrategy HnswIndex::choose_strategy(const SearchFilter& filter, std::size_t ef) const noexcept {
+  if (filter.allowed() <= kExactPerEf * ef) return FilterStrategy::Exact;
+  if (filter.selectivity() >= kInlineSelectivity) return FilterStrategy::Inline;
+  return FilterStrategy::TwoHop;
+}
+
+SearchFilter HnswIndex::filter_from_ids(std::vector<id_t> ids) const {
+  SearchFilter filter;
+  filter.bits_.assign((size() + 63) / 64, 0);
+  std::sort(ids.begin(), ids.end());  // sequential order for exact scans
+  filter.ids_.reserve(ids.size());
+  for (const id_t id : ids) {
+    std::uint64_t& word = filter.bits_[id >> 6];
+    const std::uint64_t bit = std::uint64_t{1} << (id & 63);
+    if ((word & bit) != 0) continue;  // listed twice
+    word |= bit;
+    filter.ids_.push_back(id);
+  }
+  filter.universe_ = live_count();
+  return filter;
+}
+
+SearchFilter HnswIndex::make_filter(const std::function<bool(std::uint64_t label)>& allow) const {
+  std::vector<id_t> ids;
+  const id_t n = static_cast<id_t>(size());
+  for (id_t id = 0; id < n; ++id) {
+    if (!is_deleted(id) && allow(labels_[id])) ids.push_back(id);
+  }
+  return filter_from_ids(std::move(ids));
+}
+
+SearchFilter HnswIndex::make_filter(const std::uint64_t* labels, std::size_t count) const {
+  std::vector<id_t> ids;
+  ids.reserve(count);
+  {
+    std::lock_guard lock(label_lock_);
+    for (std::size_t i = 0; i < count; ++i) {
+      const auto it = label_to_id_.find(labels[i]);
+      if (it != label_to_id_.end()) ids.push_back(it->second);  // removed labels are not in the map
+    }
+  }
+  return filter_from_ids(std::move(ids));
+}
+
 std::vector<HnswIndex::Candidate> HnswIndex::select_neighbors(std::vector<Candidate> candidates,
                                                               std::size_t max_count) const {
   if (candidates.size() <= max_count) return candidates;
@@ -637,8 +815,26 @@ std::vector<SearchResult> HnswIndex::search(const float* query, std::size_t k, c
 
   SearchStats stats;
   const Scorer scorer(*this, query, /*adc=*/sq8());
-  const id_t start = greedy_descend(scorer, entry_point, top_level, 0, stats, trace);
-  std::vector<Candidate> candidates = search_layer(scorer, start, std::max(options.ef, k), 0, stats, trace);
+  const std::size_t ef = std::max(options.ef, k);
+  std::vector<Candidate> candidates;
+  if (options.filter == nullptr) {
+    const id_t start = greedy_descend(scorer, entry_point, top_level, 0, stats, trace);
+    candidates = search_layer(scorer, start, ef, 0, stats, trace);
+  } else {
+    const SearchFilter& filter = *options.filter;
+    FilterStrategy strategy =
+        options.strategy == FilterStrategy::Auto ? choose_strategy(filter, ef) : options.strategy;
+    if (strategy != FilterStrategy::Exact) {
+      const id_t start = greedy_descend(scorer, entry_point, top_level, 0, stats, trace);
+      candidates = search_layer_filtered(scorer, start, ef, filter, strategy == FilterStrategy::TwoHop, stats, trace);
+      // A walk can strand in a region with too few allowed nodes; Auto then answers exactly.
+      if (options.strategy == FilterStrategy::Auto && candidates.size() < std::min(k, filter.allowed())) {
+        strategy = FilterStrategy::Exact;
+      }
+    }
+    if (strategy == FilterStrategy::Exact) candidates = scan_allowed(scorer, filter, ef, stats);
+    stats.strategy = strategy;
+  }
 
   // SQ8: the beam ran on approximate distances; re-score the best candidates exactly.
   if (sq8() && full_ && !candidates.empty()) {
