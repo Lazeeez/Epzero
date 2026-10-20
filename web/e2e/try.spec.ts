@@ -41,6 +41,29 @@ test("searches 29,825 photos by text, photo and camera, with the debugger and ra
   expect(new URL(page.url()).searchParams.get("q")).toBe("a red apple");
   await expect(panel.getByRole("group", { name: "Recent searches" })).toContainText("a red apple");
 
+  // Category filter: the same search, restricted to dog photos. Every result is a dog, and the
+  // stats say which way the engine honored the filter.
+  const filter = panel.getByRole("group", { name: "Filter by category" });
+  await filter.getByRole("button", { name: "Dog", exact: true }).click();
+  await expect(filter).toContainText(/of 29,825 photos/);
+  await expect(panel.locator(".strategy .tag")).toHaveText(/exact scan|graph walk|two-hop walk/);
+  await expect(panel.locator(".results h2")).toContainText("a red apple");
+  const dogs = await panel.locator(".caption > span:first-child").allTextContents();
+  expect(dogs).toHaveLength(12);
+  for (const caption of dogs) expect(caption).toMatch(/\bDog\b/);
+  // The picker finds any category; a second one widens the filter (photos with either label).
+  await filter.getByRole("button", { name: "+ Add" }).click();
+  await filter.getByRole("searchbox", { name: "Search categories" }).fill("cat");
+  await filter.getByRole("button", { name: /^Cat\s/ }).click();
+  await expect(filter.getByRole("button", { name: "Remove the Cat filter" })).toBeVisible();
+  for (const caption of await panel.locator(".caption > span:first-child").allTextContents()) {
+    expect(caption).toMatch(/\b(Dog|Cat)\b/);
+  }
+  await page.keyboard.press("Escape");
+  await filter.getByRole("button", { name: "All photos" }).click();
+  await expect(panel.locator(".strategy")).toHaveCount(0);
+  await expect(filter).not.toContainText(/of 29,825 photos/);
+
   // Share copies a link that reopens this exact search.
   await page.getByRole("button", { name: "Share this search" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Link copied" })).toBeVisible();
