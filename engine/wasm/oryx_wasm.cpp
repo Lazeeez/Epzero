@@ -328,6 +328,19 @@ class Collection {
     return out;
   }
 
+  // Why `label` is or isn't among a search's results (with the current filter): for "why isn't
+  // this photo here?" in the playground.
+  val explain(const val& query, std::size_t k, std::size_t label, std::size_t ef) const {
+    const auto q = emscripten::convertJSArrayToNumberVector<float>(query);
+    if (q.size() != dim_) throw std::invalid_argument("query has the wrong dimension");
+    return explained(q.data(), k, label, ef);
+  }
+
+  val explain_by_id(std::size_t id, std::size_t k, std::size_t label, std::size_t ef) const {
+    if (id >= n_) throw std::out_of_range("id out of range");
+    return explained(vector(id), k, label, ef);
+  }
+
   // "More like this": search with a stored photo's own vector.
   val search_by_id(std::size_t id, std::size_t k, std::size_t ef) const {
     if (id >= n_) throw std::out_of_range("id out of range");
@@ -396,6 +409,19 @@ class Collection {
   void clear_filter() {
     filter_.reset();
     allowed_.clear();
+  }
+
+  val explained(const float* query, std::size_t k, std::size_t label, std::size_t ef) const {
+    require_index();
+    const auto why = index_->explain(query, k, label, {.ef = ef, .filter = filter_ ? &*filter_ : nullptr});
+    val out = val::object();
+    out.set("cause", std::string(oryx::to_string(why.cause)));
+    out.set("exactRank", why.exact_rank);
+    out.set("distance", why.distance);
+    out.set("kthDistance", why.kth_distance);
+    out.set("scored", why.scored);
+    out.set("efNeeded", why.ef_needed);
+    return out;
   }
 
   // The exact answer, over the allowed photos only when a filter is set.
@@ -533,6 +559,8 @@ EMSCRIPTEN_BINDINGS(oryx) {
       .function("search", &Collection::search)
       .function("searchById", &Collection::search_by_id)
       .function("setFilter", &Collection::set_filter)
+      .function("explain", &Collection::explain)
+      .function("explainById", &Collection::explain_by_id)
       .function("evaluate", &Collection::evaluate)
       .function("info", &Collection::info);
 
