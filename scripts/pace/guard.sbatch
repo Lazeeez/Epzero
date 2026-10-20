@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Recall under drift on SIFT1M, on a dedicated Gold 6226 node: a fixed beam width tuned once, a
 # fixed beam width sized for the worst case, and RecallGuard, through steady, harder-query, churn
-# and filtered phases, at recall targets 0.90, 0.95 and 0.99.
-# Results: pace-results/gold6226/sift1m-guard-<target>.json (untracked; scp back)
+# and filtered phases, at recall targets 0.90, 0.95 and 0.99 (exact checks), and at 0.95 with the
+# cheap wide-beam reference (ef 1024) instead of exact checks.
+# Results: pace-results/gold6226/sift1m-guard-<target>[-ref1024].json (untracked; scp back)
 #
 #   sbatch scripts/pace/guard.sbatch
 #SBATCH --job-name=oryx-guard
@@ -26,3 +27,7 @@ for target in 0.90 0.95 0.99; do
     --batch 2500 --passes 6 --target "$target" --sample-rate 0.02 --threads "$(nproc)" \
     --json "$OUT/sift1m-guard-$target.json"
 done
+numactl --interleave=all "$ORYX_BUILD/bench_guard" \
+  --base data/sift/sift_base.fvecs --query data/sift/sift_query.fvecs --queries 10000 \
+  --batch 2500 --passes 6 --target 0.95 --sample-rate 0.02 --reference-ef 1024 --threads "$(nproc)" \
+  --json "$OUT/sift1m-guard-0.95-ref1024.json"
