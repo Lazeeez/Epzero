@@ -8,6 +8,7 @@
 #include <limits>
 #include <queue>
 #include <stdexcept>
+#include <string_view>
 
 #if defined(__linux__) && !defined(__EMSCRIPTEN__)
 #include <sys/mman.h>
@@ -51,10 +52,20 @@ inline void store_link(std::uint32_t& slot, std::uint32_t value) noexcept {
 // Large blocks are backed by 2 MiB transparent huge pages: search touches nodes at random, and
 // with 4 KiB pages nearly every node visit would also be a TLB miss. Measured on SIFT1M:
 // +10-15% QPS and -16% p99 latency. The block is zeroed (every neighbor count starts at 0).
+// ORYX_NO_HUGEPAGES=1 turns the request off, so benchmarks can compare libraries on equal pages
+// (on a kernel where huge pages are opt-in, only a library that asks for them gets them).
+bool huge_pages_wanted() {
+  static const bool wanted = [] {
+    const char* off = std::getenv("ORYX_NO_HUGEPAGES");
+    return off == nullptr || off[0] == '\0' || std::string_view(off) == "0";
+  }();
+  return wanted;
+}
+
 void* allocate_block(std::size_t bytes) {
   constexpr std::size_t kHugePage = std::size_t{2} << 20;
 #if defined(__linux__) && !defined(__EMSCRIPTEN__)
-  const bool huge = bytes >= kHugePage;
+  const bool huge = bytes >= kHugePage && huge_pages_wanted();
 #else
   const bool huge = false;  // no transparent huge pages to ask for; 2 MiB alignment would only waste memory
 #endif
