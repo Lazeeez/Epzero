@@ -5,6 +5,8 @@
 //   bench_recall --base sift_base.fvecs --query sift_query.fvecs --gt sift_groundtruth.ivecs
 //
 // Pass --json <file> to write machine-readable results (used by CI and the benchmarks page).
+// --search-threads N runs N concurrent searchers (aggregate throughput); --repeat N makes N passes
+// over the queries, so a many-thread run lasts long enough to time reliably.
 
 #include <algorithm>
 #include <atomic>
@@ -35,6 +37,7 @@ struct Options {
   std::size_t num_queries = 1'000, dim = 128, clusters = 100;
   std::size_t M = 16, ef_construction = 200, k = 10, threads = 0;
   std::size_t search_threads = 1;  // >1 measures aggregate throughput of concurrent queries
+  std::size_t repeat = 1;          // passes over the query set, so many-thread runs last long enough to time
   Quantization quantization = Quantization::None;
   bool keep_vectors = true;
   std::size_t rerank = 0;
@@ -74,6 +77,7 @@ Options parse(int argc, char** argv) {
     else if (arg == "--k") o.k = std::stoul(value());
     else if (arg == "--threads") o.threads = std::stoul(value());
     else if (arg == "--search-threads") o.search_threads = std::stoul(value());
+    else if (arg == "--repeat") o.repeat = std::max<std::size_t>(1, std::stoul(value()));
     else if (arg == "--ef") o.ef = parse_list(value());
     else if (arg == "--quant") o.quantization = value() == "sq8" ? Quantization::SQ8 : Quantization::None;
     else if (arg == "--no-keep") o.keep_vectors = false;
@@ -200,17 +204,22 @@ int main(int argc, char** argv) try {
               "dist/query", "speedup");
   std::vector<Row> rows;
   for (std::size_t ef : opt.ef) {
+    // Every pass searches the same queries; recall comes from the results (identical each pass),
+    // throughput and latency from all of them.
+    const std::size_t total = queries.n * opt.repeat;
     std::vector<std::vector<SearchResult>> results(queries.n);
-    std::vector<double> latencies(queries.n);
-    std::vector<std::size_t> distances_per_query(queries.n);
+    std::vector<double> latencies(total);
+    std::vector<std::size_t> distances_per_query(total);
     std::atomic<std::size_t> next{0};
     auto worker = [&] {
-      for (std::size_t q = next++; q < queries.n; q = next++) {
+      for (std::size_t i = next++; i < total; i = next++) {
+        const std::size_t q = i % queries.n;
         SearchStats stats;
         const auto start = Clock::now();
-        results[q] = index.search(queries.row(q), opt.k, {.ef = ef, .rerank = opt.rerank, .stats = &stats});
-        latencies[q] = std::chrono::duration<double, std::micro>(Clock::now() - start).count();
-        distances_per_query[q] = stats.distance_computations;
+        auto found = index.search(queries.row(q), opt.k, {.ef = ef, .rerank = opt.rerank, .stats = &stats});
+        latencies[i] = std::chrono::duration<double, std::micro>(Clock::now() - start).count();
+        distances_per_query[i] = stats.distance_computations;
+        if (i < queries.n) results[q] = std::move(found);
       }
     };
     const auto sweep_start = Clock::now();
@@ -221,11 +230,11 @@ int main(int argc, char** argv) try {
       for (std::size_t t = 0; t < opt.search_threads; ++t) searchers.emplace_back(worker);
       for (auto& s : searchers) s.join();
     }
-    const double qps = queries.n / seconds_since(sweep_start);
+    const double qps = total / seconds_since(sweep_start);
     std::size_t distances = 0;
     for (std::size_t d : distances_per_query) distances += d;
     const Row row{ef, recall_at_k(results, truth, opt.k), qps, percentile(latencies, 0.5),
-                  percentile(latencies, 0.99), static_cast<double>(distances) / queries.n};
+                  percentile(latencies, 0.99), static_cast<double>(distances) / total};
     rows.push_back(row);
     std::printf("%6zu %10.4f %10.0f %10.1f %10.1f %12.0f", row.ef, row.recall, row.qps, row.p50_us, row.p99_us,
                 row.avg_distances);
@@ -236,7 +245,8 @@ int main(int argc, char** argv) try {
   if (!opt.json.empty()) {
     std::ofstream out(opt.json);
     out << "{\n  \"dataset\": \"" << dataset_name << "\", \"n\": " << base.n << ", \"dim\": " << dim
-        << ", \"queries\": " << queries.n << ", \"k\": " << opt.k << ",\n  \"metric\": \"" << to_string(opt.metric)
+        << ", \"queries\": " << queries.n << ", \"repeat\": " << opt.repeat
+        << ", \"search_threads\": " << opt.search_threads << ", \"k\": " << opt.k << ",\n  \"metric\": \"" << to_string(opt.metric)
         << "\", \"simd\": \"" << to_string(index.simd_level()) << "\", \"M\": " << opt.M
         << ", \"ef_construction\": " << opt.ef_construction << ",\n  \"build_seconds\": " << build_s
         << ", \"build_threads\": " << opt.threads << ", \"memory_bytes\": " << index.memory_bytes()
