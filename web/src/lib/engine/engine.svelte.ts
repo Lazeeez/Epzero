@@ -5,14 +5,19 @@ import { isolationSettled } from "../isolation";
 import { UNSUPPORTED_BROWSER, wasmSimdSupported } from "../support";
 import type { Evaluation, Explanation, FilterInfo, FromWorker, GraphInfo, Neighborhood, Query, Request, Trace } from "./protocol";
 
+/** Photo metadata, column-oriented (format 2, written by pipeline/build_dataset.py). */
 export interface Meta {
-  id: string[];
-  host: string[];
+  format: 2;
+  host: number[];
   path: string[];
-  labels: string[][];
+  /** Every label once; `labels` holds indices into it. */
+  labelNames: string[];
+  labels: number[][];
+  /** Only for photos without labels (elsewhere ""): their caption. */
   title: string[];
   author: string[];
-  landing: string[];
+  /** Flickr account for the photo page, or the page's full URL. */
+  owner: string[];
   license: number[];
   licenses: string[];
 }
@@ -21,7 +26,7 @@ interface Manifest {
   count: number;
   dim: number;
   quantization: { recallAt10VsFloat: number };
-  files: { graph?: string };
+  files: { graph?: string; meta?: string };
   graph?: { M: number; efConstruction: number };
 }
 
@@ -124,7 +129,7 @@ class Engine {
       this.graphFile = manifest.files.graph;
       if (manifest.graph) this.graphParams = { M: manifest.graph.M, efConstruction: manifest.graph.efConstruction };
       side = Promise.all([
-        cachedFetch(`${DATA}meta.json`)
+        cachedFetch(`${DATA}${manifest.files.meta ?? "meta.json"}`)
           .then((r) => r.json() as Promise<Meta>)
           .then((meta) => void (this.meta = meta)),
         cachedFetch(`${DATA}layout.u16`)
@@ -302,7 +307,8 @@ class Engine {
   categories(): Category[] {
     if (this.categoryList || !this.meta) return this.categoryList ?? [];
     const counts = new Map<string, number>();
-    for (const labels of this.meta.labels) for (const label of labels) counts.set(label, (counts.get(label) ?? 0) + 1);
+    const names = this.meta.labelNames;
+    for (const labels of this.meta.labels) for (const label of labels) counts.set(names[label], (counts.get(names[label]) ?? 0) + 1);
     this.categoryList = [...counts].map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
     return this.categoryList;
   }
@@ -315,7 +321,7 @@ class Engine {
       this.filter = null;
       return;
     }
-    const wanted = new Set(labels);
+    const wanted = new Set(labels.map((name) => this.meta!.labelNames.indexOf(name)));
     const ids: number[] = [];
     this.meta.labels.forEach((photo, id) => {
       if (photo.some((label) => wanted.has(label))) ids.push(id);
@@ -334,7 +340,7 @@ class Engine {
 
   caption(id: number): string {
     const m = this.meta!;
-    return m.labels[id].length ? m.labels[id].join(" · ") : m.title[id] || "Untitled";
+    return m.labels[id].length ? m.labels[id].map((l) => m.labelNames[l]).join(" · ") : m.title[id] || "Untitled";
   }
 
   author(id: number): string {
@@ -342,7 +348,12 @@ class Engine {
   }
 
   source(id: number): string {
-    return this.meta?.landing[id] ?? "";
+    const m = this.meta;
+    if (!m) return "";
+    const owner = m.owner[id];
+    if (owner.startsWith("http")) return owner;
+    const photo = m.path[id].slice(m.path[id].lastIndexOf("/") + 1).split("_")[0];
+    return `https://www.flickr.com/photos/${owner}/${photo}/`;
   }
 }
 
