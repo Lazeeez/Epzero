@@ -10,6 +10,7 @@
 #include "oryx/database.h"
 #include "oryx/hnsw.h"
 #include "oryx/parallel.h"
+#include "oryx/recall.h"
 
 namespace py = pybind11;
 using FloatArray = py::array_t<float, py::array::c_style | py::array::forcecast>;
@@ -135,20 +136,53 @@ class Index {
 
   // `filter` is None, an oryx.Filter from filter(), or a sequence of allowed labels (compiled
   // for this call; build an oryx.Filter once to reuse it across calls).
+  // A filter argument: None, an oryx.Filter, or a sequence of labels compiled into `storage`.
+  const oryx::SearchFilter* resolve_filter(const py::object& filter, oryx::SearchFilter& storage) const {
+    if (filter.is_none()) return nullptr;
+    if (py::isinstance<oryx::SearchFilter>(filter)) return filter.cast<const oryx::SearchFilter*>();
+    storage = make_filter(filter.cast<LabelArray>());
+    return &storage;
+  }
+
   py::tuple search(const FloatArray& queries, std::size_t k, std::size_t ef, std::size_t rerank, std::size_t threads,
                    const py::object& filter, const std::string& strategy) const {
     const oryx::FilterStrategy chosen = parse_strategy(strategy);
     oryx::SearchFilter compiled;
-    const oryx::SearchFilter* active = nullptr;
-    if (py::isinstance<oryx::SearchFilter>(filter)) {
-      active = filter.cast<const oryx::SearchFilter*>();
-    } else if (!filter.is_none()) {
-      compiled = make_filter(filter.cast<LabelArray>());
-      active = &compiled;
-    }
+    const oryx::SearchFilter* active = resolve_filter(filter, compiled);
     return batch_search(queries, index_->params().dim, k, threads, [&](const float* q, std::size_t kk) {
       return index_->search(q, kk, {.ef = ef, .rerank = rerank, .filter = active, .strategy = chosen});
     });
+  }
+
+  // Exact answers by a full scan, the ground truth recall is measured against.
+  py::tuple exact_search(const FloatArray& queries, std::size_t k, std::size_t threads, const py::object& filter) const {
+    oryx::SearchFilter compiled;
+    const oryx::SearchFilter* active = resolve_filter(filter, compiled);
+    return batch_search(queries, index_->params().dim, k, threads, [&](const float* q, std::size_t kk) {
+      return index_->exact_search(q, kk, active);
+    });
+  }
+
+  py::dict explain(const FloatArray& query, std::size_t k, std::uint64_t label, std::size_t ef,
+                   const py::object& filter) const {
+    std::size_t n;
+    const float* row = rows_of(query, index_->params().dim, n);
+    if (n != 1) throw std::invalid_argument("explain takes exactly one query");
+    oryx::SearchFilter compiled;
+    const oryx::SearchFilter* active = resolve_filter(filter, compiled);
+    oryx::MissExplanation why;
+    {
+      py::gil_scoped_release release;
+      why = index_->explain(row, k, label, {.ef = ef, .filter = active});
+    }
+    py::dict out;
+    out["cause"] = std::string(oryx::to_string(why.cause));
+    out["exact_rank"] = why.exact_rank;
+    out["distance"] = why.distance;
+    out["kth_distance"] = why.kth_distance;
+    out["scored"] = why.scored;
+    out["ef_needed"] = why.ef_needed;
+    return out;
   }
 
   oryx::SearchFilter make_filter(const LabelArray& labels) const {
@@ -206,6 +240,60 @@ class Index {
 
  private:
   std::unique_ptr<oryx::HnswIndex> index_;
+};
+
+py::dict estimate_to_dict(const oryx::RecallEstimate& e) {
+  py::dict out;
+  out["samples"] = e.samples;
+  out["recall"] = e.recall;
+  out["lower"] = e.lower;
+  out["upper"] = e.upper;
+  return out;
+}
+
+// Searches through a RecallGuard: the beam width per segment follows measured recall.
+class Guard {
+ public:
+  Guard(const Index& index, double target, std::size_t initial_ef, std::size_t min_ef, std::size_t max_ef,
+        std::size_t min_samples, double margin, double sample_rate, std::size_t window)
+      : index_(index),
+        guard_(index.raw(), {.target = target, .initial_ef = initial_ef, .min_ef = min_ef, .max_ef = max_ef,
+                             .min_samples = min_samples, .margin = margin,
+                             .monitor = {.sample_rate = sample_rate, .window = window}}) {}
+
+  py::tuple search(const FloatArray& queries, std::size_t k, std::size_t threads, const py::object& filter) {
+    oryx::SearchFilter compiled;
+    const oryx::SearchFilter* active = nullptr;
+    if (py::isinstance<oryx::SearchFilter>(filter)) {
+      active = filter.cast<const oryx::SearchFilter*>();
+    } else if (!filter.is_none()) {
+      compiled = index_.make_filter(filter.cast<LabelArray>());
+      active = &compiled;
+    }
+    return batch_search(queries, index_.raw().params().dim, k, threads,
+                        [&](const float* q, std::size_t kk) { return guard_.search(q, kk, active); });
+  }
+
+  py::list report() const {
+    py::list out;
+    for (const auto& s : guard_.report()) {
+      py::dict row = estimate_to_dict(s.estimate);
+      row["segment"] = s.name;
+      row["ef"] = s.ef;
+      row["changes"] = s.changes;
+      out.append(row);
+    }
+    return out;
+  }
+
+  void drain() {
+    py::gil_scoped_release release;
+    guard_.monitor().drain();
+  }
+
+ private:
+  const Index& index_;
+  oryx::RecallGuard guard_;
 };
 
 class Database {
@@ -314,6 +402,13 @@ PYBIND11_MODULE(oryx, m) {
            "'two-hop' instead of choosing by selectivity.")
       .def("filter", &Index::make_filter, py::arg("labels"),
            "Compiles the allowed labels into an oryx.Filter, reusable across searches.")
+      .def("exact_search", &Index::exact_search, py::arg("queries"), py::arg("k") = 10, py::arg("threads") = 1,
+           py::arg("filter") = py::none(), "Exact (labels, distances) by scanning every live vector: the ground truth.")
+      .def("explain", &Index::explain, py::arg("query"), py::arg("k"), py::arg("label"), py::arg("ef") = 64,
+           py::arg("filter") = py::none(),
+           "Why `label` is or isn't among search(query, k, ef)'s results. 'cause' is one of returned,\n"
+           "not-in-index, filtered-out, not-near-enough (the search was right) or search-missed, with\n"
+           "the label's exact rank, whether the walk scored it, and the beam width that finds it.")
       .def("trace", &Index::trace, py::arg("query"), py::arg("k") = 10, py::arg("ef") = 64)
       .def("compact", &Index::compact, py::arg("threads") = 0, "A new index without deleted vectors.")
       .def("save", &Index::save, py::arg("path"))
@@ -328,6 +423,20 @@ PYBIND11_MODULE(oryx, m) {
       .def_property_readonly("deleted_count", [](const Index& self) { return self.raw().deleted_count(); })
       .def_property_readonly("memory_bytes", [](const Index& self) { return self.raw().memory_bytes(); })
       .def_property_readonly("simd", [](const Index& self) { return std::string(oryx::to_string(self.raw().simd_level())); });
+
+  py::class_<Guard>(m, "RecallGuard",
+                    "Searches an Index at the smallest beam width that keeps live, measured recall above a\n"
+                    "target. A sample of queries is re-answered exactly in the background.")
+      .def(py::init<const Index&, double, std::size_t, std::size_t, std::size_t, std::size_t, double, double, std::size_t>(),
+           py::arg("index"), py::arg("target") = 0.95, py::arg("initial_ef") = 64, py::arg("min_ef") = 16,
+           py::arg("max_ef") = 2048, py::arg("min_samples") = 200, py::arg("margin") = 0.01,
+           py::arg("sample_rate") = 0.01, py::arg("window") = 1000,
+           py::keep_alive<1, 2>())  // the guard holds the index
+      .def("search", &Guard::search, py::arg("queries"), py::arg("k") = 10, py::arg("threads") = 1,
+           py::arg("filter") = py::none(), "Returns (labels, distances), like Index.search.")
+      .def("report", &Guard::report,
+           "Per segment: its beam width, how often it moved, and the recall estimate with its interval.")
+      .def("drain", &Guard::drain, "Waits for the queued exact checks to finish.");
 
   py::class_<Database>(m, "Database", "A durable collection: HNSW index + write-ahead log with crash recovery.")
       .def_static("open", &Database::open, py::arg("path"), py::arg("dim"), py::arg("metric") = "l2",
