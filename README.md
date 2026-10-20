@@ -3,8 +3,9 @@
 A vector database built from scratch in C++20. It implements HNSW
 (Hierarchical Navigable Small World) approximate nearest-neighbor search, with
 hand-written SIMD kernels, lock-free concurrent search and memory-system
-tuning. On SIFT1M it serves **1.46× the queries per second of hnswlib and 1.41×
-FAISS at the same recall**.
+tuning. On SIFT1M, on a dedicated server where every library gets huge pages,
+it serves **1.13× the queries per second of hnswlib and 1.17× FAISS at the same
+recall**, builds the graph fastest, and scales to 10× on a 12-core socket.
 
 The same engine runs on three targets: native (benchmarks and servers),
 WebAssembly (a live, in-browser demo) and a sharded, replicated cluster (C++
@@ -65,9 +66,13 @@ navigator HUD lean on that idea.
 
 ## Highlights
 
-- **Faster than the reference libraries** on SIFT1M: 1.46× hnswlib's and 1.41×
-  FAISS's queries per second at equal recall, and a 1M-vector build in 42.9 s
-  (hnswlib 55.4 s, FAISS 68.4 s).
+- **Faster than the reference libraries** on SIFT1M, at every recall level: 1.13×
+  hnswlib's and 1.17× FAISS's queries per second at recall 0.95 on a dedicated
+  server, and the fastest 1M-vector build (26.1 s on 24 threads, against 27.8 s
+  and 37.8 s). Where huge pages are opt-in, Oryx asks for them and the others
+  don't, and the lead grows to 1.46× ([why](docs/performance.md#why-the-laptop-showed-a-bigger-lead-huge-pages)).
+- **Near-linear multicore scaling:** lock-free reads reach 10× on the 12 cores of
+  one socket, at identical recall.
 - **Hand-written SIMD** for AVX2, AVX-512, NEON and WebAssembly SIMD128, picked
   at runtime; up to 10.9× faster than scalar code.
 - **8-bit quantization** with exact re-ranking: +48% QPS at identical recall.
@@ -127,9 +132,31 @@ flowchart LR
 
 ## Results
 
-**SIFT1M** (1M × 128-dim, 10k queries, official ground truth), 1 search thread,
-median of 3 runs. Machine: Intel i5-13420H (AVX2), WSL2 Ubuntu 24.04, GCC 13,
-`M=16`, `efConstruction=200`.
+**SIFT1M** (1M × 128-dim, 10k queries, official ground truth), `M=16`,
+`efConstruction=200`, 1 search thread, median of 3 runs.
+
+**Reference server:** a dedicated node (Slurm `--exclusive`) with 2 × Intel Xeon
+Gold 6226 (AVX-512, clock fixed at 2.7 GHz), GCC 13, search pinned to one socket
+and its memory. Runs agree within 0.5%. Job scripts: [`scripts/pace/`](scripts/pace/).
+
+| ef  | recall@10 | QPS    | p50 latency | p99 latency | distances/query | vs. brute force |
+|-----|-----------|--------|-------------|-------------|-----------------|-----------------|
+| 10  | 0.7052    | 28,541 | 34 µs       | 59 µs       | 390             | 1,175×          |
+| 40  | 0.9266    | 10,520 | 96 µs       | 132 µs      | 883             | 433×            |
+| 80  | 0.9743    | 5,912  | 175 µs      | 220 µs      | 1,484           | 243×            |
+| 200 | 0.9954    | 2,651  | 392 µs      | 485 µs      | 3,085           | 109×            |
+| 400 | 0.9985    | 1,432  | 727 µs      | 911 µs      | 5,394           | 59×             |
+
+- **Against other libraries:** 1.12–1.14× hnswlib's and 1.16–1.24× FAISS's QPS
+  at equal recall, from recall 0.80 to 0.995 (chart below).
+- **Build:** 1M vectors in 22.7 s on 24 threads. The index takes 765 MiB.
+- **Threads:** 59,636 QPS on 12 threads of one socket (10.0×) and 83,746 on all
+  24 (14.0×), at recall 0.974. Crossing sockets costs about 19%, which per-socket
+  index copies would avoid ([details](docs/performance.md#thread-scaling)).
+
+**Development laptop:** Intel i5-13420H (AVX2), WSL2 Ubuntu 24.04, GCC 13. Its
+higher clock (up to ~4.5 GHz) makes single-thread search about 1.8× faster;
+per clock cycle the two machines are within about 10%.
 
 | ef  | recall@10 | QPS    | p50 latency | p99 latency | distances/query | vs. brute force |
 |-----|-----------|--------|-------------|-------------|-----------------|-----------------|
@@ -139,10 +166,9 @@ median of 3 runs. Machine: Intel i5-13420H (AVX2), WSL2 Ubuntu 24.04, GCC 13,
 | 200 | 0.9955    | 4,718  | 210 µs      | 413 µs      | 3,086           | 121×            |
 | 400 | 0.9986    | 2,529  | 396 µs      | 697 µs      | 5,396           | 65×             |
 
-- **Build:** 1M vectors in 42.9 s on 12 threads, vs 55.4 s for hnswlib and 68.4 s
-  for FAISS. The index takes 764 MiB. It loads from a snapshot in 0.3 s.
-- **Library comparison:** all three libraries were benchmarked in one process
-  with interleaved rounds. Methodology and raw data are in
+- **Build:** 1M vectors in 42.9 s on 12 threads. It loads from a snapshot in 0.3 s.
+- **Library comparison:** all three libraries run in one process with
+  interleaved rounds. Methodology, raw data and the huge-pages analysis are in
   [docs/performance.md](docs/performance.md).
 
 <picture>
