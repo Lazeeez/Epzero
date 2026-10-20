@@ -1,0 +1,52 @@
+{
+  "dataset": "sift1m",
+  "n": 1000000,
+  "dim": 128,
+  "queries": 10000,
+  "k": 10,
+  "M": 16,
+  "ef_construction": 200,
+  "build_threads": 24,
+  "rounds": 1,
+  "libraries": {
+    "oryx": {
+      "build_seconds": 26.108972616959363,
+      "sweep": [
+        {
+          "ef": 10,
+          "recall": 0.70547,
+          "qps": 20501.662987752465,
+          "qps_samples": [
+            20501.662987752465
+          ]
+        }
+      ]
+    },
+    "hnswlib": {
+      "build_seconds": 27.776970213046297,
+      "sweep": [
+        {
+          "ef": 10,
+          "recall": 0.70917,
+          "qps": 20979.01384100904,
+          "qps_samples": [
+            20979.01384100904
+          ]
+        }
+      ]
+    },
+    "faiss": {
+      "build_seconds": 37.771833420032635,
+      "sweep": [
+        {
+          "ef": 10,
+          "recall": 0.71569,
+          "qps": 22070.06087959859,
+          "qps_samples": [
+            22070.06087959859
+          ]
+        }
+      ]
+    }
+  }
+}
