@@ -50,6 +50,15 @@ sbatch scripts/pace/compare.sbatch      # builds all three on 24 cores, then pin
 hnswlib is compiled inside the job, on the benchmark node, because it builds with `-march=native`
 and the login node has a newer CPU than the benchmark nodes.
 
+## Thread scaling
+
+```bash
+sbatch scripts/pace/scaling.sbatch      # after sift1m.sbatch; reuses its saved index (~15 min)
+```
+
+1 to 12 threads on one socket, then 12 to 24 over both sockets with interleaved memory, at ef=80
+and ef=200, three runs per point.
+
 ## Notes
 
 - Nodes differ (`sinfo -p ice-cpu -o "%D %c %m %f"` lists the types). Benchmarks run on the
