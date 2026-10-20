@@ -109,6 +109,24 @@ struct SearchOptions {
   FilterStrategy strategy = FilterStrategy::Auto;  // with a filter: force a strategy (benchmarks)
 };
 
+// Why a label is, or isn't, in a search's results: the answer to "why wasn't this retrieved?".
+struct MissExplanation {
+  enum class Cause : std::uint8_t {
+    Returned,       // it is in the results
+    NotInIndex,     // never added, or deleted
+    FilteredOut,    // the search's filter excludes it
+    NotNearEnough,  // the search was right: by exact distance it ranks below the top k
+    SearchMissed,   // it is among the exact top k, but the approximate search didn't return it
+  };
+  Cause cause = Cause::NotInIndex;
+  std::size_t exact_rank = 0;  // 1-based rank by exact distance among the live (allowed) vectors
+  float distance = 0.0f;       // its exact distance to the query
+  float kth_distance = 0.0f;   // distance of the k-th result the search returned
+  bool scored = false;         // SearchMissed: the walk scored it but kept closer ones (else never reached it)
+  std::size_t ef_needed = 0;   // SearchMissed: the smallest beam width (doubling, up to 4096) that returns it
+};
+std::string_view to_string(MissExplanation::Cause cause) noexcept;
+
 // Hierarchical Navigable Small World index (Malkov & Yashunin, 2016).
 //
 // Thread safety: add(), remove() and search() may be called concurrently from any number of
@@ -146,6 +164,16 @@ class HnswIndex {
   // Returns up to k nearest live neighbors, closest first.
   std::vector<SearchResult> search(const float* query, std::size_t k,
                                    const SearchOptions& options = {}) const;
+
+  // The exact top-k: scores every live vector (only the allowed ones, with a filter). It is the
+  // ground truth that recall is measured against, at the cost of a full scan. Uses the
+  // full-precision vectors; an SQ8 index without them scores its codes instead.
+  std::vector<SearchResult> exact_search(const float* query, std::size_t k, const SearchFilter* filter = nullptr) const;
+
+  // Explains why `label` is or isn't among search(query, k, options)'s results: excluded, not
+  // near enough, or missed by the approximate walk (and then whether it was reached, and what beam
+  // width would have found it). Costs a full scan plus a few searches.
+  MissExplanation explain(const float* query, std::size_t k, std::uint64_t label, const SearchOptions& options = {}) const;
 
   // Compiles a filter for search(): `allow` is asked once for each live node's label.
   SearchFilter make_filter(const std::function<bool(std::uint64_t label)>& allow) const;
