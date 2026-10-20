@@ -51,7 +51,10 @@ void RecallMonitor::run() {
       queue_.pop_front();
       busy_ = true;
     }
-    const auto exact = index_.exact_search(job.query.data(), job.k, job.filter ? &*job.filter : nullptr);
+    const SearchFilter* filter = job.filter ? &*job.filter : nullptr;
+    const auto exact = options_.reference_ef == 0
+                           ? index_.exact_search(job.query.data(), job.k, filter)
+                           : index_.search(job.query.data(), job.k, {.ef = options_.reference_ef, .filter = filter});
     std::size_t hits = 0;
     for (const auto& truth : exact) {
       if (std::find(job.returned.begin(), job.returned.end(), truth.label) != job.returned.end()) ++hits;
