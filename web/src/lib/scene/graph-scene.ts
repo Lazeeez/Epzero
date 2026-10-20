@@ -55,9 +55,11 @@ const POINT_VERTEX = /* glsl */ `
   attribute float aState;
   attribute float aTone;
   attribute float aLayer;
+  attribute float aAllowed; // 1 when the category filter lets this photo through
   uniform float uPixelRatio;
   uniform float uTime;
   uniform float uFocus; // -1: every layer; otherwise only this layer is lit
+  uniform float uFiltered; // 1 while a category filter is on
   uniform vec3 uIdleA, uIdleB, uVisited, uAccepted, uResult;
   varying vec3 vColor;
   varying float vAlpha;
@@ -73,6 +75,11 @@ const POINT_VERTEX = /* glsl */ `
     else if (aState > 1.5) { size = 4.2; color = uAccepted; alpha = 1.0; }
     else if (aState > 0.5) { size = 3.0; color = uVisited; alpha = 0.95; }
     if (uFocus > -0.5 && abs(aLayer - uFocus) > 0.5 && aState < 0.5) { alpha *= 0.07; size *= 0.7; }
+    // A filter leaves the excluded photos as faint haze and lifts the matching ones.
+    if (uFiltered > 0.5 && aState < 0.5) {
+      if (aAllowed < 0.5) { alpha *= 0.1; size *= 0.6; }
+      else { alpha = 0.95; size *= 1.35; }
+    }
     vColor = color;
     vAlpha = alpha;
     gl_PointSize = size * uPixelRatio * (48.0 / -mv.z);
@@ -386,15 +393,45 @@ export class GraphScene {
     this.dirty = true;
     this.layerFocus = layer;
     if (this.points) (this.points.material as THREE.ShaderMaterial).uniforms.uFocus.value = layer;
-    for (const child of this.graphGroup.children) {
-      if (!(child instanceof THREE.LineSegments) || child.name === "trail") continue;
-      const own = child.name.startsWith("lanes-") ? Number(child.name.slice(6)) : -2;
-      const lit = layer < 0 || own === layer;
-      (child.material as THREE.LineBasicMaterial).opacity = (child.userData.opacity as number) * (lit ? 1 : 0.08);
-    }
+    this.applyLineOpacity();
     for (const child of this.planes.children) {
       child.visible = layer < 0 || child.userData.layer === layer;
     }
+  }
+
+  // One flag per photo: does the category filter let it through (null: there is no filter).
+  private allowed: Uint8Array | null = null;
+
+  /** Dims every photo the category filter excludes, on every layer it appears on. */
+  setAllowed(ids: Uint32Array | null) {
+    this.dirty = true;
+    if (ids) {
+      this.allowed = new Uint8Array(this.count);
+      for (const id of ids) if (id < this.count) this.allowed[id] = 1;
+    } else {
+      this.allowed = null;
+    }
+    this.applyLineOpacity();
+    if (!this.points) return;
+    this.points.geometry.setAttribute("aAllowed", new THREE.BufferAttribute(this.allowedFlags(), 1));
+    (this.points.material as THREE.ShaderMaterial).uniforms.uFiltered.value = this.allowed ? 1 : 0;
+  }
+
+  // Links fade on layers outside the focused one, and recede behind the photos while a filter is on.
+  private applyLineOpacity() {
+    for (const child of this.graphGroup.children) {
+      if (!(child instanceof THREE.LineSegments) || child.name === "trail") continue;
+      const own = child.name.startsWith("lanes-") ? Number(child.name.slice(6)) : -2;
+      const lit = this.layerFocus < 0 || own === this.layerFocus;
+      const factor = (lit ? 1 : 0.08) * (this.allowed ? 0.3 : 1);
+      (child.material as THREE.LineBasicMaterial).opacity = (child.userData.opacity as number) * factor;
+    }
+  }
+
+  private allowedFlags(): Float32Array {
+    const flags = new Float32Array(this.pointNode.length);
+    for (let i = 0; i < flags.length; i++) flags[i] = this.allowed ? (this.allowed[this.pointNode[i]] ?? 0) : 1;
+    return flags;
   }
 
   /** Clears the hover/selection marker. */
@@ -539,6 +576,7 @@ export class GraphScene {
     geometry.setAttribute("position", new THREE.BufferAttribute(xyz, 3));
     geometry.setAttribute("aTone", new THREE.BufferAttribute(tone, 1));
     geometry.setAttribute("aLayer", new THREE.BufferAttribute(layers, 1));
+    geometry.setAttribute("aAllowed", new THREE.BufferAttribute(this.allowedFlags(), 1));
     this.states = new Float32Array(index);
     geometry.setAttribute("aState", new THREE.BufferAttribute(this.states, 1).setUsage(THREE.DynamicDrawUsage));
     geometry.setDrawRange(0, maxLevel === 0 ? this.builtCount : index);
@@ -551,6 +589,7 @@ export class GraphScene {
         uPixelRatio: { value: this.renderer.getPixelRatio() },
         uTime: { value: 0 },
         uFocus: { value: this.layerFocus },
+        uFiltered: { value: this.allowed ? 1 : 0 },
         uIdleA: { value: this.palette.idleA },
         uIdleB: { value: this.palette.idleB },
         uVisited: { value: this.palette.visited },
