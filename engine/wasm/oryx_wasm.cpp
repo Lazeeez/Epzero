@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <chrono>
 #include <memory>
+#include <optional>
+#include <queue>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -257,6 +259,7 @@ class Collection {
     for (std::size_t i = 0; i < n_; ++i) oryx::normalize(floats_.data() + i * dim_, dim_);
     index_.reset();
     built_ = 0;
+    clear_filter();
   }
 
   void begin_build(std::size_t M, std::size_t ef_construction) {
@@ -264,6 +267,7 @@ class Collection {
     index_ = std::make_unique<oryx::HnswIndex>(oryx::HnswParams{
         .dim = dim_, .metric = oryx::Metric::Cosine, .max_elements = n_, .M = M, .ef_construction = ef_construction});
     built_ = 0;
+    clear_filter();
   }
 
   // Loads a prebuilt graph (HnswIndex::export_graph bytes) for the loaded vectors instead of
@@ -276,6 +280,7 @@ class Collection {
                          .ef_construction = ef_construction},
         floats_.data(), n_, data.data(), data.size());
     built_ = index_->size();
+    clear_filter();
   }
 
   std::size_t build_step(std::size_t count, std::size_t threads) {
@@ -300,6 +305,27 @@ class Collection {
     const auto q = emscripten::convertJSArrayToNumberVector<float>(query);
     if (q.size() != dim_) throw std::invalid_argument("query has the wrong dimension");
     return traced(q.data(), k, ef);
+  }
+
+  // Restricts every following search to these labels (photo ids); null removes the filter. The
+  // engine picks how to honor it per query (exact scan, inline or two-hop graph walk) and reports
+  // its choice with each result.
+  val set_filter(const val& labels) {
+    require_index();
+    if (labels.isNull() || labels.isUndefined()) {
+      clear_filter();
+    } else {
+      const auto ids = emscripten::convertJSArrayToNumberVector<std::uint32_t>(labels);
+      std::vector<std::uint64_t> wide(ids.begin(), ids.end());
+      filter_ = index_->make_filter(wide.data(), wide.size());
+      allowed_.assign(ids.begin(), ids.end());
+      std::sort(allowed_.begin(), allowed_.end());
+      allowed_.erase(std::unique(allowed_.begin(), allowed_.end()), allowed_.end());
+    }
+    val out = val::object();
+    out.set("allowed", filter_ ? filter_->allowed() : built_);
+    out.set("selectivity", filter_ ? filter_->selectivity() : 1.0);
+    return out;
   }
 
   // "More like this": search with a stored photo's own vector.
@@ -367,27 +393,61 @@ class Collection {
  private:
   const float* vector(std::size_t i) const { return floats_.data() + i * dim_; }
 
+  void clear_filter() {
+    filter_.reset();
+    allowed_.clear();
+  }
+
+  // The exact answer, over the allowed photos only when a filter is set.
+  std::vector<oryx::SearchResult> exact_search(const float* query, std::size_t k) const {
+    if (!filter_) return oryx::brute_force_search(floats_.data(), built_, dim_, query, k, oryx::Metric::Cosine);
+    static const oryx::DistanceFn dist = oryx::get_distance_fn(oryx::Metric::Cosine);
+    const auto farther = [](const oryx::SearchResult& a, const oryx::SearchResult& b) { return a.distance < b.distance; };
+    std::priority_queue<oryx::SearchResult, std::vector<oryx::SearchResult>, decltype(farther)> best(farther);
+    for (const std::uint32_t label : allowed_) {
+      if (label >= built_) continue;
+      const float d = dist(query, vector(label), dim_);
+      if (best.size() < k) {
+        best.push({label, d});
+      } else if (d < best.top().distance) {
+        best.pop();
+        best.push({label, d});
+      }
+    }
+    std::vector<oryx::SearchResult> out(best.size());
+    for (std::size_t i = out.size(); i-- > 0;) {
+      out[i] = best.top();
+      best.pop();
+    }
+    return out;
+  }
+
   val traced(const float* query, std::size_t k, std::size_t ef) const {
     require_index();
     // Time the search without tracing (recording every hop costs more than the search itself),
     // taking the best of a few runs because a single query is near the timer's resolution.
+    const oryx::SearchFilter* filter = filter_ ? &*filter_ : nullptr;
     double micros = 1e18;
     for (int run = 0; run < 5; ++run) {
       const auto start = Clock::now();
-      (void)index_->search(query, k, {.ef = ef});
+      (void)index_->search(query, k, {.ef = ef, .filter = filter});
       micros = std::min(micros, std::chrono::duration<double, std::micro>(Clock::now() - start).count());
     }
     oryx::SearchTrace trace;
     oryx::SearchStats stats;
-    const auto results = index_->search(query, k, {.ef = ef, .stats = &stats, .trace = &trace});
+    const auto results = index_->search(query, k, {.ef = ef, .stats = &stats, .trace = &trace, .filter = filter});
     val out = trace_to_js(trace, results, stats, micros);
+    if (filter != nullptr) {
+      out.set("strategy", std::string(oryx::to_string(stats.strategy)));
+      out.set("allowed", filter->allowed());
+    }
 
     // The same query as an exact scan over every vector, for recall and speedup.
     std::vector<oryx::SearchResult> exact;
     double exact_micros = 1e18;
     for (int run = 0; run < 3; ++run) {  // best of 3, like the HNSW timing above
       const auto exact_start = Clock::now();
-      exact = oryx::brute_force_search(floats_.data(), built_, dim_, query, k, oryx::Metric::Cosine);
+      exact = exact_search(query, k);
       exact_micros = std::min(exact_micros, std::chrono::duration<double, std::micro>(Clock::now() - exact_start).count());
     }
     std::vector<std::uint32_t> exact_labels;
@@ -406,6 +466,8 @@ class Collection {
   std::size_t n_ = 0;
   std::unique_ptr<oryx::HnswIndex> index_;
   std::size_t built_ = 0;
+  std::optional<oryx::SearchFilter> filter_;
+  std::vector<std::uint32_t> allowed_;  // sorted labels the filter allows, for the exact comparison
 };
 
 // A small float index for the landing page's "how it works" demo: 2-D points, L2, few links per
@@ -470,6 +532,7 @@ EMSCRIPTEN_BINDINGS(oryx) {
       .function("edges", &Collection::edges)
       .function("search", &Collection::search)
       .function("searchById", &Collection::search_by_id)
+      .function("setFilter", &Collection::set_filter)
       .function("evaluate", &Collection::evaluate)
       .function("info", &Collection::info);
 
