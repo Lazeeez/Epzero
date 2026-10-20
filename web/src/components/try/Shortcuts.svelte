@@ -32,6 +32,7 @@
         [["R"], "Auto-rotate on / off"],
         [["L"], "Isolate the next layer (Shift: previous)"],
         [["H"], "Free look: hide or show the panels"],
+        [["Shift", "click"], "A star's details: is it a result, and if not, why not"],
         [["?"], "This list"],
       ],
     },
