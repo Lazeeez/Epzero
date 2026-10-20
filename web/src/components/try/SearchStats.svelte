@@ -11,12 +11,20 @@
   const share = $derived((trace.distanceComputations / engine.count) * 100);
 
   const time = (us: number) => (us >= 1000 ? `${(us / 1000).toFixed(1)} ms` : `${us.toFixed(0)} µs`);
+
+  // With a filter, the engine picks how to honor it from how many photos pass.
+  const STRATEGY = {
+    exact: { name: "exact scan", why: "few enough photos match to score each one" },
+    inline: { name: "graph walk", why: "most photos match, so it walks the graph and skips the rest" },
+    "two-hop": { name: "two-hop walk", why: "it walks only matching photos, reaching past the others to their neighbours" },
+  } as const;
+  const filtered = $derived(trace.strategy ? { ...STRATEGY[trace.strategy], allowed: trace.allowed ?? 0 } : null);
 </script>
 
 <div class="stats" aria-live="polite">
   <div class="primary">
     <div class="stat hero">
-      <span class="label">HNSW search</span>
+      <span class="label">{filtered ? "Oryx, filtered" : "HNSW search"}</span>
       <strong class="num">{time(trace.micros)}</strong>
     </div>
     <div class="vs" aria-hidden="true">vs</div>
@@ -25,8 +33,14 @@
       <strong class="num dim">{time(trace.exactMicros)}</strong>
     </div>
     <div class="stat accent">
-      <span class="label">Faster</span>
-      <strong class="num">{speedup.toFixed(0)}×</strong>
+      {#if trace.strategy === "exact"}
+        <!-- So few photos match that the engine scored each one: the answer is exact, not faster. -->
+        <span class="label">Answer</span>
+        <strong>Exact</strong>
+      {:else}
+        <span class="label">Faster</span>
+        <strong class="num">{speedup.toFixed(0)}×</strong>
+      {/if}
     </div>
   </div>
   <div class="bar" aria-hidden="true">
@@ -34,12 +48,21 @@
   </div>
   <p class="detail">
     Scored <strong class="num">{trace.distanceComputations.toLocaleString()}</strong> of {engine.count.toLocaleString()} photos
-    (<span class="num">{share.toFixed(1)}%</span>) across {trace.entryLayer + 1} layers ·
+    (<span class="num">{share.toFixed(1)}%</span>){trace.strategy === "exact" ? "" : ` across ${trace.entryLayer + 1} layers`} ·
     <strong class="num" class:perfect={hits === k}>{hits}/{k}</strong> same as the exact scan
     {#if encodeMs !== null && outcome.query.kind === "vector"}
       · CLIP {outcome.query.source === "text" ? "text" : "image"} encoder {encodeMs.toFixed(0)} ms
     {/if}
   </p>
+  {#if filtered}
+    <p class="strategy">
+      <span class="tag">{filtered.name}</span>
+      <span>
+        {filtered.allowed.toLocaleString()} photos match the filter ({((filtered.allowed / engine.count) * 100).toFixed(1)}%):
+        {filtered.why}.
+      </span>
+    </p>
+  {/if}
 </div>
 
 <style>
@@ -138,5 +161,25 @@
   }
   .perfect {
     color: var(--good) !important;
+  }
+  .strategy {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    color: var(--text-2);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  .tag {
+    flex: none;
+    padding: 1px 8px;
+    border-radius: 99px;
+    background: var(--accent-wash);
+    color: var(--accent-strong);
+    font: 600 11px var(--mono);
+    white-space: nowrap;
   }
 </style>
