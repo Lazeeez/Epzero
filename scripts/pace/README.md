@@ -91,7 +91,35 @@ sbatch --export=ALL,DATASET=dbpedia-openai-1000k-angular scripts/pace/compete.sb
 sbatch --export=ALL,DATASET=deep-image-96-angular --time=10:00:00 scripts/pace/compete.sbatch
 ```
 
-Results: `pace-results/gold6226/<dataset>-compete.json`.
+Results: `pace-results/gold6226/<dataset>-compete.json`. Indexes are cached in
+`data/indexes/compete-gold6226/`, so re-running a dataset after a search change only re-measures
+(Glass is rebuilt each time; its saved graph loses recall when reloaded).
+
+Where the time per query goes, from hardware counters (`perf stat`, user space only), for Oryx,
+Oryx SQ8, hnswlib and Glass at equal recall on GloVe, GIST and DBpedia (after the jobs above):
+
+```bash
+sbatch scripts/pace/profile.sbatch      # ~1 h; result: pace-results/gold6226/profile.json
+```
+
+## Per-query effort and the per-query recall guard
+
+Patience (each query stops once its best 10 have settled) against a fixed beam width, and recall
+under drift with the per-query guard as a fourth policy, on SIFT1M and GloVe-100:
+
+```bash
+scripts/download_ann_dataset.sh glove-100-angular   # if not done already
+sbatch scripts/pace/adaptive.sbatch                 # ~2 h
+```
+
+## One index copy per socket
+
+Two processes, each on its own socket with its own copy of the SIFT1M index in local memory, 12
+threads each, against one shared copy on 24 threads (`scaling.sbatch`):
+
+```bash
+sbatch scripts/pace/sockets.sbatch      # after sift1m.sbatch (~10 min)
+```
 
 ## Notes
 
