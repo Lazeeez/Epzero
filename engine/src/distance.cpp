@@ -1,4 +1,4 @@
-#include "oryx/distance.h"
+#include "epzero/distance.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -10,7 +10,7 @@
 #include <cpuid.h>
 #endif
 
-namespace oryx {
+namespace epzero {
 
 std::string_view to_string(Metric metric) noexcept {
   switch (metric) {
@@ -52,7 +52,7 @@ bool simd_level_supported(SimdLevel level) noexcept {
 namespace {
 
 SimdLevel detect_simd_level() noexcept {
-  if (const char* forced = std::getenv("ORYX_SIMD")) {
+  if (const char* forced = std::getenv("EPZERO_SIMD")) {
     const std::string_view name(forced);
     for (SimdLevel level :
          {SimdLevel::Scalar, SimdLevel::AVX2, SimdLevel::AVX512, SimdLevel::NEON, SimdLevel::WasmSimd128}) {
@@ -135,10 +135,10 @@ std::vector<std::pair<std::string_view, Sq8IntDotFn>> sq8_int_dot_variants() {
   std::vector<std::pair<std::string_view, Sq8IntDotFn>> out = {{"scalar", kernels::sq8_int_dot_scalar}};
 #if defined(__x86_64__) || defined(_M_X64)
   if (simd_level_supported(SimdLevel::AVX2)) out.emplace_back("avx2", kernels::sq8_int_dot_avx2);
-#if defined(ORYX_HAVE_AVXVNNI)
+#if defined(EPZERO_HAVE_AVXVNNI)
   if (simd_level_supported(SimdLevel::AVX2) && cpu_has_avx_vnni()) out.emplace_back("avx-vnni", kernels::sq8_int_dot_avxvnni);
 #endif
-#if defined(ORYX_HAVE_AVX512VNNI)
+#if defined(EPZERO_HAVE_AVX512VNNI)
   if (simd_level_supported(SimdLevel::AVX512) && cpu_has_avx512_vnni()) {
     out.emplace_back("avx512-vnni", kernels::sq8_int_dot_avx512vnni);
   }
@@ -153,12 +153,12 @@ Sq8IntDotFn get_sq8_int_dot_fn(SimdLevel level) noexcept {
     case SimdLevel::Scalar: return kernels::sq8_int_dot_scalar;
 #if defined(__x86_64__) || defined(_M_X64)
     case SimdLevel::AVX512:
-#if defined(ORYX_HAVE_AVX512VNNI)
+#if defined(EPZERO_HAVE_AVX512VNNI)
       if (cpu_has_avx512_vnni()) return kernels::sq8_int_dot_avx512vnni;
 #endif
       [[fallthrough]];
     case SimdLevel::AVX2:
-#if defined(ORYX_HAVE_AVXVNNI)
+#if defined(EPZERO_HAVE_AVXVNNI)
       if (cpu_has_avx_vnni()) return kernels::sq8_int_dot_avxvnni;
 #endif
       return kernels::sq8_int_dot_avx2;
@@ -183,4 +183,4 @@ void normalize(float* v, std::size_t dim) noexcept {
   for (std::size_t i = 0; i < dim; ++i) v[i] *= inv;
 }
 
-}  // namespace oryx
+}  // namespace epzero
