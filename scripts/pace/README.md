@@ -77,7 +77,9 @@ On the login node, once:
 ```bash
 bash scripts/pace/bench-env.sh            # if not done already
 bash scripts/pace/compete-env.sh          # USearch, VSAG, h5py; Glass's source
-scripts/download_ann_dataset.sh gist-960-euclidean glove-100-angular dbpedia-openai-1000k-angular deep-image-96-angular
+scripts/download_ann_dataset.sh gist-960-euclidean glove-100-angular deep-image-96-angular
+.pace-bench/bin/python scripts/make_dbpedia.py download   # the OpenAI-embedding set is generated, not hosted
+sbatch scripts/pace/make-dbpedia.sbatch                   # its exact neighbours, on a compute node
 ```
 
 Then one job per dataset (DEEP10M is ten times larger, so it gets more time):
