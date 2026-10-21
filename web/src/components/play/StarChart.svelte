@@ -1,7 +1,7 @@
 <script lang="ts">
   // The game's star chart: every photo as a faint star at its 2-D map position (UMAP of the CLIP
   // vectors, so nearby stars are similar photos), with the target, the player's route, the current
-  // neighbourhood and, after the round, the route Oryx's own search took.
+  // neighbourhood and, after the round, the route Epzero's own search took.
   import { engine } from "../../lib/engine/engine.svelte";
   import type { Trace } from "../../lib/engine/protocol";
   import { onThemeChange, token } from "../../lib/theme";
@@ -12,14 +12,14 @@
     path,
     neighbors,
     highlight = null,
-    oryx = null,
+    epzero = null,
   }: {
     target: number;
     goals: Set<number>;
     path: number[];
     neighbors: ArrayLike<number>;
     highlight?: number | null;
-    oryx?: Trace | null;
+    epzero?: Trace | null;
   } = $props();
 
   let canvas: HTMLCanvasElement | undefined = $state();
@@ -89,7 +89,7 @@
     void path.length;
     void neighbors;
     void highlight;
-    void oryx;
+    void epzero;
     void goals;
     draw();
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -114,21 +114,21 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const { accent, route, good, text } = colors;
 
-    // Oryx's route (revealed after the round): every accepted hop, all layers flattened.
-    if (oryx) {
+    // Epzero's route (revealed after the round): every accepted hop, all layers flattened.
+    if (epzero) {
       ctx.strokeStyle = accent;
       ctx.lineWidth = 1.6;
       ctx.globalAlpha = 0.9;
       ctx.beginPath();
-      for (let i = 0; i < oryx.to.length; i++) {
-        if (!oryx.accepted[i]) continue;
-        const [ax, ay] = place(oryx.from[i], w, h);
-        const [bx, by] = place(oryx.to[i], w, h);
+      for (let i = 0; i < epzero.to.length; i++) {
+        if (!epzero.accepted[i]) continue;
+        const [ax, ay] = place(epzero.from[i], w, h);
+        const [bx, by] = place(epzero.to[i], w, h);
         ctx.moveTo(ax, ay);
         ctx.lineTo(bx, by);
       }
       ctx.stroke();
-      const [ex, ey] = place(oryx.entryLabel, w, h);
+      const [ex, ey] = place(epzero.entryLabel, w, h);
       ctx.fillStyle = accent;
       ctx.beginPath();
       ctx.arc(ex, ey, 4, 0, Math.PI * 2);
