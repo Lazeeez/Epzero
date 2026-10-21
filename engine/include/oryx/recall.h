@@ -115,6 +115,11 @@ class RecallGuard {
     std::size_t max_ef = 2048;
     std::size_t min_samples = 200;  // samples since the last change before adjusting again
     double margin = 0.01;           // narrow only while the lower bound clears target + margin
+    // Per-query effort for unfiltered searches: each query stops once its best k have settled
+    // (SearchOptions::patience = ef / 3), and the beam width the guard steers becomes a cap. Easy
+    // queries finish early and hard ones search further, so the same recall costs less and fewer
+    // queries come back badly wrong (measured on GloVe-100: see bench/bench_adaptive.cpp).
+    bool per_query = false;
     RecallMonitor::Options monitor{};
   };
 
