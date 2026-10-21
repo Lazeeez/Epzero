@@ -21,7 +21,8 @@ test.describe("camera, permission granted", () => {
     test.setTimeout(400_000);
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    page.on("console", (message) => message.type() === "error" && errors.push(message.text()));
+    // A photo since deleted from Flickr 404s; the page shows a placeholder, but the browser still logs it.
+  page.on("console", (m) => m.type() === "error" && !m.location().url.includes("staticflickr.com") && errors.push(m.text()));
     await page.setViewportSize({ width: 1440, height: 900 });
     const panel = await openCamera(page);
 
