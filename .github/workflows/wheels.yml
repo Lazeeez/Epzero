@@ -1,6 +1,6 @@
 name: wheels
 
-# Builds the oryxdb wheels (Linux x86-64 and ARM64, macOS Apple silicon and Intel; CPython
+# Builds the epzero wheels (Linux x86-64 and ARM64, macOS Apple silicon and Intel; CPython
 # 3.10-3.13) and the source distribution, and tests every wheel in a clean environment, LangChain's
 # vector-store conformance suite included. A version tag (v0.2.0, ...) also publishes to PyPI by
 # trusted publishing: no token is stored anywhere.
@@ -46,7 +46,7 @@ jobs:
     runs-on: ubuntu-24.04
     environment:
       name: pypi
-      url: https://pypi.org/project/oryxdb/
+      url: https://pypi.org/project/epzero/
     permissions:
       id-token: write
     steps:
