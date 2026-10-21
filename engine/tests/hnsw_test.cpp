@@ -54,6 +54,45 @@ TEST_F(HnswTest, HighRecallOnL2) {
   EXPECT_GE(measure_recall(index, data_, 100, Metric::L2), 0.95);
 }
 
+// Prefetching only changes when memory is read, never what a search returns.
+TEST_F(HnswTest, PrefetchSettingsDontChangeResults) {
+  HnswIndex index(params_for(Metric::L2));
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  std::vector<std::vector<SearchResult>> before;
+  for (std::size_t q = 0; q < kQueries; ++q) before.push_back(index.search(data_.queries.row(q), 10, {.ef = 64}));
+  const auto [depth, lines] = index.tune_prefetch(data_.queries.row(0), 50);
+  EXPECT_GE(lines, 1u);
+  EXPECT_EQ(index.prefetch_settings(), std::make_pair(depth, lines));
+  for (const auto& setting : {std::pair<std::size_t, std::size_t>{2, 4}, {1, 1}, {8, 2}, {depth, lines}}) {
+    index.set_prefetch(setting.first, setting.second);
+    for (std::size_t q = 0; q < kQueries; ++q) {
+      const auto after = index.search(data_.queries.row(q), 10, {.ef = 64});
+      ASSERT_EQ(after.size(), before[q].size());
+      for (std::size_t i = 0; i < after.size(); ++i) EXPECT_EQ(after[i].label, before[q][i].label);
+    }
+  }
+}
+
+// A short patience stops early; an unbounded one is exactly the plain search.
+TEST_F(HnswTest, PatienceStopsEarlyAndConvergesToThePlainSearch) {
+  HnswIndex index(params_for(Metric::L2));
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  double cost_patient = 0, cost_plain = 0;
+  for (std::size_t q = 0; q < kQueries; ++q) {
+    SearchStats plain_stats, patient_stats;
+    const auto plain = index.search(data_.queries.row(q), 10, {.ef = 128, .stats = &plain_stats});
+    const auto patient = index.search(data_.queries.row(q), 10, {.ef = 128, .patience = 4, .stats = &patient_stats});
+    const auto unbounded = index.search(data_.queries.row(q), 10, {.ef = 128, .patience = 1u << 30});
+    EXPECT_LE(patient.size(), 10u);
+    EXPECT_LE(patient_stats.distance_computations, plain_stats.distance_computations);
+    ASSERT_EQ(unbounded.size(), plain.size());
+    for (std::size_t i = 0; i < plain.size(); ++i) EXPECT_EQ(unbounded[i].label, plain[i].label);
+    cost_patient += static_cast<double>(patient_stats.distance_computations);
+    cost_plain += static_cast<double>(plain_stats.distance_computations);
+  }
+  EXPECT_LT(cost_patient, 0.9 * cost_plain);
+}
+
 TEST_F(HnswTest, RecallImprovesWithEf) {
   HnswIndex index(params_for(Metric::L2));
   for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
