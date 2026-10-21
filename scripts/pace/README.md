@@ -1,4 +1,4 @@
-# Running Oryx on PACE
+# Running Epzero on PACE
 
 Scripts for building and benchmarking on Georgia Tech's PACE clusters. Benchmarks run on exclusive
 CPU nodes, so nothing else shares the machine; GPU nodes only prepare data (exact ground truth,
@@ -10,8 +10,8 @@ Keep the checkout and datasets in scratch; the home quota is small.
 
 ```bash
 cd ~/scratch
-git clone https://github.com/Lazeeez/Oryx.git
-cd Oryx
+git clone https://github.com/Lazeeez/Epzero.git
+cd Epzero
 ```
 
 Then, on the login node (compute nodes may have no internet access), fetch the build tools once:
@@ -40,10 +40,10 @@ squeue -u $USER                         # wait for it; the log is sift1m-<jobid>
 Results land in `pace-results/gold6226/`, which git ignores, so a later `git pull` never collides
 with them. Copy that folder back with `scp -r`; it's committed to `bench/results/pace/` from there.
 
-## Oryx vs hnswlib vs FAISS
+## Epzero vs hnswlib vs FAISS
 
 ```bash
-bash scripts/pace/bench-env.sh          # login node, once: Python env with FAISS and Oryx's module
+bash scripts/pace/bench-env.sh          # login node, once: Python env with FAISS and Epzero's module
 sbatch scripts/pace/compare.sbatch      # builds all three on 24 cores, then pinned search rounds
 ```
 
@@ -70,7 +70,7 @@ Both reuse SIFT1M; `filter.sbatch` also reuses the index saved by `sift1m.sbatch
 
 ## Competitive benchmark: more datasets, more libraries
 
-Oryx (full precision and SQ8) against hnswlib, FAISS (HNSW, and IVF-PQ fast-scan with exact
+Epzero (full precision and SQ8) against hnswlib, FAISS (HNSW, and IVF-PQ fast-scan with exact
 re-rank), USearch, VSAG and Glass, on the ann-benchmarks datasets ([`bench/compete.py`](../../bench/compete.py)).
 On the login node, once:
 
@@ -95,8 +95,8 @@ Results: `pace-results/gold6226/<dataset>-compete.json`. Indexes are cached in
 `data/indexes/compete-gold6226/`, so re-running a dataset after a search change only re-measures
 (Glass is rebuilt each time; its saved graph loses recall when reloaded).
 
-Where the time per query goes, from hardware counters (`perf stat`, user space only), for Oryx,
-Oryx SQ8, hnswlib and Glass at equal recall on GloVe, GIST and DBpedia (after the jobs above):
+Where the time per query goes, from hardware counters (`perf stat`, user space only), for Epzero,
+Epzero SQ8, hnswlib and Glass at equal recall on GloVe, GIST and DBpedia (after the jobs above):
 
 ```bash
 sbatch scripts/pace/profile.sbatch      # ~1 h; result: pace-results/gold6226/profile.json
