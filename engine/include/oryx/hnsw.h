@@ -261,8 +261,10 @@ class HnswIndex {
 
   id_t greedy_descend(const Scorer& scorer, id_t entry, int from_layer, int to_layer, SearchStats& stats,
                       SearchTrace* trace) const;
+  // Beam search on one layer. Tombstoned nodes are routed through but not returned, unless
+  // `keep_deleted` (an insert that found no live neighbour links through them instead).
   std::vector<Candidate> search_layer(const Scorer& scorer, id_t entry, std::size_t ef, int layer,
-                                      SearchStats& stats, SearchTrace* trace) const;
+                                      SearchStats& stats, SearchTrace* trace, bool keep_deleted = false) const;
   // Layer-0 beam search that only returns nodes the filter allows (Inline or TwoHop).
   std::vector<Candidate> search_layer_filtered(const Scorer& scorer, id_t entry, std::size_t ef,
                                                const SearchFilter& filter, bool two_hop, SearchStats& stats,
