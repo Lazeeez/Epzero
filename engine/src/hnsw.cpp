@@ -42,13 +42,12 @@ inline void prefetch(const void* p) noexcept {
 // update them, so every slot is accessed atomically. Writers publish with release stores and
 // readers use acquire loads: a reader that observes a node id is guaranteed to also observe
 // that node's vector and label, which were written before the id was first published. On
-// x86-64 both compile to plain MOVs; on AArch64 to LDAR/STLR.
-inline std::uint32_t load_link(const std::uint32_t& slot) noexcept {
-  return std::atomic_ref<std::uint32_t>(const_cast<std::uint32_t&>(slot)).load(std::memory_order_acquire);
-}
+// x86-64 both compile to plain MOVs; on AArch64 to LDAR/STLR. (The GCC/Clang atomic builtins,
+// rather than std::atomic_ref: Apple's standard library doesn't have atomic_ref yet.)
+inline std::uint32_t load_link(const std::uint32_t& slot) noexcept { return __atomic_load_n(&slot, __ATOMIC_ACQUIRE); }
 
 inline void store_link(std::uint32_t& slot, std::uint32_t value) noexcept {
-  std::atomic_ref<std::uint32_t>(slot).store(value, std::memory_order_release);
+  __atomic_store_n(&slot, value, __ATOMIC_RELEASE);
 }
 
 // Large blocks are backed by 2 MiB transparent huge pages: search touches nodes at random, and
@@ -361,7 +360,7 @@ const HnswIndex::id_t* HnswIndex::links_of(id_t id, int layer) const noexcept {
 }
 
 bool HnswIndex::is_deleted(id_t id) const noexcept {
-  return std::atomic_ref<std::uint8_t>(deleted_[id]).load(std::memory_order_acquire) != 0;
+  return __atomic_load_n(&deleted_[id], __ATOMIC_ACQUIRE) != 0;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1004,7 +1003,7 @@ bool HnswIndex::remove(std::uint64_t label) {
     id = it->second;
     label_to_id_.erase(it);
   }
-  std::atomic_ref<std::uint8_t>(deleted_[id]).store(1, std::memory_order_release);
+  __atomic_store_n(&deleted_[id], std::uint8_t{1}, __ATOMIC_RELEASE);
   deleted_count_.fetch_add(1, std::memory_order_acq_rel);
   return true;
 }
