@@ -45,7 +45,7 @@
   let mirrored = $state(false);
 
   // Recent descriptions, kept on this device only (a convenience: fine if storage is blocked).
-  const RECENT_KEY = "oryx-recent-searches";
+  const RECENT_KEY = "epzero-recent-searches";
   let recent = $state<string[]>(loadRecent());
   function loadRecent(): string[] {
     try {
