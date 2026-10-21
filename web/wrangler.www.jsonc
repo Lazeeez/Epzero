@@ -1,0 +1,7 @@
+// www.epzero.dev: redirects to epzero.dev (worker/www.js). Deployed by .github/workflows/site.yml.
+{
+  "name": "epzero-www",
+  "main": "worker/www.js",
+  "compatibility_date": "2026-10-01",
+  "routes": [{ "pattern": "www.epzero.dev", "custom_domain": true }]
+}
