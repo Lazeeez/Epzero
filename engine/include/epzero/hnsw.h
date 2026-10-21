@@ -14,9 +14,9 @@
 #include <utility>
 #include <vector>
 
-#include "oryx/distance.h"
+#include "epzero/distance.h"
 
-namespace oryx {
+namespace epzero {
 
 namespace detail {
 class VisitedPool;
@@ -368,4 +368,4 @@ class HnswIndex {
   std::size_t prefetch_lines_ = 1;
 };
 
-}  // namespace oryx
+}  // namespace epzero
