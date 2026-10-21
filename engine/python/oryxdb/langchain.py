@@ -5,12 +5,14 @@
 
     store = OryxVectorStore.from_texts(texts, OpenAIEmbeddings(), metadatas=metadatas)
     store.similarity_search("how do I reset my password?", k=4, filter={"source": "faq"})
+    store.hybrid_search("error E-1042 on checkout", k=4)   # keywords + vectors
     retriever = store.as_retriever(search_kwargs={"k": 8})
 
 Documents, their metadata and their vectors live in memory beside the index; save_local() and
 load_local() persist all of it to a folder. Metadata filters (a dict of required values, a list
 meaning "any of", or a callable) are compiled into an Oryx filter, so the engine picks its filtered
-search strategy instead of over-fetching and discarding.
+search strategy instead of over-fetching and discarding. Every text is also indexed for keyword
+search (BM25), which hybrid_search() merges with the vector search.
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ try:
 except ImportError as error:  # pragma: no cover
     raise ImportError('oryxdb.langchain needs LangChain: pip install "oryxdb[langchain]"') from error
 
-from ._core import Index
+from ._core import Index, TextIndex, fuse_rankings
 
 MetadataFilter = dict[str, Any] | Callable[[dict[str, Any]], bool]
 
@@ -72,6 +74,7 @@ class OryxVectorStore(VectorStore):
         self._labels: dict[str, int] = {}  # id -> label
         self._texts: list[str] = []
         self._metadatas: list[dict[str, Any]] = []
+        self._keywords = TextIndex()  # BM25 over the texts, same labels
 
     # ---- LangChain interface ----
 
@@ -125,6 +128,7 @@ class OryxVectorStore(VectorStore):
         self._texts.extend(texts)
         self._metadatas.extend(dict(m) for m in metadatas)
         self._index.add(vectors, labels)
+        self._keywords.add(labels.astype(np.int64), list(texts))
         return list(ids)
 
     def delete(self, ids: list[str] | None = None, **kwargs: Any) -> bool | None:
@@ -134,6 +138,7 @@ class OryxVectorStore(VectorStore):
             label = self._labels.pop(id_, None)
             if label is not None:
                 self._index.remove(label)
+                self._keywords.remove(label)
                 self._ids[label] = None
         return True
 
@@ -189,6 +194,36 @@ class OryxVectorStore(VectorStore):
         labels = [label for label, _ in hits]
         chosen = maximal_marginal_relevance(query, self._vectors[labels], lambda_mult=lambda_mult, k=k)
         return [self._document(labels[i]) for i in chosen]
+
+    def hybrid_search(
+        self,
+        query: str,
+        k: int = 4,
+        fetch_k: int = 50,
+        filter: MetadataFilter | None = None,
+        *,
+        vector_weight: float = 1.0,
+        text_weight: float = 1.0,
+        rrf_k: float = 60.0,
+        **kwargs: Any,
+    ) -> list[Document]:
+        """Keyword and vector search together: `fetch_k` results from each, merged by reciprocal rank
+        fusion. Finds documents that contain the query's exact terms (codes, names, error messages)
+        even where their embeddings rank them low. To use it as a retriever, wrap it, e.g.
+        RunnableLambda(lambda q: store.hybrid_search(q, k=8))."""
+        if not self._labels or k <= 0:
+            return []
+        vector_hits = self._search(
+            np.asarray(self._embedding.embed_query(query), dtype=np.float32), fetch_k, filter, kwargs.get("ef", self.ef)
+        )
+        allowed = None if filter is None else set(self._allowed(filter))
+        # With a filter, look further down the keyword ranking so enough allowed matches remain.
+        keyword_labels, _ = self._keywords.search(query, k=fetch_k if allowed is None else 4 * fetch_k)
+        keyword_hits = [int(label) for label in keyword_labels if allowed is None or int(label) in allowed][:fetch_k]
+        labels, _ = fuse_rankings(
+            [[label for label, _ in vector_hits], keyword_hits], k=k, rrf_k=rrf_k, weights=[vector_weight, text_weight]
+        )
+        return [self._document(int(label)) for label in labels]
 
     def _select_relevance_score_fn(self) -> Callable[[float], float]:
         # Map the engine's distances to [0, 1], higher is more relevant.
@@ -253,6 +288,9 @@ class OryxVectorStore(VectorStore):
         index_path = os.path.join(folder, "index.oryx")
         if os.path.exists(index_path):
             store._index = Index.load(index_path)
+        live = sorted(store._labels.values())
+        if live:
+            store._keywords.add(np.array(live, dtype=np.int64), [store._texts[label] for label in live])
         return store
 
     # ---- Internals ----
