@@ -155,6 +155,48 @@ the search run; its build time is from the build run. The DBpedia dataset is gen
 ann-benchmarks does it ([`scripts/make_dbpedia.py`](../scripts/make_dbpedia.py)): 990,000 base
 vectors, 10,000 queries, exact neighbours. Raw data: `bench/results/pace/gold6226/*-compete.json`.
 
+### What Glass does better, and what Oryx took from it
+
+The guess was memory-system tricks (tuned prefetching, a batched query loop). Reading Glass's
+search code ([zilliztech/pyglass](https://github.com/zilliztech/pyglass), `graph_searcher.hpp`,
+`refiner.hpp`, `sq8u_quant.hpp`) showed something else. Its single-thread batch search is a plain
+loop over queries, so batching isn't it. Three differences are:
+
+1. **It re-ranks 15 candidates, not the whole beam.** Glass walks the graph on 8-bit codes and then
+   re-scores the best 1.5 × k with full vectors. Oryx re-scored every one of its `ef` candidates: at
+   `ef` 400 on GIST that is 400 extra reads of a 3.8 KB vector per query. Re-ranking 15, 20, 30, 50
+   or 100 gave the same recall as re-ranking all of them (to 0.0002, on SIFT1M, GloVe-100 and
+   GIST1M), so the default is now 3 × k.
+2. **Its distances are integer arithmetic.** Glass quantizes the query too, with one scale for all
+   dimensions, and scores int8 against int8. Oryx kept its per-dimension scales (more accurate
+   codes) and changed only the arithmetic: the per-query weights, already folded with the scales,
+   are rounded to int8 once per query, and each node is then an integer dot product of those
+   weights with its uint8 codes. On CPUs with VNNI that is one `vpdpbusd` per 64 dimensions (AVX-512)
+   or 32 (AVX), against about ten instructions per 32 dimensions for the float kernel; plain AVX2
+   gets a `maddubs` kernel. Weights stay within ±63 so the AVX2 kernel's 16-bit pair sums can't
+   saturate, and every kernel returns exactly the same integer. Recall changed by at most 0.001.
+3. **It tunes its prefetching to the machine** (how many neighbours ahead, how many cache lines),
+   by timing searches of sample points. Oryx's default, every neighbour's first line up front, is
+   already close to Glass's best settings on most data; `HnswIndex::tune_prefetch()` now measures a
+   small grid of alternatives on sample vectors and keeps one only if it is at least 3% faster.
+
+Measured on the development laptop (Intel i5-13420H, AVX2 with AVX-VNNI; WSL2), one search thread,
+the same saved index for every variant, interleaved runs, median of three:
+
+| SQ8, queries per second | GIST1M, ef 400 (recall 0.953) | GloVe-100, ef 256 (0.883) | SIFT1M, ef 48 (0.943) |
+|---|---|---|---|
+| Before: float kernel, re-rank all `ef` | 663 | 4,461 | 22,460 |
+| Re-rank 3 × k | 752 (+13%) | — | — |
+| Integer kernel | 1,107 (+67%) | — | — |
+| **Both** | **1,291 (1.95×)** | **5,356 (+20%)** | **28,224 (+26%)** |
+
+The gain grows with the dimension: at 960 dimensions the arithmetic per node is large enough that
+the instruction count matters, which is exactly where Glass's lead was. Prefetch tuning found
++17% at full precision on GloVe-100 (8 neighbours ahead, 4 lines each) and about 6% on SIFT1M,
+and nothing on SQ8 codes, where one line up front was already best; Glass's own tuning log shows the
+same pattern (+0.1% on GIST, +36% on GloVe over its default). The server numbers, and where this
+leaves Oryx against Glass, come from re-running `compete.sbatch`.
+
 ### Thread scaling
 
 Search throughput on the same server node, SIFT1M, ef = 80 (recall 0.974), median of three runs
@@ -299,9 +341,8 @@ Measured on the Try page (local server, 12-thread laptop):
 1. **Graph-parameter tuning** (M, efConstruction) for the best
    recall-vs-distance-computations trade-off.
 2. **Vectors on SSD** (a DiskANN-style layout), where RaBitQ's skipped reads would pay off.
-3. **What Glass does better** ([against the field](#against-the-field-four-more-datasets)):
-   measure the prefetch depth per machine instead of fixing it, and search a batch of queries in
-   one loop so their memory stalls overlap.
+3. **A batched query loop:** several queries walked in lockstep, so one query's cache misses
+   overlap another's distance arithmetic. Glass doesn't do it either (its loop is per query).
 
 ## Reproduce
 
