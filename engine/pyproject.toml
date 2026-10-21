@@ -3,7 +3,7 @@ requires = ["scikit-build-core>=0.10", "pybind11>=2.13"]
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "oryxdb"
+name = "epzero"
 version = "0.3.0"
 description = "An HNSW vector database built from scratch in C++20: SIMD search, filtered search, recall monitoring, crash-safe storage"
 readme = "python/README.md"
@@ -29,18 +29,18 @@ langchain = ["langchain-core>=0.3"]
 test = ["pytest", "pytest-asyncio", "langchain-core>=0.3", "langchain-tests>=0.3"]
 
 [project.urls]
-Homepage = "https://lazeeez.github.io/Oryx/"
-Source = "https://github.com/Lazeeez/Oryx"
+Homepage = "https://epzero.dev/"
+Source = "https://github.com/Lazeeez/Epzero"
 
 [tool.scikit-build]
 build-dir = "build/{wheel_tag}"
 cmake.build-type = "Release"
-wheel.packages = ["python/oryxdb"]
+wheel.packages = ["python/epzero"]
 
 [tool.scikit-build.cmake.define]
-ORYX_BUILD_TESTS = "OFF"
-ORYX_BUILD_BENCH = "OFF"
-ORYX_BUILD_PYTHON = "ON"
+EPZERO_BUILD_TESTS = "OFF"
+EPZERO_BUILD_BENCH = "OFF"
+EPZERO_BUILD_PYTHON = "ON"
 
 [tool.cibuildwheel]
 build = "cp310-* cp311-* cp312-* cp313-*"
