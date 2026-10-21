@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Oryx vs hnswlib vs FAISS (IndexHNSWFlat) on SIFT1M, on a dedicated Gold 6226 node, with
+# Epzero vs hnswlib vs FAISS (IndexHNSWFlat) on SIFT1M, on a dedicated Gold 6226 node, with
 # bench/compare_libs.py's fairness rules (same M/efConstruction, one process, interleaved rounds,
 # median QPS, single-threaded search).
 #   1. Build all three indexes on every core (timed, cached).
@@ -8,7 +8,7 @@
 #
 # Submit from the repository root, after scripts/download_sift1m.sh and scripts/pace/bench-env.sh:
 #   sbatch scripts/pace/compare.sbatch
-#SBATCH --job-name=oryx-compare
+#SBATCH --job-name=epzero-compare
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --constraint=gold6226
@@ -18,7 +18,7 @@
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
 source scripts/pace/env.sh
-VENV="$ORYX_ROOT/.pace-bench"
+VENV="$EPZERO_ROOT/.pace-bench"
 [ -x "$VENV/bin/python" ] || { echo "set up first: bash scripts/pace/bench-env.sh"; exit 1; }
 [ -f data/sift/sift_base.fvecs ] || { echo "download first: scripts/download_sift1m.sh"; exit 1; }
 
