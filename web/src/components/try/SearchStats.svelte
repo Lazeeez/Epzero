@@ -19,6 +19,10 @@
     "two-hop": { name: "two-hop walk", why: "it walks only matching photos, reaching past the others to their neighbours" },
   } as const;
   const filtered = $derived(trace.strategy ? { ...STRATEGY[trace.strategy], allowed: trace.allowed ?? 0 } : null);
+  // Hybrid: how many of the shown results only the words found.
+  const wordsOnly = $derived(
+    trace.hybrid ? Array.from(trace.hybrid.fromWords).filter((w, i) => w && !trace.hybrid!.fromVector[i]).length : 0,
+  );
 </script>
 
 <div class="stats" aria-live="polite">
@@ -49,11 +53,27 @@
   <p class="detail">
     Scored <strong class="num">{trace.distanceComputations.toLocaleString()}</strong> of {engine.count.toLocaleString()} photos
     (<span class="num">{share.toFixed(1)}%</span>){trace.strategy === "exact" ? "" : ` across ${trace.entryLayer + 1} layers`} ·
-    <strong class="num" class:perfect={hits === k}>{hits}/{k}</strong> same as the exact scan
+    <strong class="num" class:perfect={hits === k}>{hits}/{k}</strong> same as the exact scan{trace.hybrid ? " (image search)" : ""}
     {#if encodeMs !== null && outcome.query.kind === "vector"}
       · CLIP {outcome.query.source === "text" ? "text" : "image"} encoder {encodeMs.toFixed(0)} ms
     {/if}
   </p>
+  {#if trace.hybrid}
+    <p class="keywords">
+      <span class="tag">hybrid</span>
+      <span>
+        {#if trace.hybrid.matches}
+          “{trace.hybrid.words}” matched <span class="num">{trace.hybrid.matches}{trace.hybrid.matches >= 30 ? "+" : ""}</span>
+          captions (BM25), merged with the image search by rank fusion: {wordsOnly
+            ? `${wordsOnly} of the ${trace.hybrid.results.length} came from the words alone`
+            : "the words agreed with the image search"}
+          · +{time(trace.hybrid.micros)}.
+        {:else}
+          No caption contains “{trace.hybrid.words}”, so these are the image search's results.
+        {/if}
+      </span>
+    </p>
+  {/if}
   {#if filtered}
     <p class="strategy">
       <span class="tag">{filtered.name}</span>
@@ -162,7 +182,8 @@
   .perfect {
     color: var(--good) !important;
   }
-  .strategy {
+  .strategy,
+  .keywords {
     display: flex;
     align-items: baseline;
     gap: 8px;
