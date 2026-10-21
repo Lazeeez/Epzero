@@ -79,7 +79,10 @@ Options parse(int argc, char** argv) {
     else if (arg == "--search-threads") o.search_threads = std::stoul(value());
     else if (arg == "--repeat") o.repeat = std::max<std::size_t>(1, std::stoul(value()));
     else if (arg == "--ef") o.ef = parse_list(value());
-    else if (arg == "--quant") o.quantization = value() == "sq8" ? Quantization::SQ8 : Quantization::None;
+    else if (arg == "--quant") {
+      const std::string q = value();
+      o.quantization = q == "sq8" ? Quantization::SQ8 : q == "rabitq" ? Quantization::RaBitQ : Quantization::None;
+    }
     else if (arg == "--no-keep") o.keep_vectors = false;
     else if (arg == "--rerank") o.rerank = std::stoul(value());
     else if (arg == "--metric") {
@@ -112,7 +115,7 @@ double percentile(std::vector<double> values, double p) {
 
 struct Row {
   std::size_t ef;
-  double recall, qps, p50_us, p99_us, avg_distances;
+  double recall, qps, p50_us, p99_us, avg_distances, avg_full;
 };
 
 }  // namespace
@@ -165,7 +168,7 @@ int main(int argc, char** argv) try {
                       .keep_vectors = opt.keep_vectors};
     loaded = std::make_unique<HnswIndex>(params);
     t0 = Clock::now();
-    loaded->train(base.data.data(), std::min<std::size_t>(base.n, 100'000));  // no-op without SQ8
+    loaded->train(base.data.data(), std::min<std::size_t>(base.n, 100'000));  // no-op unquantized
     std::atomic<std::size_t> next{0};
     std::vector<std::thread> builders;
     for (std::size_t t = 0; t < opt.threads; ++t) {
@@ -180,9 +183,11 @@ int main(int argc, char** argv) try {
   }
   HnswIndex& index = *loaded;
   const auto& ip = index.params();
-  const bool quantized = ip.quantization == Quantization::SQ8;
+  const bool quantized = ip.quantization != Quantization::None;
   std::printf("index     simd=%s, quant=%s, %.1f MiB, %d layers\n", std::string(to_string(index.simd_level())).c_str(),
-              quantized ? (ip.keep_vectors ? "sq8+vectors" : "sq8 (codes only)") : "none",
+              ip.quantization == Quantization::RaBitQ ? "rabitq+vectors"
+              : quantized                             ? (ip.keep_vectors ? "sq8+vectors" : "sq8 (codes only)")
+                                                      : "none",
               index.memory_bytes() / 1048576.0, index.max_level() + 1);
   if (!opt.save.empty()) index.save(opt.save);
 
@@ -210,6 +215,7 @@ int main(int argc, char** argv) try {
     std::vector<std::vector<SearchResult>> results(queries.n);
     std::vector<double> latencies(total);
     std::vector<std::size_t> distances_per_query(total);
+    std::vector<std::size_t> full_per_query(total);
     std::atomic<std::size_t> next{0};
     auto worker = [&] {
       for (std::size_t i = next++; i < total; i = next++) {
@@ -219,6 +225,7 @@ int main(int argc, char** argv) try {
         auto found = index.search(queries.row(q), opt.k, {.ef = ef, .rerank = opt.rerank, .stats = &stats});
         latencies[i] = std::chrono::duration<double, std::micro>(Clock::now() - start).count();
         distances_per_query[i] = stats.distance_computations;
+        full_per_query[i] = stats.full_distance_computations;
         if (i < queries.n) results[q] = std::move(found);
       }
     };
@@ -233,8 +240,10 @@ int main(int argc, char** argv) try {
     const double qps = total / seconds_since(sweep_start);
     std::size_t distances = 0;
     for (std::size_t d : distances_per_query) distances += d;
+    std::size_t full = 0;
+    for (std::size_t d : full_per_query) full += d;
     const Row row{ef, recall_at_k(results, truth, opt.k), qps, percentile(latencies, 0.5),
-                  percentile(latencies, 0.99), static_cast<double>(distances) / total};
+                  percentile(latencies, 0.99), static_cast<double>(distances) / total, static_cast<double>(full) / total};
     rows.push_back(row);
     std::printf("%6zu %10.4f %10.0f %10.1f %10.1f %12.0f", row.ef, row.recall, row.qps, row.p50_us, row.p99_us,
                 row.avg_distances);
@@ -255,7 +264,8 @@ int main(int argc, char** argv) try {
       const Row& r = rows[i];
       out << "    {\"ef\": " << r.ef << ", \"recall\": " << r.recall << ", \"qps\": " << r.qps
           << ", \"p50_us\": " << r.p50_us << ", \"p99_us\": " << r.p99_us
-          << ", \"distances_per_query\": " << r.avg_distances << "}" << (i + 1 < rows.size() ? "," : "") << "\n";
+          << ", \"distances_per_query\": " << r.avg_distances << ", \"full_distances_per_query\": " << r.avg_full
+          << "}" << (i + 1 < rows.size() ? "," : "") << "\n";
     }
     out << "  ]\n}\n";
     std::printf("\nwrote %s\n", opt.json.c_str());
