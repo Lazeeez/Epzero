@@ -12,23 +12,23 @@ it. Indexes are updated continuously, filters (per tenant, per permission, per c
 searchable set, and the queries change as products and embedding models change. Each of these
 moves recall, silently.
 
-Oryx makes recall observable and controllable, with three parts:
+Epzero makes recall observable and controllable, with three parts:
 
 | | What it does | API |
 |---|---|---|
 | **Recall monitor** | Re-answers a small sample of real queries exactly, in the background, and reports live recall@k with a confidence interval, per traffic segment | `RecallMonitor`, `RecallGuard::report()` |
-| **Recall guard** | Holds a recall target by moving the beam width: wider as soon as measured recall falls short, narrower only on confident surplus. Optionally per query: each search stops once its answer settles | `RecallGuard`, `oryxdb.RecallGuard(per_query=True)` |
+| **Recall guard** | Holds a recall target by moving the beam width: wider as soon as measured recall falls short, narrower only on confident surplus. Optionally per query: each search stops once its answer settles | `RecallGuard`, `epzero.RecallGuard(per_query=True)` |
 | **Miss explainer** | Answers "why wasn't this document returned?": filtered out, not near enough (the search was right), or missed by the walk, and then which beam width finds it | `HnswIndex::explain()`, `Index.explain()` |
 
 ## Using it
 
 ```python
-import oryxdb as oryx
+import epzero as epzero
 
-index = oryx.Index(dim=768, max_elements=1_000_000)
+index = epzero.Index(dim=768, max_elements=1_000_000)
 index.add(vectors, threads=16)
 
-guard = oryx.RecallGuard(index, target=0.95, sample_rate=0.01)
+guard = epzero.RecallGuard(index, target=0.95, sample_rate=0.01)
 labels, distances = guard.search(queries, k=10)          # serves at the current beam width
 guard.report()
 # [{'segment': 'unfiltered', 'ef': 72, 'changes': 3, 'samples': 1000,
@@ -38,7 +38,7 @@ index.explain(query, k=10, label=4217, ef=64)
 # {'cause': 'search-missed', 'exact_rank': 6, 'scored': False, 'ef_needed': 128, ...}
 ```
 
-The C++ API is the same (`include/oryx/recall.h`, `HnswIndex::explain`). Filtered searches are
+The C++ API is the same (`include/epzero/recall.h`, `HnswIndex::explain`). Filtered searches are
 monitored and steered separately, in bands of filter selectivity, because a 1% filter and an
 unfiltered query need very different beam widths.
 
@@ -51,7 +51,7 @@ cost about 3x the CPU of the searches themselves (on their own thread, so search
 unaffected, but it is CPU). The monitor can instead compare against a far wider search: at `ef`
 1024 a check takes 0.96 ms, 31x cheaper than a scan, and that reference's own recall is 0.9995, so
 the estimate is off by at most 0.0005. At 1% sampling that is about 10% of the search CPU
-(`reference_ef` in `RecallMonitor::Options` and `oryx.RecallGuard`).
+(`reference_ef` in `RecallMonitor::Options` and `epzero.RecallGuard`).
 
 **Sampling that never slows search.** The monitor takes every *n*-th query (systematic sampling: a
 lock-free counter, no random number generator on the search path), copies it, and queues it for
