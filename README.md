@@ -100,6 +100,15 @@ navigator HUD lean on that idea.
   across them, picked per query by a cost model calibrated on a dedicated
   server. Each wins somewhere: from 39k queries/s (0.1% of vectors allowed)
   to 5k (50%), at recall 0.95 on SIFT1M.
+- **Per-query search effort:** a search can stop as soon as its own answer
+  settles, so easy queries finish early and hard ones search further, and the
+  recall guard can steer that instead of one beam width for everything. Under
+  drift on GloVe-100, where query difficulty varies widely, it held the same
+  target in 18% less time (26% fewer distance computations); on SIFT1M, where it
+  varies little, it doesn't pay, so it is opt-in (laptop; [details](docs/recall-guard.md#per-query-effort)).
+- **Hybrid search:** a BM25 keyword index beside the vector index, merged by
+  reciprocal rank fusion, in Python and in the LangChain store, for the exact
+  terms (product codes, names, error messages) that embeddings blur.
 - **Searches don't stop for writes:** 4,049 writes/s cost concurrent readers
   9% of their throughput, and p99 latency went from 236 to 262 µs.
 - **Hardened against malformed files:** libFuzzer runs on every parser of
@@ -115,6 +124,9 @@ navigator HUD lean on that idea.
 - **Hand-written SIMD** for AVX2, AVX-512, NEON and WebAssembly SIMD128, picked
   at runtime; up to 10.9× faster than scalar code.
 - **8-bit quantization** with exact re-ranking: +48% QPS at identical recall.
+  Integer distance kernels (one VNNI instruction per 32–64 dimensions) and
+  re-ranking only the best 3 × k made it up to 1.95× faster again on
+  960-dimensional GIST1M (laptop; [details](docs/performance.md#what-glass-does-better-and-what-oryx-took-from-it)).
 - **Crash safety proven by fault injection:** the write-ahead log survives a
   torn write at every byte offset, mid-log corruption and random `kill -9`s.
 - **A replicated cluster** whose failover is tested on every push with real
@@ -514,7 +526,9 @@ dedicated-server runs are in [`scripts/pace/`](scripts/pace/).
 10. ✅ `pip install oryxdb` (wheels for Linux and macOS) and a LangChain vector store that passes LangChain's conformance suite
 11. ✅ Several routers sharing the shard map through etcd, with leader election and fenced writes
 12. ✅ RaBitQ quantization (correct and tested; not faster in memory, see the performance log)
-13. ✅ Competitive benchmarks on GIST1M, GloVe-100, OpenAI text embeddings and DEEP10M against Glass, VSAG, USearch, hnswlib and tuned FAISS (`bench/compete.py`); next, an ann-benchmarks submission (`ann-benchmarks/`)
+13. ✅ Competitive benchmarks on GIST1M, GloVe-100, OpenAI text embeddings and DEEP10M against Glass, VSAG, USearch, hnswlib and tuned FAISS (`bench/compete.py`)
+14. ✅ Per-query search effort and the per-query recall guard; integer SQ8 kernels; hybrid keyword + vector search
+15. Server re-runs of the comparison and the per-query guard (PACE jobs ready); an ann-benchmarks submission (`ann-benchmarks/`)
 
 ## License
 
