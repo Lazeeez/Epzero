@@ -9,9 +9,9 @@
 #include <fstream>
 #include <string>
 
-#include "oryx/hnsw.h"
+#include "epzero/hnsw.h"
 
-namespace oryx::fuzz {
+namespace epzero::fuzz {
 
 constexpr std::size_t kDim = 4;
 constexpr std::size_t kMaxElements = 64;
@@ -22,7 +22,7 @@ inline HnswParams small_params() {
 
 // A directory of this process's own (fuzzers can run several jobs side by side).
 inline std::filesystem::path scratch(const std::string& name) {
-  auto dir = std::filesystem::temp_directory_path() / ("oryx-fuzz-" + std::to_string(getpid())) / name;
+  auto dir = std::filesystem::temp_directory_path() / ("epzero-fuzz-" + std::to_string(getpid())) / name;
   std::filesystem::create_directories(dir);
   return dir;
 }
@@ -38,4 +38,4 @@ inline void exercise(const HnswIndex& index) {
   for (const auto& hit : index.search(query, 5, {.ef = 16})) (void)hit;
 }
 
-}  // namespace oryx::fuzz
+}  // namespace epzero::fuzz
