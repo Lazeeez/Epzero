@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Ambient from "./components/Ambient.svelte";
   import Footer from "./components/Footer.svelte";
   import Nav from "./components/Nav.svelte";
   import { engine } from "./lib/engine/engine.svelte";
@@ -71,6 +72,8 @@
   bind:this={stage}
   aria-hidden={router.route !== "try"}
 ></div>
+
+{#if modes[router.route] === "hidden"}<Ambient />{/if}
 
 <Nav />
 
