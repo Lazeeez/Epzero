@@ -4,9 +4,9 @@
 #include <random>
 #include <vector>
 
-#include "oryx/distance.h"
+#include "epzero/distance.h"
 
-namespace oryx {
+namespace epzero {
 namespace {
 
 constexpr SimdLevel kAllLevels[] = {SimdLevel::Scalar, SimdLevel::AVX2, SimdLevel::AVX512, SimdLevel::NEON,
@@ -109,4 +109,4 @@ TEST(Distance, NormalizeProducesUnitVectorAndIgnoresZero) {
 }
 
 }  // namespace
-}  // namespace oryx
+}  // namespace epzero
