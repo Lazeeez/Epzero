@@ -158,7 +158,7 @@
     <figure>
       <canvas bind:this={hnswCanvas} aria-label="HNSW search progress"></canvas>
       <figcaption>
-        <span class="name accent">Oryx HNSW</span>
+        <span class="name accent">Epzero HNSW</span>
         <span class="clock num">{clock(elapsed / hnswMs, trace.micros)}</span>
         <span class="sub num">
           {hnswCount.toLocaleString()} compared ({((visited.length / engine.count) * 100).toFixed(1)}%) {hnswDone ? "· done" : ""}
