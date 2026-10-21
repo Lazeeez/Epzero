@@ -17,13 +17,13 @@ Oryx makes recall observable and controllable, with three parts:
 | | What it does | API |
 |---|---|---|
 | **Recall monitor** | Re-answers a small sample of real queries exactly, in the background, and reports live recall@k with a confidence interval, per traffic segment | `RecallMonitor`, `RecallGuard::report()` |
-| **Recall guard** | Holds a recall target by moving the beam width: wider as soon as measured recall falls short, narrower only on confident surplus | `RecallGuard`, `oryx.RecallGuard` |
+| **Recall guard** | Holds a recall target by moving the beam width: wider as soon as measured recall falls short, narrower only on confident surplus | `RecallGuard`, `oryxdb.RecallGuard` |
 | **Miss explainer** | Answers "why wasn't this document returned?": filtered out, not near enough (the search was right), or missed by the walk, and then which beam width finds it | `HnswIndex::explain()`, `Index.explain()` |
 
 ## Using it
 
 ```python
-import oryx
+import oryxdb as oryx
 
 index = oryx.Index(dim=768, max_elements=1_000_000)
 index.add(vectors, threads=16)
