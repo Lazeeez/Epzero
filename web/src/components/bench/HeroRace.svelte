@@ -24,8 +24,7 @@
     padding: 22px 22px 24px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background: color-mix(in srgb, var(--surface-solid) 60%, transparent);
-    backdrop-filter: blur(14px);
+    background: var(--glass-fill);
   }
   figcaption {
     margin-bottom: 4px;
