@@ -91,7 +91,7 @@
     padding: 14px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background: var(--glass-fill);
+    background: var(--overlay-fill);
     font: 12px var(--mono);
     pointer-events: none !important;
   }
