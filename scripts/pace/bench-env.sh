@@ -23,5 +23,5 @@ mkdir -p "$VENV/src"
 # Oryx picks its SIMD kernels at run time, so building it here is fine for every node.
 "$VENV/bin/pip" install --quiet "$ORYX_ROOT/engine"
 
-"$VENV/bin/python" -c "import sys, numpy, faiss, oryx; print('python', sys.version.split()[0], '| numpy', numpy.__version__, '| faiss', faiss.__version__, '| oryx', oryx.simd_level())"
+"$VENV/bin/python" -c "import sys, numpy, faiss, oryxdb; print('python', sys.version.split()[0], '| numpy', numpy.__version__, '| faiss', faiss.__version__, '| oryxdb', oryxdb.simd_level())"
 ls "$VENV/src"
