@@ -58,6 +58,32 @@ TEST(Distance, Sq8KernelsMatchScalarForAllDimensions) {
   }
 }
 
+// Integer kernels are exact: every variant this CPU runs must equal the scalar sum, at the weight
+// bound and for dimensions that leave every kind of tail.
+TEST(Distance, Sq8IntKernelsMatchScalarExactly) {
+  std::mt19937 rng(13);
+  std::uniform_int_distribution<int> byte(0, 255);
+  std::uniform_int_distribution<int> weight(-kSq8IntWeightMax, kSq8IntWeightMax);
+  const auto variants = sq8_int_dot_variants();
+  for (std::size_t dim = 1; dim <= 400; ++dim) {
+    std::vector<std::int8_t> w(dim);
+    std::vector<std::uint8_t> codes(dim);
+    for (auto& x : w) x = static_cast<std::int8_t>(weight(rng));
+    for (auto& c : codes) c = static_cast<std::uint8_t>(byte(rng));
+    if (dim % 7 == 0) {  // the extremes, where the AVX2 pair sums are largest
+      for (std::size_t i = 0; i < dim; ++i) {
+        w[i] = static_cast<std::int8_t>(i % 2 ? kSq8IntWeightMax : -kSq8IntWeightMax);
+        codes[i] = 255;
+      }
+    }
+    const std::int32_t expected = variants[0].second(w.data(), codes.data(), dim);
+    for (const auto& [name, fn] : variants) EXPECT_EQ(fn(w.data(), codes.data(), dim), expected) << name << " dim=" << dim;
+  }
+  for (SimdLevel level : kAllLevels) {
+    if (!simd_level_supported(level)) EXPECT_EQ(get_sq8_int_dot_fn(level), nullptr) << to_string(level);
+  }
+}
+
 TEST(Distance, KnownValues) {
   const float a[] = {1, 2, 3};
   const float b[] = {4, 6, 3};
