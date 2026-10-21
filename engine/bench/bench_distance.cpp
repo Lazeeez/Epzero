@@ -7,9 +7,9 @@
 #include <random>
 #include <vector>
 
-#include "oryx/distance.h"
+#include "epzero/distance.h"
 
-using namespace oryx;
+using namespace epzero;
 
 namespace {
 
