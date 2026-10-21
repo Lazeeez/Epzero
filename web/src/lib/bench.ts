@@ -5,6 +5,10 @@ import compare from "../../../bench/results/pace/gold6226/sift1m-compare.json";
 import drift from "../../../bench/results/pace/gold6226/sift1m-guard-0.95.json";
 import filterRun from "../../../bench/results/pace/gold6226/sift1m-filter.json";
 import churn from "../../../bench/results/pace/gold6226/sift1m-churn.json";
+import gist from "../../../bench/results/pace/gold6226/gist-960-euclidean-compete.json";
+import glove from "../../../bench/results/pace/gold6226/glove-100-angular-compete.json";
+import dbpedia from "../../../bench/results/pace/gold6226/dbpedia-openai-1000k-angular-compete.json";
+import deep from "../../../bench/results/pace/gold6226/deep-image-96-angular-compete.json";
 
 export { compare };
 
@@ -13,7 +17,6 @@ export const MACHINE = "2 × Intel Xeon Gold 6226, clock fixed at 2.7 GHz";
 
 type Library = keyof typeof compare.libraries;
 interface Point {
-  ef: number;
   recall: number;
   qps: number;
 }
@@ -102,3 +105,55 @@ export const operating = { recall: OPERATING_RECALL, qps: qpsAtRecall(compare.li
 export function speedup(other: Exclude<Library, "oryx">): number {
   return operating.qps / qpsAtRecall(compare.libraries[other].sweep, operating.recall);
 }
+
+/** The competitive benchmark (bench/compete.py): seven libraries on four ann-benchmarks datasets,
+ *  each library's QPS at the same recall@10, one search thread, same graph degree and build beam. */
+const FIELD_NAMES: Record<string, string> = {
+  oryx: "Oryx",
+  "oryx-sq8": "Oryx SQ8",
+  hnswlib: "hnswlib",
+  "faiss-hnsw": "FAISS HNSW",
+  "faiss-ivfpq": "FAISS IVF-PQ",
+  usearch: "USearch",
+  vsag: "VSAG",
+  glass: "Glass",
+};
+interface CompeteRun {
+  n: number;
+  dim: number;
+  metric: string;
+  queries: number;
+  libraries: Record<string, { build_seconds: number; param: string; sweep: Point[] }>;
+}
+const FIELD_RUNS = [
+  { key: "gist", name: "GIST1M", what: "image descriptors", recall: 0.95, run: gist },
+  // On GloVe no graph library reaches 0.95 by ef = 800 at M = 16 (VSAG just does), so it's compared at 0.90.
+  { key: "glove", name: "GloVe-100", what: "word embeddings", recall: 0.9, run: glove },
+  { key: "dbpedia", name: "DBpedia OpenAI", what: "OpenAI text embeddings", recall: 0.95, run: dbpedia },
+  { key: "deep", name: "DEEP10M", what: "image embeddings, 10M", recall: 0.95, run: deep },
+] as const;
+
+export interface FieldEntry {
+  id: string;
+  name: string;
+  qps: number | null; // null: never reaches the recall target
+  build: number;
+  best: number; // highest recall measured
+  oryx: boolean;
+}
+export const field = FIELD_RUNS.map(({ key, name, what, recall, run }) => {
+  const r = run as CompeteRun;
+  const entries: FieldEntry[] = Object.entries(r.libraries).map(([id, lib]) => {
+    const qps = qpsAtRecall(lib.sweep, recall);
+    return {
+      id,
+      name: FIELD_NAMES[id] ?? id,
+      qps: Number.isFinite(qps) ? qps : null,
+      build: lib.build_seconds,
+      best: Math.max(...lib.sweep.map((p) => p.recall)),
+      oryx: id.startsWith("oryx"),
+    };
+  });
+  entries.sort((a, b) => (b.qps ?? -1) - (a.qps ?? -1));
+  return { key, name, what, recall, n: r.n, dim: r.dim, metric: r.metric, queries: r.queries, entries };
+});
