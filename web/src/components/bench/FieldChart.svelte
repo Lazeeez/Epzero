@@ -1,12 +1,12 @@
 <script lang="ts">
-  // Seven libraries on four ann-benchmarks datasets: one bar per library, its queries per second at
-  // the dataset's recall target. Oryx's two variants carry the accent; the others stay neutral.
+  // Epzero and five other libraries on four ann-benchmarks datasets: one bar per library, its queries per second at
+  // the dataset's recall target. Epzero's two variants carry the accent; the others stay neutral.
   import { field } from "../../lib/bench";
 
   let selected = $state(0);
   const run = $derived(field[selected]);
   const max = $derived(Math.max(...run.entries.map((e) => e.qps ?? 0)));
-  const oryx = $derived(run.entries.find((e) => e.id === "oryx")!);
+  const epzero = $derived(run.entries.find((e) => e.id === "epzero")!);
   const fmt = (x: number) => Math.round(x).toLocaleString();
 
   // Arrow keys move between datasets, as in any radio group.
@@ -34,11 +34,11 @@
 
   <ol class="rows" aria-label="Queries per second on {run.name} at recall {run.recall}, fastest first">
     {#each run.entries as e (e.id)}
-      <li class="row" class:oryx={e.oryx}>
+      <li class="row" class:epzero={e.epzero}>
         <span class="name">{e.name}</span>
         <span class="track">
           {#if e.qps !== null}
-            <i class:sq8={e.id === "oryx-sq8"} style:width="{(e.qps / max) * 100}%"></i>
+            <i class:sq8={e.id === "epzero-sq8"} style:width="{(e.qps / max) * 100}%"></i>
           {:else}
             <em>never reaches {run.recall.toFixed(2)}</em>
           {/if}
@@ -48,7 +48,7 @@
           <strong>{e.name}</strong>
           {#if e.qps !== null}
             <span>{fmt(e.qps)} QPS at recall {run.recall.toFixed(2)}</span>
-            {#if !e.oryx}<span>{(e.qps / oryx.qps!).toFixed(2)}× Oryx (fp32)</span>{/if}
+            {#if !e.epzero}<span>{(e.qps / epzero.qps!).toFixed(2)}× Epzero (fp32)</span>{/if}
           {:else}
             <span>Best recall {e.best.toFixed(3)} in the sweep</span>
           {/if}
@@ -110,7 +110,7 @@
     color: var(--text-2);
     font-size: 14px;
   }
-  .row.oryx .name {
+  .row.epzero .name {
     color: var(--text);
     font-weight: 600;
   }
@@ -133,10 +133,10 @@
     background: color-mix(in srgb, var(--muted) 75%, var(--surface-2));
     transition: width 0.5s var(--ease);
   }
-  .oryx .track i {
+  .epzero .track i {
     background: linear-gradient(90deg, var(--accent), var(--accent-2));
   }
-  .oryx .track i.sq8 {
+  .epzero .track i.sq8 {
     background: linear-gradient(90deg, var(--accent-2), var(--accent-strong));
   }
   .track em {
