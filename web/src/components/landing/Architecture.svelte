@@ -4,13 +4,13 @@
   const browser = [
     { title: "Your query", detail: "text · photo · webcam" },
     { title: "CLIP encoder", detail: "ONNX Runtime · WASM · 8-bit" },
-    { title: "Oryx engine", detail: "C++20 → WASM · threads + SIMD128" },
+    { title: "Epzero engine", detail: "C++20 → WASM · threads + SIMD128" },
     { title: "Results + trace", detail: "every hop, rendered in WebGL" },
   ];
   const server = [
     { title: "Client", detail: "HTTP / gRPC" },
     { title: "Go router", detail: "sharding · hedged fan-out · top-k merge" },
-    { title: "oryx-node × N", detail: "primary → backup, sync replication" },
+    { title: "epzero-node × N", detail: "primary → backup, sync replication" },
     { title: "WAL + snapshots", detail: "CRC32C · group commit · checkpoints" },
   ];
 </script>
