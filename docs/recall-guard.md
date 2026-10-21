@@ -83,26 +83,33 @@ and runs three policies on identical streams, measuring true recall against exac
 3. **Churn:** 20% of the vectors deleted and re-inserted.
 4. **Filtered:** every query limited to a random 5% of the vectors.
 
-Results at a target of 0.95, from the development laptop (the dedicated-server run is
-[`scripts/pace/guard.sbatch`](../scripts/pace/guard.sbatch)):
+Results on a dedicated server (2 × Xeon Gold 6226, clock fixed at 2.7 GHz;
+[`scripts/pace/guard.sbatch`](../scripts/pace/guard.sbatch)), six passes of 2,500 queries per
+phase, 2% sampling. At a target of 0.95:
 
 | Policy | Batches meeting the target | After adapting (last pass per phase) | Mean cost (distances/query) |
 |---|---|---|---|
-| Fixed `ef`, tuned on the steady phase (usual practice) | 8 / 16 | 2 / 4 | 1,247 |
-| Fixed `ef`, sized for the worst phase | 16 / 16 | 4 / 4 | 1,706 |
-| **Recall guard** | 11 / 16 | **4 / 4** | **1,456** |
+| Fixed `ef` 64, tuned on the steady phase (usual practice) | 12 / 24 | 2 / 4 | 1,210 |
+| Fixed `ef` 96, sized for the worst phase | 24 / 24 | 4 / 4 | 1,659 |
+| **Recall guard**, exact checks | **24 / 24** | **4 / 4** | **1,562** (−6%) |
+| **Recall guard**, wide-beam checks (`reference_ef` 1024) | 20 / 24 | **4 / 4** | **1,410** (−15%) |
 
 - **The usual practice fails silently:** a beam width tuned once misses the target on harder
-  queries (0.945) and under the filter (0.942), and nothing reports it.
-- **Over-provisioning works but pays all the time:** sizing for the worst phase costs 37% more on
-  the steady phase.
-- **The guard holds the target everywhere once it has adapted, at 15% less cost than
-  over-provisioning.** Its misses are the batches before it noticed: at 5% sampling, a drop is
-  detected and fixed within about 2,000 queries.
-- **The monitor tells the truth:** its estimates were off by 0.007 on average, and the true
-  recall was inside its 95% interval in 15 of 15 batches.
+  queries (0.948) and under the filter (0.9496), in every batch, and nothing reports it.
+- **The guard holds the target everywhere once it has adapted,** at 6–15% less cost than sizing
+  for the worst case. How much it saves depends on whether it narrows again: the steady phase's
+  recall at `ef` 64 (0.956) sits so close to the target that sampling noise made the exact-check
+  run widen early and, narrowing only on strong evidence, stay wide.
+- **The monitor tells the truth:** across all four runs its estimates were off by 0.004–0.011 on
+  average, and the true recall was inside its 95% interval in 90 of 91 checked batches.
+- **Where no drift pushes recall below the target, it costs nothing extra:** at 0.90 every phase
+  stays above the target at `ef` 48 and the guard matches the fixed setting (−0.5%); at 0.99 it
+  matches it within 4% (it briefly widened under the filter).
 
-Raw data: [`bench/results/sift1m-guard-laptop.json`](../bench/results/sift1m-guard-laptop.json).
+The development laptop showed the same pattern (fixed-tuned 2 / 4 phases, guard 4 / 4 at 15% less
+than worst-case sizing). Raw data:
+[`bench/results/pace/gold6226/sift1m-guard-*.json`](../bench/results/pace/gold6226/) and
+[`bench/results/sift1m-guard-laptop.json`](../bench/results/sift1m-guard-laptop.json).
 
 The website shows the same loop live: the playground's *Recall guard* card measures every search
 against an exact scan, plots it against the target, and moves the beam width when recall falls
@@ -133,7 +140,9 @@ queries; the scripts are summarized here rather than kept, since the approach wa
   trades CPU for how quickly drift is detected.
 - **Adaptation lags by about `min_samples / sample_rate` queries.** That's 2,000 at 5%; at
   production traffic it is seconds.
-- **Narrowing is deliberately conservative.** After churn the guard kept `ef` 96 when 64 would
-  have sufficed: it narrows only on strong evidence, trading some cost for safety.
-- **More data:** the server runs (`guard.sbatch`) cover targets 0.90, 0.95 and 0.99. GloVe-100 and
-  higher-dimensional text-embedding sets, whose recall is harder to hold, are next.
+- **Narrowing is deliberately conservative.** On the server it kept `ef` 96 through the steady
+  phase when 64 would have sufficed: it narrows only on strong evidence, trading cost for safety.
+  When the target sits within sampling noise of what a beam width delivers, a smarter narrowing
+  rule (e.g. one that remembers the last width that held) would save more.
+- **More data:** GloVe-100 and higher-dimensional text-embedding sets, whose recall is harder to
+  hold, are next.
