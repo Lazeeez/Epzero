@@ -19,6 +19,7 @@ type Cluster struct {
 	Names  []string
 	Router *router.Router
 	done   <-chan struct{} // closed when the cluster stops (Start's context ends)
+	opts   Options
 }
 
 // Options configures a simulated cluster.
@@ -33,28 +34,45 @@ type Options struct {
 	HedgeAfter     time.Duration
 	Consistency    router.Consistency
 	Logger         *slog.Logger
+	// Store holds the shard map (default: a fresh MemoryStore); routers added with AddRouter can
+	// share it, as routers share an etcd cluster.
+	Store router.StateStore
 }
 
-// New builds the cluster; call Start to run the router's health checks.
+// New builds the cluster and its first router (endpoint RouterName); call Start to run it.
 func New(opts Options) (*Cluster, error) {
-	c := &Cluster{Net: NewNetwork(opts.Link, opts.Seed), Nodes: map[string]*Node{}, Names: opts.Nodes}
-	cfg := router.Config{
-		Shards: opts.Shards, Dim: opts.Dim, Token: "sim", HealthInterval: opts.HealthInterval, HedgeAfter: opts.HedgeAfter,
-		Logger: opts.Logger, Dial: c.dial, Consistency: opts.Consistency,
-	}
-	if cfg.Logger == nil {
-		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	c := &Cluster{Net: NewNetwork(opts.Link, opts.Seed), Nodes: map[string]*Node{}, Names: opts.Nodes, opts: opts}
+	if c.opts.Store == nil {
+		c.opts.Store = router.NewMemoryStore()
 	}
 	for _, name := range opts.Nodes {
 		c.Nodes[name] = newNode(name, c)
-		cfg.Nodes = append(cfg.Nodes, router.NodeConfig{Name: name, Addr: name})
 	}
-	r, err := router.New(cfg)
+	r, err := c.AddRouter(RouterName, c.opts.Store)
 	if err != nil {
 		return nil, err
 	}
 	c.Router = r
 	return c, nil
+}
+
+// AddRouter creates another router over the same nodes, reaching them from its own endpoint `id`
+// on the network (so it can be partitioned on its own). Run it with Bootstrap and Run.
+func (c *Cluster) AddRouter(id string, store router.StateStore) (*router.Router, error) {
+	cfg := router.Config{
+		Shards: c.opts.Shards, Dim: c.opts.Dim, Token: "sim", HealthInterval: c.opts.HealthInterval,
+		HedgeAfter: c.opts.HedgeAfter, Logger: c.opts.Logger, Consistency: c.opts.Consistency, Store: store, ID: id,
+		Dial: func(nc router.NodeConfig) (router.Node, error) {
+			return client{c: c, from: id, to: c.Nodes[nc.Name]}, nil
+		},
+	}
+	if cfg.Logger == nil {
+		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+	for _, name := range c.Names {
+		cfg.Nodes = append(cfg.Nodes, router.NodeConfig{Name: name, Addr: name})
+	}
+	return router.New(cfg)
 }
 
 // Start assigns every shard and runs the router's health checks until ctx ends.
@@ -71,10 +89,6 @@ func (c *Cluster) Partition(a, b []string) {
 			c.Net.SetBoth(x, y, Link{Cut: true})
 		}
 	}
-}
-
-func (c *Cluster) dial(nc router.NodeConfig) (router.Node, error) {
-	return client{c: c, from: RouterName, to: c.Nodes[nc.Name]}, nil
 }
 
 // client is the router's handle on one node: every call crosses the simulated network.
