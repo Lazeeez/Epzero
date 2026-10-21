@@ -50,6 +50,10 @@
   --shadow: 0 1px 1px rgba(0, 0, 0, 0.3), 0 20px 50px -12px rgba(0, 0, 0, 0.6);
   --glass: rgba(10, 12, 18, 0.62);
   --hero-gradient: linear-gradient(180deg, #ffffff 0%, #c9d4ea 55%, #7d8aa6 100%);
+  --grid-dot: rgba(255, 255, 255, 0.07);
+  --ambient-strength: 0.55;
+  --spot: rgba(91, 157, 255, 0.1);
+  --spot-edge: rgba(156, 195, 255, 0.35);
 
   --font: "Inter Variable", "Inter Fallback", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "JetBrains Mono Variable", "JetBrains Mono Fallback", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -89,6 +93,10 @@
   --shadow: 0 1px 2px rgba(10, 12, 20, 0.05), 0 18px 40px -16px rgba(10, 12, 20, 0.18);
   --glass: rgba(250, 250, 247, 0.72);
   --hero-gradient: linear-gradient(180deg, #0b0c10 0%, #2c3345 60%, #59627a 100%);
+  --grid-dot: rgba(12, 14, 20, 0.09);
+  --ambient-strength: 0.7;
+  --spot: rgba(42, 111, 214, 0.07);
+  --spot-edge: rgba(42, 111, 214, 0.35);
 }
 
 *,
@@ -262,6 +270,16 @@ h3 {
 ::view-transition-new(root) {
   animation-name: fade-in;
 }
+/* The top bar stays put through a page change (its tab pill glides instead of fading). */
+.nav {
+  view-transition-name: nav;
+}
+::view-transition-old(nav) {
+  display: none;
+}
+::view-transition-new(nav) {
+  animation: none;
+}
 @keyframes fade-out {
   to {
     opacity: 0;
@@ -326,4 +344,56 @@ h3 {
 .js [data-reveal].revealed {
   opacity: 1;
   transform: none;
+}
+
+/* Spotlight cards (see lib/spotlight.ts): a glow under the pointer, and the border lit nearest it. */
+.spot {
+  position: relative;
+  isolation: isolate;
+}
+.spot::before,
+.spot::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 0.35s var(--ease);
+  pointer-events: none;
+}
+.spot::after {
+  inset: 0;
+  background: radial-gradient(360px circle at var(--mx, 50%) var(--my, -200px), var(--spot), transparent 70%);
+}
+/* The border ring: a gradient masked down to the 1px edge. */
+.spot::before {
+  inset: -1px;
+  padding: 1px;
+  background: radial-gradient(240px circle at var(--mx, 50%) var(--my, -200px), var(--spot-edge), transparent 70%);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+.spot:hover::before,
+.spot:hover::after {
+  opacity: 1;
+}
+
+/* Primary buttons: a sheen crosses on hover. */
+.btn-primary {
+  position: relative;
+  overflow: hidden;
+}
+.btn-primary::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 35%, color-mix(in srgb, var(--accent) 22%, transparent) 50%, transparent 65%);
+  transform: translateX(-110%);
+  pointer-events: none;
+}
+.btn-primary:hover::before {
+  transform: translateX(110%);
+  transition: transform 0.8s var(--ease);
 }
