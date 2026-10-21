@@ -107,13 +107,39 @@ and throughput drops 19%, because about half the reads now cross to the other so
 The index is small enough to keep one copy per socket; by my estimate (not yet measured) that
 would take the node from 84k to about 119k queries per second.
 
+## Against the fastest library, and when it stops being a memory problem
+
+Then I measured Oryx against seven libraries on four more ann-benchmarks datasets, from 96 to 1,536
+dimensions and up to 10 million vectors. Its 8-bit mode came second on all four. First was Glass,
+from Zilliz, by 1.5–2.1×.
+
+I assumed Glass had better memory tricks, so I read its search loop. Its prefetching, once tuned,
+ends up close to what Oryx already did. Two other things weren't:
+
+- **It re-scores 15 candidates with full vectors; Oryx re-scored the whole beam.** At a beam of 400
+  on 960-dimensional GIST, that was 400 extra reads of a 3.8 KB vector per query, and re-scoring
+  only 15–30 gave exactly the same recall.
+- **Its distances are integer arithmetic.** With 8-bit codes, a 960-dimensional node is 960 bytes:
+  15 cache lines instead of the 60 of the float vector. Once the bytes shrink that much, the
+  arithmetic is visible again, and Oryx's kernel spent about ten instructions per 32 dimensions
+  turning bytes into floats before multiplying. Rounding the query's weights to 8-bit integers once
+  per query lets one VNNI instruction (`vpdpbusd`) multiply and add 32 or 64 dimensions at a time.
+  Recall moved by at most 0.001.
+
+Together, on my laptop: **1.95× faster on GIST** (960 dimensions), +20% on GloVe (100) and +26% on
+SIFT (128). The gain grows with the dimension, which is exactly where Glass's lead was largest.
+
+So the thesis needs a footnote: vector search is a memory problem *until you shrink the bytes*.
+Quantization moves the bottleneck back toward the core, and then instruction counts matter again.
+
 ## Takeaways
 
 1. **Measure what the cycles are waiting on, not just where they're spent.** "57% in the distance
    kernel" pointed at SIMD. "63 ns per distance" pointed at memory.
 2. **Overlap misses, make them cheaper, or avoid them.** Prefetching, huge pages and quantization
    each attack one of these, and each worked. Everything else was noise.
-3. **Count bytes per query.** For graph search it predicts performance better than FLOPs do.
+3. **Count bytes per query, then instructions per byte.** For graph search, bytes predict
+   performance better than FLOPs do, until quantization makes them small.
 4. **Benchmark like-for-like, and say how.** Page size, NUMA placement and frequency scaling can
    each move results by more than the engineering you're trying to measure.
 
