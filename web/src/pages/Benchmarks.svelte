@@ -1,5 +1,18 @@
 <script lang="ts">
-  import { DRIFT_POLICIES, MACHINE, compare, drift, driftEstimates, driftSummary, operating, speedup } from "../lib/bench";
+  import {
+    DRIFT_POLICIES,
+    FILTER_RECALL,
+    FILTER_STRATEGIES,
+    MACHINE,
+    churn,
+    compare,
+    drift,
+    driftEstimates,
+    driftSummary,
+    filterTable,
+    operating,
+    speedup,
+  } from "../lib/bench";
   import DriftChart from "../components/bench/DriftChart.svelte";
   import Lab from "../components/bench/Lab.svelte";
   import Optimizations from "../components/bench/Optimizations.svelte";
@@ -24,6 +37,12 @@
   ];
   const maxBuild = Math.max(...builds.map((b) => b.s));
   const maxDriftCost = Math.max(...driftSummary.map((p) => p.cost));
+
+  const [quiet, busy] = churn.mixed;
+  const cycles = churn.cycles.filter((c) => !c.compacted);
+  const worn = cycles[cycles.length - 1];
+  const compacted = churn.cycles.find((c) => c.compacted)!;
+  const pct = (x: number) => `${(x * 100).toFixed(x < 0.01 ? 1 : 0)}%`;
 
   const removed = [
     {
@@ -145,9 +164,77 @@
             <b class="num">{Math.round(p.cost).toLocaleString()}</b>
           </div>
         {/each}
-        <p class="sub small">Mean distance computations per query over the whole stream. Measured on the development laptop.</p>
+        <p class="sub small">Mean distance computations per query over the whole stream. {MACHINE}.</p>
       </div>
     </div>
+  </section>
+
+  <section class="container block" aria-labelledby="filter-title">
+    <h2 id="filter-title" class="block-title" use:reveal>Filtered search: no single strategy wins</h2>
+    <p class="caption lead" use:reveal>
+      "Only results from this category" turns a graph search into a different problem at every filter size. Each strategy's best
+      throughput at recall {FILTER_RECALL} on SIFT1M, by the share of vectors the filter allows. Scanning wins when few pass, walking
+      past the excluded ones wins when most pass, and the two-hop walk wins in between. It falls apart below about 1.5%, never
+      reaching the target. The engine's automatic choice follows this table.
+    </p>
+    <div class="card panel" use:reveal>
+      <div class="table-wrap">
+        <table class="filter-table">
+          <caption class="visually-hidden">Queries per second at recall {FILTER_RECALL}, by filter selectivity and strategy</caption>
+          <thead>
+            <tr>
+              <th scope="col">Filter allows</th>
+              {#each FILTER_STRATEGIES as s (s.strategy)}<th scope="col">{s.name}</th>{/each}
+            </tr>
+          </thead>
+          <tbody>
+            {#each filterTable as row (row.selectivity)}
+              <tr>
+                <th scope="row">{pct(row.selectivity)} <span>{row.allowed.toLocaleString()}</span></th>
+                {#each FILTER_STRATEGIES as s (s.strategy)}
+                  {@const r = row.best[s.strategy]}
+                  <td class:win={row.winner === s.strategy}>
+                    {#if r}{Math.round(r.qps).toLocaleString()}<small>ef {r.ef}</small>{:else}<em>never</em>{/if}
+                  </td>
+                {/each}
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+      <p class="sub small">Queries per second on one thread, best over beam widths 10–320; the fastest per row is highlighted. {MACHINE}.</p>
+    </div>
+  </section>
+
+  <section class="container block" aria-labelledby="churn-title">
+    <h2 id="churn-title" class="block-title" use:reveal>Searching while the data changes</h2>
+    <p class="caption lead" use:reveal>
+      Reads never take a lock, so writers slow them only by competing for memory. {churn.readers} search threads ran
+      for 30 seconds alone, then alongside 2 threads deleting and re-inserting vectors. Separately, a fresh index went through five
+      cycles of deleting and re-inserting 10% of its vectors.
+    </p>
+    <dl class="stats drift" use:reveal>
+      <div>
+        <dt>Throughput under writes</dt>
+        <dd class="num">{pct(busy.search_qps / quiet.search_qps)}</dd>
+        <dd class="note">
+          of read-only, with {Math.round(busy.writes_per_s).toLocaleString()} writes/s · recall {quiet.recall.toFixed(3)} → {busy.recall.toFixed(3)}
+        </dd>
+      </div>
+      <div>
+        <dt>p99 latency under writes</dt>
+        <dd class="num">{Math.round(busy.p99_us)} µs</dd>
+        <dd class="note">from {Math.round(quiet.p99_us)} µs read-only · p99.9 {Math.round(busy.p999_us)} µs</dd>
+      </div>
+      <div>
+        <dt>After 5 churn cycles</dt>
+        <dd class="num">−{((cycles[0].recall - worn.recall) * 100).toFixed(1)} pt</dd>
+        <dd class="note">
+          recall, and −{pct(1 - worn.qps / cycles[0].qps)} speed, with {pct(worn.tombstone_share)} tombstones · a {churn.compaction_seconds.toFixed(0)} s
+          compaction restores {compacted.recall.toFixed(3)}
+        </dd>
+      </div>
+    </dl>
   </section>
 
   <section class="container block two" aria-label="Where the speed comes from">
@@ -435,5 +522,50 @@
     dd {
       font-size: 30px;
     }
+  }
+  .filter-table th[scope="row"] {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .filter-table th[scope="row"] span {
+    margin-left: 6px;
+    color: var(--muted);
+    font-weight: 400;
+  }
+  .filter-table td small {
+    margin-left: 6px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .filter-table td em {
+    color: var(--muted);
+    font-style: normal;
+  }
+  .filter-table td.win {
+    color: var(--accent-strong);
+    font-weight: 700;
+    background: var(--accent-wash);
+  }
+  @media (max-width: 640px) {
+    .filter-table td small,
+    .filter-table th[scope="row"] span {
+      display: none;
+    }
+    .filter-table th,
+    .filter-table td {
+      padding: 7px 5px;
+    }
+    .filter-table thead th {
+      white-space: normal;
+      vertical-align: bottom;
+    }
+  }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 </style>
