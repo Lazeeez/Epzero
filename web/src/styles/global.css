@@ -1,4 +1,4 @@
-/* Oryx design system. Dark and cinematic by default; light is a full theme, not an inversion.
+/* Epzero design system. Dark and cinematic by default; light is a full theme, not an inversion.
    Chart colors come from the CVD-validated categorical palette used across the project. */
 
 /* Until the web fonts arrive, text is drawn in a local font scaled to the same metrics, so the
@@ -55,6 +55,9 @@
   --spot: rgba(91, 157, 255, 0.1);
   --spot-edge: rgba(156, 195, 255, 0.35);
   --glass-fill: rgba(16, 18, 25, 0.86);
+  /* Panels over the live 3D scene: near-opaque, so its bright labels don't show through. Not fully
+     opaque: Chrome then stops repainting parts of the WebGL canvas around them (measured). */
+  --overlay-fill: rgba(14, 16, 22, 0.96);
 
   --font: "Inter Variable", "Inter Fallback", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "JetBrains Mono Variable", "JetBrains Mono Fallback", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -99,6 +102,7 @@
   --spot: rgba(42, 111, 214, 0.07);
   --spot-edge: rgba(42, 111, 214, 0.35);
   --glass-fill: rgba(255, 255, 255, 0.9);
+  --overlay-fill: rgba(255, 255, 255, 0.96);
 }
 
 *,
