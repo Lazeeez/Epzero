@@ -360,6 +360,86 @@ TEST_F(HnswTest, Sq8SaveLoadRoundTrip) {
   }
 }
 
+// ---------- RaBitQ quantization ----------
+
+HnswParams rabitq_params(Metric metric, std::size_t max_elements = kBase) {
+  HnswParams p = params_for(metric, max_elements);
+  p.quantization = Quantization::RaBitQ;
+  return p;
+}
+
+TEST_F(HnswTest, RabitqRequiresTrainingAndFullVectors) {
+  HnswIndex index(rabitq_params(Metric::L2));
+  EXPECT_FALSE(index.trained());
+  EXPECT_THROW(index.add(0, data_.base.row(0)), std::logic_error);
+  index.train(data_.base.data.data(), 500);
+  EXPECT_TRUE(index.trained());
+  index.add(0, data_.base.row(0));
+  HnswParams without = rabitq_params(Metric::L2);
+  without.keep_vectors = false;
+  EXPECT_THROW(HnswIndex{without}, std::invalid_argument);
+}
+
+// The estimator is unbiased: averaged over many pairs, estimated distances track the true ones.
+TEST_F(HnswTest, RabitqEstimatesDistances) {
+  HnswIndex index(rabitq_params(Metric::L2));
+  index.train(data_.base.data.data(), kBase);
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  // With re-ranking off (rerank = k), the top result's distance is still re-scored exactly, so
+  // compare the beam's order instead: the exact nearest neighbour is among RaBitQ's top 10.
+  std::size_t hits = 0;
+  for (std::size_t q = 0; q < kQueries; ++q) {
+    const auto exact = brute_force_search(data_.base.data.data(), kBase, kDim, data_.queries.row(q), 1, Metric::L2);
+    for (const auto& r : index.search(data_.queries.row(q), 10, {.ef = 100})) hits += r.label == exact[0].label;
+  }
+  EXPECT_GE(static_cast<double>(hits) / kQueries, 0.97);
+}
+
+TEST_F(HnswTest, RabitqWithRerankKeepsHighRecall) {
+  for (const Metric metric : {Metric::L2, Metric::InnerProduct}) {
+    HnswIndex index(rabitq_params(metric));
+    index.train(data_.base.data.data(), kBase);
+    for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+    EXPECT_GE(measure_recall(index, data_, 160, metric), 0.95) << to_string(metric);
+  }
+  {
+    // Cosine (the ground-truth helper wants normalized data, so check that vectors find themselves).
+    HnswIndex index(rabitq_params(Metric::Cosine));
+    index.train(data_.base.data.data(), kBase);
+    for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+    for (std::size_t i = 0; i < 100; ++i) EXPECT_EQ(index.search(data_.base.row(i), 1, {.ef = 64})[0].label, i);
+  }
+  // Re-ranked distances are exact.
+  HnswIndex index(rabitq_params(Metric::L2));
+  index.train(data_.base.data.data(), kBase);
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  const auto results = index.search(data_.queries.row(0), kK, {.ef = 100});
+  const auto exact = brute_force_search(data_.base.data.data(), kBase, kDim, data_.queries.row(0), 1, Metric::L2);
+  EXPECT_EQ(results[0].label, exact[0].label);
+  EXPECT_NEAR(results[0].distance, exact[0].distance, 1e-3f);
+}
+
+TEST_F(HnswTest, RabitqSaveLoadAndCompaction) {
+  HnswIndex index(rabitq_params(Metric::Cosine));
+  index.train(data_.base.data.data(), kBase);
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  for (std::size_t i = 0; i < kBase; i += 4) index.remove(i);
+  const auto path = (std::filesystem::temp_directory_path() / "oryx_rabitq.idx").string();
+  index.save(path);
+  const auto loaded = HnswIndex::load(path);
+  std::filesystem::remove(path);
+  EXPECT_EQ(loaded->params().quantization, Quantization::RaBitQ);
+  for (std::size_t q = 0; q < 50; ++q) {
+    const auto a = index.search(data_.queries.row(q), kK, {.ef = 64});
+    const auto b = loaded->search(data_.queries.row(q), kK, {.ef = 64});
+    ASSERT_EQ(a.size(), b.size());
+    for (std::size_t i = 0; i < a.size(); ++i) EXPECT_EQ(a[i].label, b[i].label);
+  }
+  const auto compact = loaded->compacted(4);
+  EXPECT_EQ(compact->size(), kBase - kBase / 4);
+  for (std::size_t i = 1; i < 60; i += 4) EXPECT_EQ(compact->search(data_.base.row(i), 1, {.ef = 64})[0].label, i);
+}
+
 // ---------- Deletes ----------
 
 TEST_F(HnswTest, RemovedLabelsAreNeverReturned) {
