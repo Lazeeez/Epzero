@@ -13,8 +13,8 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/server/v3/embed"
 
-	"github.com/Lazeeez/Oryx/cluster/router"
-	"github.com/Lazeeez/Oryx/cluster/sim"
+	"github.com/Lazeeez/Epzero/cluster/router"
+	"github.com/Lazeeez/Epzero/cluster/sim"
 )
 
 // startEtcd runs a single-member etcd in a temporary directory and returns a client factory.
