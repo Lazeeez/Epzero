@@ -1,0 +1,19 @@
+# Response headers for every static file Cloudflare serves (Workers static assets).
+
+/*
+  # Cross-origin isolation: WebAssembly threads need SharedArrayBuffer.
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Resource-Policy: same-origin
+  # The rest of the Content Security Policy is a meta tag in index.html (it carries the build's
+  # script hash); a meta tag can't say who may frame the page.
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+
+# Bundles, styles and fonts have content hashes in their names: cache them for a year.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
