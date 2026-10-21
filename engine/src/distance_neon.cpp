@@ -5,7 +5,7 @@
 
 #include "kernels.h"
 
-namespace oryx::kernels {
+namespace epzero::kernels {
 
 float l2_neon(const float* a, const float* b, std::size_t dim) noexcept {
   float32x4_t acc0 = vdupq_n_f32(0.0f);
@@ -77,6 +77,6 @@ float ip_neon(const float* a, const float* b, std::size_t dim) noexcept {
   return 1.0f - dot;
 }
 
-}  // namespace oryx::kernels
+}  // namespace epzero::kernels
 
 #endif
