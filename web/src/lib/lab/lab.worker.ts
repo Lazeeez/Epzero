@@ -1,4 +1,4 @@
-// Runs the Oryx engine (C++ compiled to WebAssembly) off the main thread, so the page stays at
+// Runs the Epzero engine (C++ compiled to WebAssembly) off the main thread, so the page stays at
 // 60 fps while the engine saturates every core.
 import { UNSUPPORTED_BROWSER, wasmSimdSupported } from "../support";
 import type { FromWorker, KernelRow, LabConfig, SweepRow, ToWorker } from "./protocol";
@@ -15,7 +15,7 @@ interface Lab {
   delete(): void;
 }
 
-interface OryxModule {
+interface EpzeroModule {
   Lab: new () => Lab;
 }
 
@@ -24,10 +24,10 @@ const post = (message: FromWorker) => (self as unknown as Worker).postMessage(me
 const variant: "mt" | "st" = self.crossOriginIsolated ? "mt" : "st";
 const threads = variant === "mt" ? Math.min(navigator.hardwareConcurrency || 4, 16) : 1;
 
-async function loadEngine(): Promise<OryxModule> {
-  const url = `${import.meta.env.BASE_URL}wasm/${variant}/oryx.js`;
-  const { default: createOryx } = await import(/* @vite-ignore */ url);
-  return createOryx();
+async function loadEngine(): Promise<EpzeroModule> {
+  const url = `${import.meta.env.BASE_URL}wasm/${variant}/epzero.js`;
+  const { default: createEpzero } = await import(/* @vite-ignore */ url);
+  return createEpzero();
 }
 
 const enginePromise = loadEngine();
