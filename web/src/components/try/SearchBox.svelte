@@ -663,7 +663,6 @@
     background: rgba(0, 0, 0, 0.55);
     color: #fff;
     cursor: pointer;
-    backdrop-filter: blur(6px);
   }
   .round svg {
     width: 17px;
