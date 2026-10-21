@@ -1,11 +1,11 @@
-// Oryx cluster protocol: the router talks to data nodes, and each shard's primary talks to its
+// Epzero cluster protocol: the router talks to data nodes, and each shard's primary talks to its
 // replica. Every shard lives on two nodes (primary + replica); an epoch per shard, bumped on
 // every failover, fences off stale primaries.
 syntax = "proto3";
 
-package oryx.v1;
+package epzero.v1;
 
-option go_package = "github.com/Lazeeez/Oryx/cluster/gen/oryxv1;oryxv1";
+option go_package = "github.com/Lazeeez/Epzero/cluster/gen/epzerov1;epzerov1";
 
 enum Role {
   ROLE_UNSPECIFIED = 0;
@@ -14,7 +14,7 @@ enum Role {
 }
 
 message Record {
-  uint32 type = 1;  // 1 = upsert, 2 = remove (matches oryx::LogRecord::Type)
+  uint32 type = 1;  // 1 = upsert, 2 = remove (matches epzero::LogRecord::Type)
   uint64 lsn = 2;
   uint64 label = 3;
   repeated float vector = 4;
