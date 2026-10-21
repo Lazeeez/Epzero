@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 const shots = process.env.SCREENSHOT_DIR;
 
-test("navigator game: hop through the graph to the target, then compare with Oryx", async ({ page }) => {
+test("navigator game: hop through the graph to the target, then compare with Epzero", async ({ page }) => {
   test.setTimeout(300_000);
   const errors: string[] = [];
   // A photo since deleted from Flickr 404s; the page shows a placeholder, but the browser still logs it.
@@ -24,15 +24,15 @@ test("navigator game: hop through the graph to the target, then compare with Ory
     await page.screenshot({ path: `${shots}/play.png` });
   }
 
-  // Follow Oryx's hint (the neighbour closest to the target) each hop: greedy routing on the base
+  // Follow Epzero's hint (the neighbour closest to the target) each hop: greedy routing on the base
   // layer. It must finish the round, won or lost, and show the comparison.
   const result = page.locator(".result");
   for (let hop = 0; hop < 26 && !(await result.isVisible()); hop++) {
-    await page.getByRole("button", { name: /Ask Oryx/ }).click();
+    await page.getByRole("button", { name: /Ask Epzero/ }).click();
     await page.locator(".options button.hinted").click();
   }
   await expect(result).toBeVisible();
-  await expect(result).toContainText("Oryx");
+  await expect(result).toContainText("Epzero");
   const sides = result.locator(".compare dl");
   await expect(sides.nth(0).locator("dd").first()).toHaveText(/\d+ hops/);
   await expect(sides.nth(1).locator("dd").first()).toHaveText(/^\d+ \+ \d+$/); // express hops + expansions
