@@ -5,7 +5,8 @@ const shots = process.env.SCREENSHOT_DIR;
 test("navigator game: hop through the graph to the target, then compare with Oryx", async ({ page }) => {
   test.setTimeout(300_000);
   const errors: string[] = [];
-  page.on("console", (message) => message.type() === "error" && errors.push(message.text()));
+  // A photo since deleted from Flickr 404s; the page shows a placeholder, but the browser still logs it.
+  page.on("console", (m) => m.type() === "error" && !m.location().url.includes("staticflickr.com") && errors.push(m.text()));
   page.on("pageerror", (error) => errors.push(error.message));
 
   await page.setViewportSize({ width: 1440, height: 900 });
