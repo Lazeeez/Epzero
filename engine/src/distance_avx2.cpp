@@ -5,7 +5,7 @@
 
 #include "kernels.h"
 
-namespace oryx::kernels {
+namespace epzero::kernels {
 namespace {
 
 inline float hsum(__m256 v) noexcept {
@@ -119,6 +119,6 @@ std::int32_t sq8_int_dot_avx2(const std::int8_t* w, const std::uint8_t* codes, s
   return dot;
 }
 
-}  // namespace oryx::kernels
+}  // namespace epzero::kernels
 
 #endif
