@@ -6,15 +6,14 @@
   "browserTextModel": "Xenova/clip-vit-base-patch32",
   "metric": "cosine",
   "files": {
-    "vectors": "vectors.i8",
-    "scales": "scales.f32",
+    "vectors": "vectors.v2.bin",
     "layout": "layout.u16",
     "meta": "meta.v2.json",
     "graph": "graph.bin"
   },
   "quantization": {
     "scheme": "int8 symmetric per-dimension",
-    "recallAt10VsFloat": 0.9939
+    "recallAt10VsFloat": 0.9905
   },
   "thumbnail": "https://c{host}.staticflickr.com/{path}_{size}.jpg",
   "attribution": "Images from Open Images V7 (Google), hosted on Flickr under the licenses listed per image (CC BY 2.0); image-level labels CC BY 4.0. Each image links to its author and source.",
@@ -60,5 +59,26 @@
     "efConstruction": 128,
     "metric": "cosine",
     "builtBy": "engine/tools/export_graph.cpp (web/scripts/build-graph.sh)"
+  },
+  "vectors": {
+    "layout": "pca-blocks",
+    "stages": [
+      {
+        "dims": 64,
+        "recallAt10VsFloat": 0.6119
+      },
+      {
+        "dims": 128,
+        "recallAt10VsFloat": 0.7867
+      },
+      {
+        "dims": 256,
+        "recallAt10VsFloat": 0.9138
+      },
+      {
+        "dims": 512,
+        "recallAt10VsFloat": 0.9905
+      }
+    ]
   }
 }
