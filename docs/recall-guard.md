@@ -17,7 +17,7 @@ Oryx makes recall observable and controllable, with three parts:
 | | What it does | API |
 |---|---|---|
 | **Recall monitor** | Re-answers a small sample of real queries exactly, in the background, and reports live recall@k with a confidence interval, per traffic segment | `RecallMonitor`, `RecallGuard::report()` |
-| **Recall guard** | Holds a recall target by moving the beam width: wider as soon as measured recall falls short, narrower only on confident surplus | `RecallGuard`, `oryxdb.RecallGuard` |
+| **Recall guard** | Holds a recall target by moving the beam width: wider as soon as measured recall falls short, narrower only on confident surplus. Optionally per query: each search stops once its answer settles | `RecallGuard`, `oryxdb.RecallGuard(per_query=True)` |
 | **Miss explainer** | Answers "why wasn't this document returned?": filtered out, not near enough (the search was right), or missed by the walk, and then which beam width finds it | `HnswIndex::explain()`, `Index.explain()` |
 
 ## Using it
@@ -116,6 +116,60 @@ against an exact scan, plots it against the target, and moves the beam width whe
 short. Shift-clicking a star in the 3D view (tapping, on a phone) explains why that photo is or
 isn't among the results.
 
+## Per-query effort
+
+One beam width per segment still spends the same effort on every query in it. Real traffic mixes
+easy queries, whose answer is settled after a few steps, with hard ones that need a much wider
+search; a beam wide enough for the hard ones wastes work on the easy ones, and the hardest still
+come back badly answered.
+
+**Patience** (`SearchOptions::patience`, `Index.search(patience=...)`) lets each query decide for
+itself. The search keeps the best *k* found so far beside its beam and stops once they have gone
+*P* node expansions in a row without changing; the beam width becomes a cap that only the hardest
+queries reach. There is nothing to predict and nothing to train: the stopping rule watches the
+answer form. (Expanding a deleted node doesn't count against patience: it only routes the walk.)
+
+The per-query guard (`RecallGuard::Options::per_query`) steers the same single number as before,
+now the cap, with patience at a third of it, the best ratio in a sweep of caps and patiences on
+GloVe-100. The control loop, the monitor and the guarantee are unchanged: the target is still
+held against measured recall.
+
+**Where it helps.** GloVe-100 (word embeddings, 1.2M × 100) is one of the hardest ann-benchmarks
+sets, with query difficulty that varies widely: at `ef` 512 mean recall is 0.92, yet 12% of
+queries get fewer than 8 of their 10 true neighbours and 2.3% fewer than half. One search thread on the development laptop, 2,000
+queries, against a fixed beam width interpolated to the same recall
+([`engine/bench/bench_adaptive.cpp`](../engine/bench/bench_adaptive.cpp),
+[`bench/results/glove-adaptive-laptop.json`](../bench/results/glove-adaptive-laptop.json)):
+
+| Patience (cap) | Recall | vs fixed `ef` at that recall: queries/s | distance computations | Queries with recall < 0.5 |
+|---|---|---|---|---|
+| 128 (384) | 0.892 | 1.13× | 0.82× | 3.8% |
+| 192 (512) | 0.912 | 1.11× | 0.83× | 2.6% |
+| 256 (768) | 0.929 | 1.10× | 0.81× | 1.3% (fixed `ef` 512, recall 0.924: 2.3%) |
+
+On SIFT1M, where queries vary less, patience matched a fixed beam width on distance computations
+per unit of recall but ran about 8% slower, the cost of its bookkeeping. It earns its place on hard,
+uneven traffic.
+
+**Under drift.** The same four-phase stream as above, with the per-query guard as a fourth policy
+(laptop; [`bench/results/*-guard-perquery-laptop.json`](../bench/results/)):
+
+| | SIFT1M, target 0.95 | GloVe-100, target 0.90 |
+|---|---|---|
+| Phases at target, after adapting: guard / per-query guard | 4 / 4 and 4 / 4 | 4 / 4 and 4 / 4 |
+| Distance computations per query: guard | 1,417 | 8,958 |
+| Distance computations per query: per-query guard | 1,385 (−2%) | 6,659 (−26%) |
+| Time per query: guard | 144 µs | 973 µs |
+| Time per query: per-query guard | 162 µs (+12%) | **799 µs (−18%)** |
+
+On GloVe the plain guard overshoots (it holds 0.93 for a 0.90 target, because narrowing waits for
+strong evidence), and the per-query guard lands closer to the target, below the cost of a
+hand-tuned fixed beam width (6,899 distance computations), without anyone tuning it. On SIFT1M it
+doesn't pay: the queries there are too alike for early stopping to save more than its bookkeeping
+costs. Across three runs the per-query guard's saving in distance computations ranged from 2% to
+12% on SIFT1M and from 23% to 26% on GloVe, the noise of the sampled control loop. So `per_query`
+is off by default: turn it on for traffic whose difficulty is uneven.
+
 ## What didn't work
 
 The first idea was per-query adaptivity: predict from a cheap probe search how hard each query is,
@@ -129,9 +183,10 @@ a query needs (Spearman 0.43 for local intrinsic dimensionality), and needs vary
   2–20% before counting the probe; counting it, results ranged from 5% cheaper to 49% more
   expensive. Part of the saving was only the coarseness of the fixed-width ladder.
 
-So the guard controls one beam width per traffic segment, against measured recall, rather than
+So the guard controlled one beam width per traffic segment, against measured recall, rather than
 predicting per query. The data in this section came from a scripted study on 10,000 SIFT1M
-queries; the scripts are summarized here rather than kept, since the approach was dropped.
+queries; the scripts are summarized here rather than kept, since the approach was dropped. What
+worked instead (above) needs no prediction: each query stops when its own answer settles.
 
 ## Limits and next steps
 
@@ -144,5 +199,8 @@ queries; the scripts are summarized here rather than kept, since the approach wa
   phase when 64 would have sufficed: it narrows only on strong evidence, trading cost for safety.
   When the target sits within sampling noise of what a beam width delivers, a smarter narrowing
   rule (e.g. one that remembers the last width that held) would save more.
-- **More data:** GloVe-100 and higher-dimensional text-embedding sets, whose recall is harder to
-  hold, are next.
+- **Patience applies to unfiltered searches.** Filtered segments keep a fixed beam width per
+  segment; a filtered walk's progress is uneven by design (it skips excluded nodes), so a stopping
+  rule for it needs its own study.
+- **More data:** higher-dimensional text-embedding sets (DBpedia OpenAI, 1,536-d) are next for the
+  per-query guard.
