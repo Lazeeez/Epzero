@@ -1,16 +1,16 @@
-"""A LangChain vector store backed by an Oryx HNSW index.
+"""A LangChain vector store backed by an Epzero HNSW index.
 
     from langchain_openai import OpenAIEmbeddings
-    from oryxdb.langchain import OryxVectorStore
+    from epzero.langchain import EpzeroVectorStore
 
-    store = OryxVectorStore.from_texts(texts, OpenAIEmbeddings(), metadatas=metadatas)
+    store = EpzeroVectorStore.from_texts(texts, OpenAIEmbeddings(), metadatas=metadatas)
     store.similarity_search("how do I reset my password?", k=4, filter={"source": "faq"})
     store.hybrid_search("error E-1042 on checkout", k=4)   # keywords + vectors
     retriever = store.as_retriever(search_kwargs={"k": 8})
 
 Documents, their metadata and their vectors live in memory beside the index; save_local() and
 load_local() persist all of it to a folder. Metadata filters (a dict of required values, a list
-meaning "any of", or a callable) are compiled into an Oryx filter, so the engine picks its filtered
+meaning "any of", or a callable) are compiled into an Epzero filter, so the engine picks its filtered
 search strategy instead of over-fetching and discarding. Every text is also indexed for keyword
 search (BM25), which hybrid_search() merges with the vector search.
 """
@@ -31,15 +31,15 @@ try:
     from langchain_core.vectorstores import VectorStore
     from langchain_core.vectorstores.utils import maximal_marginal_relevance
 except ImportError as error:  # pragma: no cover
-    raise ImportError('oryxdb.langchain needs LangChain: pip install "oryxdb[langchain]"') from error
+    raise ImportError('epzero.langchain needs LangChain: pip install "epzero[langchain]"') from error
 
 from ._core import Index, TextIndex, fuse_rankings
 
 MetadataFilter = dict[str, Any] | Callable[[dict[str, Any]], bool]
 
 
-class OryxVectorStore(VectorStore):
-    """LangChain `VectorStore` on an Oryx HNSW index.
+class EpzeroVectorStore(VectorStore):
+    """LangChain `VectorStore` on an Epzero HNSW index.
 
     Args:
         embedding: the embedding model.
@@ -242,7 +242,7 @@ class OryxVectorStore(VectorStore):
         *,
         ids: list[str] | None = None,
         **kwargs: Any,
-    ) -> OryxVectorStore:
+    ) -> EpzeroVectorStore:
         store = cls(embedding, **kwargs)
         store.add_texts(texts, metadatas, ids=ids)
         return store
@@ -253,7 +253,7 @@ class OryxVectorStore(VectorStore):
         """Writes the index, the vectors and the documents to `folder`."""
         os.makedirs(folder, exist_ok=True)
         if self._index is not None:
-            self._index.save(os.path.join(folder, "index.oryx"))
+            self._index.save(os.path.join(folder, "index.epzero"))
         np.save(os.path.join(folder, "vectors.npy"), self._vectors)
         state = {
             "format": 1,
@@ -271,7 +271,7 @@ class OryxVectorStore(VectorStore):
             json.dump(state, f, ensure_ascii=False)
 
     @classmethod
-    def load_local(cls, folder: str, embedding: Embeddings) -> OryxVectorStore:
+    def load_local(cls, folder: str, embedding: Embeddings) -> EpzeroVectorStore:
         """Opens a store written by save_local()."""
         with open(os.path.join(folder, "store.json"), encoding="utf-8") as f:
             state = json.load(f)
@@ -285,7 +285,7 @@ class OryxVectorStore(VectorStore):
         store._texts = state["texts"]
         store._metadatas = state["metadatas"]
         store._vectors = np.load(os.path.join(folder, "vectors.npy"))
-        index_path = os.path.join(folder, "index.oryx")
+        index_path = os.path.join(folder, "index.epzero")
         if os.path.exists(index_path):
             store._index = Index.load(index_path)
         live = sorted(store._labels.values())
