@@ -3,7 +3,7 @@
 # neighbours of 10,000 queries among 990,000 vectors (1536-d), on every core of one node.
 # First, on the login node: .pace-bench/bin/python scripts/make_dbpedia.py download
 #   sbatch scripts/pace/make-dbpedia.sbatch
-#SBATCH --job-name=oryx-dbpedia
+#SBATCH --job-name=epzero-dbpedia
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --partition=coc-cpu,ice-cpu
@@ -12,4 +12,4 @@
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
 source scripts/pace/env.sh
-"$ORYX_ROOT/.pace-bench/bin/python" scripts/make_dbpedia.py build
+"$EPZERO_ROOT/.pace-bench/bin/python" scripts/make_dbpedia.py build
