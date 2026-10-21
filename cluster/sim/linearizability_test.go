@@ -12,7 +12,7 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/Lazeeez/Oryx/cluster/router"
+	"github.com/Lazeeez/Epzero/cluster/router"
 	"github.com/anishathalye/porcupine"
 )
 
