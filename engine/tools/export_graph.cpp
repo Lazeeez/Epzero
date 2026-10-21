@@ -1,7 +1,7 @@
 // Builds the web demo's HNSW graph natively and writes it as a graph-only file (no vectors), so
 // the site can load a prebuilt index instead of building one on every visit.
 //
-//   oryx-export-graph <vectors.i8> <scales.f32> <dim> <M> <efConstruction> <out.graph>
+//   epzero-export-graph <vectors.i8> <scales.f32> <dim> <M> <efConstruction> <out.graph>
 //
 // The vectors are dequantized and normalized exactly as the WebAssembly Collection does
 // (code * scale[d] / 127, then L2-normalized), and indexed with cosine distance, so the graph
@@ -17,9 +17,9 @@
 #include <thread>
 #include <vector>
 
-#include "oryx/distance.h"
-#include "oryx/hnsw.h"
-#include "oryx/parallel.h"
+#include "epzero/distance.h"
+#include "epzero/hnsw.h"
+#include "epzero/parallel.h"
 
 namespace {
 
@@ -51,13 +51,13 @@ int main(int argc, char** argv) {
     for (std::size_t i = 0; i < codes.size(); ++i) {
       vectors[i] = static_cast<float>(static_cast<std::int8_t>(codes[i])) * (scales[i % dim] / 127.0f);
     }
-    for (std::size_t i = 0; i < n; ++i) oryx::normalize(vectors.data() + i * dim, dim);
+    for (std::size_t i = 0; i < n; ++i) epzero::normalize(vectors.data() + i * dim, dim);
 
-    oryx::HnswIndex index(oryx::HnswParams{.dim = dim, .metric = oryx::Metric::Cosine, .max_elements = n, .M = M,
+    epzero::HnswIndex index(epzero::HnswParams{.dim = dim, .metric = epzero::Metric::Cosine, .max_elements = n, .M = M,
                                            .ef_construction = ef_construction});
     const auto start = std::chrono::steady_clock::now();
     const std::size_t threads = std::max(1u, std::thread::hardware_concurrency());
-    oryx::parallel_for(0, n, threads, [&](std::size_t i) { index.add(i, vectors.data() + i * dim); });
+    epzero::parallel_for(0, n, threads, [&](std::size_t i) { index.add(i, vectors.data() + i * dim); });
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 
     const auto bytes = index.export_graph();
