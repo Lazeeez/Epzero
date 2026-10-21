@@ -28,7 +28,8 @@ oryx::Metric parse_metric(const std::string& name) {
 oryx::Quantization parse_quantization(const std::string& name) {
   if (name == "none") return oryx::Quantization::None;
   if (name == "sq8") return oryx::Quantization::SQ8;
-  throw std::invalid_argument("quantization must be 'none' or 'sq8'");
+  if (name == "rabitq") return oryx::Quantization::RaBitQ;
+  throw std::invalid_argument("quantization must be 'none', 'sq8' or 'rabitq'");
 }
 
 oryx::FilterStrategy parse_strategy(const std::string& name) {
