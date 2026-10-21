@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "oryxdb"
-version = "0.2.0"
+version = "0.3.0"
 description = "An HNSW vector database built from scratch in C++20: SIMD search, filtered search, recall monitoring, crash-safe storage"
 readme = "python/README.md"
 requires-python = ">=3.10"
