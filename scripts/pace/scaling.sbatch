@@ -9,7 +9,7 @@
 # Results: pace-results/gold6226/scaling-<placement>-t<threads>-run<n>.json (untracked; scp back)
 #
 #   sbatch scripts/pace/scaling.sbatch
-#SBATCH --job-name=oryx-scaling
+#SBATCH --job-name=epzero-scaling
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --constraint=gold6226
@@ -19,12 +19,12 @@
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
 source scripts/pace/env.sh
-INDEX=data/indexes/sift1m-M16-efc200.oryx
-[ -x "$ORYX_BUILD/bench_recall" ] || { echo "build first: scripts/pace/build.sh"; exit 1; }
+INDEX=data/indexes/sift1m-M16-efc200.epzero
+[ -x "$EPZERO_BUILD/bench_recall" ] || { echo "build first: scripts/pace/build.sh"; exit 1; }
 [ -f "$INDEX" ] || { echo "run scripts/pace/sift1m.sbatch first (it saves the index)"; exit 1; }
 
 # Pick up benchmark changes since the last build (incremental, a few seconds).
-cmake --build "$ORYX_BUILD" --target bench_recall -j "$(nproc)"
+cmake --build "$EPZERO_BUILD" --target bench_recall -j "$(nproc)"
 
 OUT=pace-results/gold6226
 mkdir -p "$OUT"
@@ -36,7 +36,7 @@ point() {  # placement threads numactl-args...
   shift 2
   for run in 1 2 3; do
     echo "== $placement, $threads threads, run $run"
-    numactl "$@" "$ORYX_BUILD/bench_recall" "${SIFT[@]}" --search-threads "$threads" --repeat "$threads" \
+    numactl "$@" "$EPZERO_BUILD/bench_recall" "${SIFT[@]}" --search-threads "$threads" --repeat "$threads" \
       --json "$OUT/scaling-$placement-t$threads-run$run.json" | grep -E "^ +(80|200) "
   done
 }
