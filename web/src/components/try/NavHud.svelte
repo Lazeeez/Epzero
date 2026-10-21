@@ -91,8 +91,7 @@
     padding: 14px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background: color-mix(in srgb, var(--surface-solid) 55%, transparent);
-    backdrop-filter: blur(14px);
+    background: var(--glass-fill);
     font: 12px var(--mono);
     pointer-events: none !important;
   }
