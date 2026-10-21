@@ -1,4 +1,7 @@
-# Oryx
+# Epzero
+
+**[epzero.dev](https://epzero.dev/)** · The name is HNSW's own path: a search starts at the
+**e**ntry **p**oint on the top layer and descends to layer **zero**, where the answer is.
 
 A vector database built from scratch in C++20. It implements HNSW
 (Hierarchical Navigable Small World) approximate nearest-neighbor search, with
@@ -6,14 +9,14 @@ hand-written SIMD kernels, lock-free concurrent search and memory-system
 tuning. On SIFT1M, on a dedicated server where every library gets huge pages,
 it serves **1.13× the queries per second of hnswlib and 1.17× FAISS at the same
 recall**, builds the graph fastest, and scales to 10× on a 12-core socket.
-Against seven libraries on four more datasets (up to 10M vectors and 1,536
+Against five other libraries on four more datasets (up to 10M vectors and 1,536
 dimensions), its 8-bit mode is second only to Glass on every one
 ([results](docs/performance.md#against-the-field-four-more-datasets)).
 
 **It also makes recall visible and keeps it on target.** Every approximate
 index trades accuracy for speed, and in production nobody measures the
 accuracy: it drifts with deletes, filters and new kinds of queries, and a RAG
-system then answers from the wrong documents without anyone noticing. Oryx's
+system then answers from the wrong documents without anyone noticing. Epzero's
 recall guard re-answers a small sample of real queries exactly in the
 background, reports live recall with a confidence interval, and moves the
 search effort to hold a target. Under drift on SIFT1M it held 0.95 recall where
@@ -25,13 +28,13 @@ The same engine runs on three targets: native (benchmarks and servers),
 WebAssembly (a live, in-browser demo) and a sharded, replicated cluster (C++
 data nodes behind a Go router).
 
-**[Live demo →](https://lazeeez.github.io/Oryx/)** The engine compiled to
+**[Live demo →](https://epzero.dev/)** The engine compiled to
 WebAssembly (SIMD128 + threads), running entirely in your browser:
-- **[Landing page](https://lazeeez.github.io/Oryx/).** The engine loads the
+- **[Landing page](https://epzero.dev/).** The engine loads the
   photo index behind the hero and answers live queries, then a
   scroll-driven explainer builds a small HNSW index (the real engine, in
   WebAssembly) and replays a search layer by layer. Click to search it yourself.
-- **[Playground](https://lazeeez.github.io/Oryx/try).** 29,825 Open Images
+- **[Playground](https://epzero.dev/try).** 29,825 Open Images
   photos embedded with CLIP, loaded from a prebuilt graph in ~0.1 s and shown
   as a 3D stack of HNSW layers. The vectors are stored on their principal
   axes, a block of dimensions at a time, so search starts after the first
@@ -50,15 +53,15 @@ WebAssembly (SIMD128 + threads), running entirely in your browser:
   guard** and watch it hold a recall target live; shift-click (or tap) any star
   to learn **why it is or isn't a result**. **Free look** (`H`) hides every
   panel, leaving just the graph to explore.
-- **[Play](https://lazeeez.github.io/Oryx/play).** *Out-navigate Oryx*: hop
+- **[Play](https://epzero.dev/play).** *Out-navigate Epzero*: hop
   from photo to photo along the real base-layer links to reach a target,
-  then see the route Oryx's search took through its express layers.
-- **[Cluster](https://lazeeez.github.io/Oryx/cluster).** The cluster's Go
+  then see the route Epzero's search took through its express layers.
+- **[Cluster](https://epzero.dev/cluster).** The cluster's Go
   router, compiled to WebAssembly, runs against four simulated nodes. Kill,
   isolate or slow a node and watch the router fail over while searches keep
   their exact answers, then switch between strong and eventual reads and
   check the live history for linearizability with Porcupine.
-- **[Benchmarks](https://lazeeez.github.io/Oryx/benchmarks).** Interactive
+- **[Benchmarks](https://epzero.dev/benchmarks).** Interactive
   SIFT1M charts against hnswlib and FAISS, the optimization log, SQ8 results,
   and a lab that benchmarks the engine on your own device.
 
@@ -73,20 +76,20 @@ the 3D view; browsers too old for WebAssembly SIMD get a clear explanation.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/sift1m-recall-qps-dark.svg">
-  <img alt="Recall versus QPS on SIFT1M: Oryx is above hnswlib and FAISS at every recall level" src="docs/img/sift1m-recall-qps-light.svg">
+  <img alt="Recall versus QPS on SIFT1M: Epzero is above hnswlib and FAISS at every recall level" src="docs/img/sift1m-recall-qps-light.svg">
 </picture>
 
 ## Why
 
 Vector search sits under semantic search, recommendations and retrieval for
-LLMs, but most people only ever call it through a library. Oryx builds every
+LLMs, but most people only ever call it through a library. Epzero builds every
 layer itself: the graph algorithm, the SIMD distance kernels, lock-free
 concurrency, quantization, a crash-safe storage engine, replication with
 failover, and a browser build that lets anyone watch a search happen. Each
 choice is measured against the best existing libraries, and the ones that
 didn't pay off are documented too.
 
-The name comes from Destiny's Oryx, *the First Navigator*. An HNSW search is
+The name comes from Destiny's Epzero, *the First Navigator*. An HNSW search is
 navigation: it starts on a sparse top layer, takes long hops toward the target,
 and descends layer by layer to refine the route. The site's star-map visuals and
 navigator HUD lean on that idea.
@@ -119,7 +122,7 @@ navigator HUD lean on that idea.
 - **Faster than the reference libraries** on SIFT1M, at every recall level: 1.13×
   hnswlib's and 1.17× FAISS's queries per second at recall 0.95 on a dedicated
   server, and the fastest 1M-vector build (26.1 s on 24 threads, against 27.8 s
-  and 37.8 s). Where huge pages are opt-in, Oryx asks for them and the others
+  and 37.8 s). Where huge pages are opt-in, Epzero asks for them and the others
   don't, and the lead grows to 1.46× ([why](docs/performance.md#why-the-laptop-showed-a-bigger-lead-huge-pages)).
 - **Near-linear multicore scaling:** lock-free reads reach 10× on the 12 cores of
   one socket, at identical recall.
@@ -128,7 +131,7 @@ navigator HUD lean on that idea.
 - **8-bit quantization** with exact re-ranking: +48% QPS at identical recall.
   Integer distance kernels (one VNNI instruction per 32–64 dimensions) and
   re-ranking only the best 3 × k made it up to 1.95× faster again on
-  960-dimensional GIST1M (laptop; [details](docs/performance.md#what-glass-does-better-and-what-oryx-took-from-it)).
+  960-dimensional GIST1M (laptop; [details](docs/performance.md#what-glass-does-better-and-what-epzero-took-from-it)).
 - **Crash safety proven by fault injection:** the write-ahead log survives a
   torn write at every byte offset, mid-log corruption and random `kill -9`s.
 - **A replicated cluster** whose failover is tested on every push with real
@@ -158,7 +161,7 @@ flowchart LR
   core --> PY["Python module<br/>(pybind11)"]
   core --> BENCH["Benchmarks<br/>vs. hnswlib, FAISS"]
   core --> WASM["WebAssembly<br/>threaded + single-threaded"]
-  core --> NODE["oryx-node<br/>(gRPC data node)"]
+  core --> NODE["epzero-node<br/>(gRPC data node)"]
   WASM --> SITE["Website (web/)<br/>Svelte 5, three.js, CLIP in the browser"]
   NODE --> ROUTER["Go router (cluster/)<br/>sharding, replication, failover"]
   PIPE["Dataset pipeline (pipeline/)<br/>CLIP, UMAP, int8, prebuilt graph"] --> SITE
@@ -184,7 +187,7 @@ flowchart LR
 | Web | Svelte 5, TypeScript, Vite, three.js, Emscripten (pthreads, SIMD), transformers.js on ONNX Runtime Web (CLIP ViT-B/32), service worker |
 | Data | PyTorch + CLIP, UMAP, Open Images V7 |
 | Testing and CI | CTest, ThreadSanitizer, AddressSanitizer + UBSan, pytest, Go race detector, govulncheck, Playwright (Chromium, Firefox, WebKit), axe-core, GitHub Actions on x86-64 and ARM64 |
-| Hosting | GitHub Pages; Terraform for Oracle Cloud (Ampere A1) |
+| Hosting | Cloudflare Workers (static assets at the edge, the CLIP models in R2 behind a Worker), deployed from CI; Terraform for Oracle Cloud (Ampere A1) |
 
 ## Results
 
@@ -206,7 +209,7 @@ and its memory. Runs agree within 0.5%. Job scripts: [`scripts/pace/`](scripts/p
 - **Against other libraries:** 1.12–1.14× hnswlib's and 1.16–1.24× FAISS's QPS
   at equal recall, from recall 0.80 to 0.995 (chart below).
 - **Against the field:** on GIST1M, GloVe-100, DBpedia OpenAI embeddings and
-  DEEP10M, Oryx SQ8 is second of eight on every dataset, behind Glass
+  DEEP10M, Epzero SQ8 is second of eight on every dataset, behind Glass
   (1.5–2.1× faster) and ahead of VSAG, FAISS, hnswlib and USearch
   ([table](docs/performance.md#against-the-field-four-more-datasets)).
 - **Build:** 1M vectors in 22.7 s on 24 threads. The index takes 765 MiB.
@@ -270,7 +273,7 @@ accumulators.
   nodes, which fits in L2, and it resets without clearing and allocates
   nothing per query.
 - **SIMD dispatch.** Each ISA (AVX2, AVX-512, NEON) is compiled in its own
-  translation unit and picked at runtime by CPU detection. `ORYX_SIMD=scalar`
+  translation unit and picked at runtime by CPU detection. `EPZERO_SIMD=scalar`
   forces a level, e.g. for A/B benchmarks.
 - **Concurrency.** Search is lock-free: neighbor-list slots are atomics written
   with release stores and read with acquire loads, so a reader that sees a node
@@ -321,36 +324,36 @@ accumulators.
 ## Python
 
 ```bash
-pip install oryxdb                 # wheels for Linux and macOS, Python 3.10-3.13
-pip install "oryxdb[langchain]"    # plus the LangChain vector store
+pip install epzero                 # wheels for Linux and macOS, Python 3.10-3.13
+pip install "epzero[langchain]"    # plus the LangChain vector store
 pip install ./engine               # or build from this repository
 ```
 
 ```python
-import numpy as np, oryxdb as oryx
+import numpy as np, epzero as epzero
 
-index = oryx.Index(dim=128, metric="l2", max_elements=1_000_000, M=16, ef_construction=200)
+index = epzero.Index(dim=128, metric="l2", max_elements=1_000_000, M=16, ef_construction=200)
 index.add(vectors, threads=12)                  # labels default to 0..n-1
 labels, distances = index.search(queries, k=10, ef=80, threads=1)
 trace = index.trace(queries[0], k=10, ef=80)    # every hop, for visualization
-index.save("sift.oryx"); index = oryx.Index.load("sift.oryx")
+index.save("sift.epzero"); index = epzero.Index.load("sift.epzero")
 
 # 8-bit quantization: train on a sample, then add as usual
-sq8 = oryx.Index(dim=128, quantization="sq8")
+sq8 = epzero.Index(dim=128, quantization="sq8")
 sq8.train(vectors[:100_000]); sq8.add(vectors, threads=12)
 
 # Filtered search: a compiled filter is reused across queries
-dogs = index.filter(dog_labels)                  # oryxdb.Filter: dogs.allowed, dogs.selectivity
+dogs = index.filter(dog_labels)                  # epzero.Filter: dogs.allowed, dogs.selectivity
 labels, _ = index.search(queries, k=10, ef=80, filter=dogs)
 
 # Recall you can see and keep
-guard = oryx.RecallGuard(index, target=0.95, sample_rate=0.01, reference_ef=1024)
+guard = epzero.RecallGuard(index, target=0.95, sample_rate=0.01, reference_ef=1024)
 labels, _ = guard.search(queries, k=10)
 print(guard.report())                           # per segment: ef, recall estimate, 95% interval
 print(index.explain(queries[0], k=10, label=4217, ef=80))   # why it was or wasn't returned
 
 # Durable collection with a write-ahead log and crash recovery
-db = oryx.Database.open("./vectors.db", dim=128, sync="always")
+db = epzero.Database.open("./vectors.db", dim=128, sync="always")
 db.upsert(vectors[:1000], labels=ids)           # one log write + fsync per batch
 db.remove(42)
 print(db.recovery())                            # what the last open() replayed or truncated
@@ -358,17 +361,17 @@ print(db.recovery())                            # what the last open() replayed 
 
 Batch calls release the GIL and run on C++ threads.
 
-**LangChain.** `oryxdb.langchain.OryxVectorStore` is a LangChain vector store: add texts or
+**LangChain.** `epzero.langchain.EpzeroVectorStore` is a LangChain vector store: add texts or
 documents, search by similarity (with scores) or maximal marginal relevance, filter on metadata
-(compiled into an Oryx filter, so the engine picks its filtered-search strategy), delete and
+(compiled into an Epzero filter, so the engine picks its filtered-search strategy), delete and
 replace by id, and save and load a folder. It passes LangChain's standard vector-store
 conformance suite (`langchain-tests`) in CI, sync and async; that suite also found a real engine
 bug (new vectors were unreachable after every existing one had been deleted), now fixed.
 
 ```python
-from oryxdb.langchain import OryxVectorStore
+from epzero.langchain import EpzeroVectorStore
 
-store = OryxVectorStore.from_texts(texts, embeddings, metadatas=metadatas)
+store = EpzeroVectorStore.from_texts(texts, embeddings, metadatas=metadatas)
 docs = store.similarity_search("reset my password", k=4, filter={"source": "faq"})
 retriever = store.as_retriever(search_kwargs={"k": 8})
 ```
@@ -381,9 +384,10 @@ dispatch level. Two modules are shipped:
   Web Workers sharing memory;
 - a **single-threaded** fallback, for pages that aren't cross-origin isolated.
 
-GitHub Pages can't send the isolation headers, so a service worker adds them
-(recovering by itself after a hard refresh, which bypasses it) and caches the
-site for offline use. The page also sets a Content Security Policy: only the
+In production Cloudflare sends the isolation and security headers
+([`web/public/_headers`](web/public/_headers)); on a host that can't, a service
+worker adds them (recovering by itself after a hard refresh, which bypasses it).
+The same worker caches the site for offline use. The page also sets a Content Security Policy: only the
 site's own code runs, with no `eval` (the bindings are built with
 `-sDYNAMIC_EXECUTION=0`) and one inline script, the theme bootstrap, allowed by
 a hash computed at build time. The whole C++ test suite also runs as
@@ -392,7 +396,7 @@ WebAssembly under Node in CI.
 ```bash
 source emsdk/emsdk_env.sh
 scripts/build_wasm.sh                 # -> web/public/wasm/{mt,st}
-cd web && npm install && npm run dev  # http://localhost:5173/Oryx/
+cd web && npm install && npm run dev  # http://localhost:5173/
 npx playwright test                   # every end-to-end suite (see below)
 ```
 
@@ -400,7 +404,8 @@ The end-to-end suites run on every push: all five pages in Chromium (desktop
 and touch phone, both themes), the core journeys in Firefox and WebKit, an
 automated WCAG 2.1 AA audit (axe-core), the webcam path and every camera error,
 offline use, a browser without WebGL, one without WebAssembly SIMD, and a
-server that sends no isolation headers (as GitHub Pages does).
+server that sends no isolation headers (the service worker's fallback). Deploying
+to Cloudflare is described in [`web/DEPLOY.md`](web/DEPLOY.md).
 
 The engine and both CLIP encoders run in Web Workers, so the page never blocks
 on a search, an encode or an index rebuild. Other details of the site:
@@ -441,7 +446,7 @@ python pipeline/build_dataset.py --work data/openimages --out web/public/data/op
 
 ## Cluster
 
-`cluster/` holds the distributed version: C++ data nodes (`oryx-node`, gRPC,
+`cluster/` holds the distributed version: C++ data nodes (`epzero-node`, gRPC,
 each with its own write-ahead log) and a Go router in front of them.
 
 - **Sharding and replication.** Each shard has a primary and a backup on
@@ -467,8 +472,8 @@ each with its own write-ahead log) and a Go router in front of them.
   write and idle timeouts. `GET /metrics` serves Prometheus metrics.
 
 ```bash
-cmake --build build --target oryx_node
-cd cluster && ORYX_NODE_BIN=../build/oryx-node go test -race -tags integration ./...
+cmake --build build --target epzero_node
+cd cluster && EPZERO_NODE_BIN=../build/epzero-node go test -race -tags integration ./...
 ```
 
 CI runs that test on every push: three real nodes, a primary killed mid-traffic,
@@ -502,8 +507,8 @@ build/bench_recall --base data/sift/sift_base.fvecs --query data/sift/sift_query
 python bench/compare_libs.py --data data/sift --cache data/indexes --out bench/results/sift1m-compare.json
 ```
 
-Sanitizers: `-DORYX_SANITIZE=thread` or `-DORYX_SANITIZE=address,undefined`.
-Fuzzing (Clang): `-DORYX_BUILD_FUZZ=ON` builds libFuzzer targets for snapshot
+Sanitizers: `-DEPZERO_SANITIZE=thread` or `-DEPZERO_SANITIZE=address,undefined`.
+Fuzzing (Clang): `-DEPZERO_BUILD_FUZZ=ON` builds libFuzzer targets for snapshot
 loading, graph import and write-ahead-log recovery. CI runs GCC and Clang on
 x86-64, GCC on AArch64 (NEON), both sanitizer configurations, a minute of
 fuzzing per target plus every past finding, the Python tests, and the test
@@ -518,14 +523,14 @@ dedicated-server runs are in [`scripts/pace/`](scripts/pace/).
 
 1. ✅ Engine core: HNSW, SIMD kernels, concurrency, snapshots, recall harness, CI
 2. ✅ Head-to-head benchmarks against hnswlib and FAISS; profiling-driven optimization; Python bindings
-3. ✅ WebAssembly build (SIMD128 + threads) and an in-browser benchmark lab on GitHub Pages
+3. ✅ WebAssembly build (SIMD128 + threads) and an in-browser benchmark lab, live at epzero.dev
 4. ✅ Offline dataset pipeline: CLIP image embeddings, UMAP layout, int8 export
 5. ✅ 3D explorer: layered graph, animated search replay, exact-scan comparison
 6. ✅ In-browser text-to-image search (CLIP text encoder on ONNX Runtime Web, self-hosted)
 7. ✅ Deletes, write-ahead log, crash recovery; 8-bit scalar quantization
 8. ✅ Cluster: Go router, sharded C++ nodes, replication, failover testing in CI (cloud deployment on hold); deterministic fault simulation with linearizability checking, and the router in the browser
 9. ✅ Filtered search; recall monitoring, the recall guard and the miss explainer; fuzzing
-10. ✅ `pip install oryxdb` (wheels for Linux and macOS) and a LangChain vector store that passes LangChain's conformance suite
+10. ✅ `pip install epzero` (wheels for Linux and macOS) and a LangChain vector store that passes LangChain's conformance suite
 11. ✅ Several routers sharing the shard map through etcd, with leader election and fenced writes
 12. ✅ RaBitQ quantization (correct and tested; not faster in memory, see the performance log)
 13. ✅ Competitive benchmarks on GIST1M, GloVe-100, OpenAI text embeddings and DEEP10M against Glass, VSAG, USearch, hnswlib and tuned FAISS (`bench/compete.py`)
