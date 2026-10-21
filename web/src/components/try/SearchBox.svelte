@@ -109,6 +109,12 @@
     }
   }
 
+  // Re-runs the current description, if there is one, so the switch shows its effect at once.
+  function toggleHybrid(on: boolean) {
+    engine.setHybrid(on);
+    if (text.trim() && textEncoder.status === "ready" && !busy) searchText();
+  }
+
   function searchText(value = text) {
     const trimmed = value.trim();
     if (!trimmed) return;
@@ -348,6 +354,10 @@
         <button onclick={() => searchText(example)} disabled={disabled || textEncoder.status !== "ready"}>{example}</button>
       {/each}
     </div>
+    <label class="hybrid" title="Hybrid search: the words are also matched against the photos' captions (BM25), and the two rankings are merged">
+      <input type="checkbox" role="switch" checked={engine.hybrid} onchange={(e) => toggleHybrid(e.currentTarget.checked)} />
+      <span>Match words in captions too <small>hybrid search</small></span>
+    </label>
   {:else if mode === "photo"}
     <label
       class="drop"
@@ -569,6 +579,26 @@
   .chips button:disabled {
     opacity: 0.5;
     cursor: progress;
+  }
+  .hybrid {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: fit-content;
+    color: var(--text-2);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .hybrid input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--accent);
+  }
+  .hybrid small {
+    margin-left: 4px;
+    color: var(--muted);
+    font-size: 11.5px;
   }
   .drop {
     position: relative;
