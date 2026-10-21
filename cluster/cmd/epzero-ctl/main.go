@@ -1,8 +1,8 @@
-// oryx-ctl: operate an Oryx cluster through its router.
+// epzero-ctl: operate an Epzero cluster through its router.
 //
-//	oryx-ctl load   -router URL -token-file F -data web/public/data/openimages   # int8 CLIP vectors
-//	oryx-ctl crash  -router URL -token-file F -node node2
-//	oryx-ctl status -router URL
+//	epzero-ctl load   -router URL -token-file F -data web/public/data/openimages   # int8 CLIP vectors
+//	epzero-ctl crash  -router URL -token-file F -node node2
+//	epzero-ctl status -router URL
 package main
 
 import (
@@ -22,7 +22,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: oryx-ctl load|crash|status [flags]")
+		fmt.Fprintln(os.Stderr, "usage: epzero-ctl load|crash|status [flags]")
 		os.Exit(2)
 	}
 	cmd, args := os.Args[1], os.Args[2:]
@@ -144,7 +144,7 @@ func post(url, token string, body any, out io.Writer) {
 
 func check(err error) {
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "oryx-ctl:", err)
+		fmt.Fprintln(os.Stderr, "epzero-ctl:", err)
 		os.Exit(1)
 	}
 }
