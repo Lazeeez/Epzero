@@ -22,11 +22,11 @@
 #include <thread>
 #include <vector>
 
-#include "oryx/brute_force.h"
-#include "oryx/dataset.h"
-#include "oryx/hnsw.h"
+#include "epzero/brute_force.h"
+#include "epzero/dataset.h"
+#include "epzero/hnsw.h"
 
-using namespace oryx;
+using namespace epzero;
 using Clock = std::chrono::steady_clock;
 
 namespace {
