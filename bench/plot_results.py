@@ -30,7 +30,7 @@ THEMES = {
     },
 }
 
-LIB_NAMES = {"oryx": "Oryx", "hnswlib": "hnswlib", "faiss": "FAISS HNSW"}
+LIB_NAMES = {"epzero": "Epzero", "hnswlib": "hnswlib", "faiss": "FAISS HNSW"}
 
 
 def text(x, y, s, size, color, weight=400, anchor="start", extra=""):
@@ -73,7 +73,7 @@ def compare_chart(data, theme):
     # high-recall region where production systems operate is not crushed against the edge.
     x_ticks = [0.7, 0.8, 0.9, 0.95, 0.98, 0.99, 0.995, 0.999]
     x_min, x_max = 0.7, 0.9995
-    libs = [name for name in ("oryx", "hnswlib", "faiss") if name in data["libraries"]]
+    libs = [name for name in ("epzero", "hnswlib", "faiss") if name in data["libraries"]]
     all_qps = [p["qps"] for name in libs for p in data["libraries"][name]["sweep"] if p["recall"] >= x_min]
     y_min, y_max = nice_125(min(all_qps), up=False), nice_125(max(all_qps), up=True)
 
@@ -87,7 +87,7 @@ def compare_chart(data, theme):
         return top + ph - (math.log10(q) - math.log10(y_min)) / (math.log10(y_max) - math.log10(y_min)) * ph
 
     body = [
-        text(left - 46, 38, "Oryx vs. hnswlib vs. FAISS on SIFT1M", 17, t["primary"], 600),
+        text(left - 46, 38, "Epzero vs. hnswlib vs. FAISS on SIFT1M", 17, t["primary"], 600),
         text(left - 46, 60, f"{data['n']:,} × {data['dim']}-d vectors · {data['queries']:,} queries · 1 search thread"
              + (f" · {data['machine']}" if data.get("machine") else ""), 12.5, t["secondary"]),
         text(left - 46, 78, f"Same graph parameters (M={data['M']}, efConstruction={data['ef_construction']}) · "
@@ -125,7 +125,7 @@ def compare_chart(data, theme):
     body.append(text(18, top + ph / 2, "Queries per second (log scale)", 12, t["secondary"], anchor="middle",
                      extra=f'transform="rotate(-90 18 {top + ph / 2})"'))
 
-    # Series: draw the story series (Oryx) last so it sits on top.
+    # Series: draw the story series (Epzero) last so it sits on top.
     for i, name in reversed(list(enumerate(libs))):
         color = t["series"][i]
         pts = [(p["recall"], p["qps"]) for p in data["libraries"][name]["sweep"] if p["recall"] >= x_min]
@@ -137,7 +137,7 @@ def compare_chart(data, theme):
 
     # Callout: speedup at a fixed recall target, derived from the data.
     target = 0.95
-    ours = interpolate_qps(data["libraries"]["oryx"]["sweep"], target)
+    ours = interpolate_qps(data["libraries"]["epzero"]["sweep"], target)
     notes = []
     for name in libs[1:]:
         theirs = interpolate_qps(data["libraries"][name]["sweep"], target)
@@ -146,12 +146,12 @@ def compare_chart(data, theme):
     if notes:
         x = sx(target)
         body.append(f'<line x1="{x:.1f}" y1="{top}" x2="{x:.1f}" y2="{top + ph}" stroke="{t["axis"]}" stroke-width="1"/>')
-        body.append(text(x + 8, top + 18, f"At recall {target:.2f}, Oryx serves", 12, t["secondary"]))
+        body.append(text(x + 8, top + 18, f"At recall {target:.2f}, Epzero serves", 12, t["secondary"]))
         body.append(text(x + 8, top + 35, " · ".join(notes), 12.5, t["primary"], 600))
     desc = "Recall versus queries per second. " + "; ".join(
         f"{LIB_NAMES[n]}: " + ", ".join(f"recall {p['recall']:.3f} at {p['qps']:,.0f} QPS" for p in data["libraries"][n]["sweep"])
         for n in libs)
-    return svg_doc(width, height, theme, "Oryx vs hnswlib vs FAISS on SIFT1M", desc, body)
+    return svg_doc(width, height, theme, "Epzero vs hnswlib vs FAISS on SIFT1M", desc, body)
 
 
 def rounded_bar(x, y, w, h, radius, color):
