@@ -1,0 +1,170 @@
+# Builds and tests the site, deploys it to Cloudflare (epzero.dev), and turns the old GitHub Pages
+# address into a redirect to it.
+name: site
+
+on:
+  push:
+    branches: [main]
+    paths: ["engine/**", "cluster/**", "web/**", "bench/results/**", "scripts/build_wasm.sh", "scripts/build_sim_wasm.sh", ".github/workflows/site.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 6.0.10
+      - run: sudo apt-get install -y ninja-build
+      - name: Build WebAssembly engine (threaded + single-threaded)
+        run: scripts/build_wasm.sh
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cluster/go.mod
+          cache-dependency-path: cluster/go.sum
+      - name: Build the cluster simulator (Go router to WebAssembly)
+        run: scripts/build_sim_wasm.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci && npx playwright install --with-deps chromium firefox webkit
+      - name: Dependency audit (fails on high-severity advisories)
+        working-directory: web
+        run: npm audit --omit=dev --audit-level=high
+      # The CLIP text and image encoders (154 MB) are self-hosted with the site; fetch once, reuse.
+      - uses: actions/cache@v4
+        with:
+          path: web/public/models
+          key: clip-vit-base-patch32-text-vision-q8-v1
+      - name: Build site
+        working-directory: web
+        run: npm run build
+      - name: End-to-end tests (Chromium, Firefox, WebKit, accessibility, offline, isolation without headers)
+        working-directory: web
+        run: npx playwright test --reporter=line
+      - name: Keep the test report when something fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: web/test-results
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: web/dist
+          include-hidden-files: true  # .assetsignore
+          retention-days: 3
+
+  # epzero.dev: the site as Workers static assets, the CLIP models in R2 behind a Worker. Needs the
+  # CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets (see web/DEPLOY.md); skipped without them.
+  cloudflare:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: production
+      url: https://epzero.dev/
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WRANGLER: npx --yes wrangler@4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: web/dist
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check for Cloudflare credentials
+        id: creds
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not set: skipping the Cloudflare deploy (see web/DEPLOY.md)"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Create the R2 bucket for the models (once)
+        if: steps.creds.outputs.ok == 'true'
+        working-directory: web
+        run: $WRANGLER r2 bucket list | grep -q "epzero-assets" || $WRANGLER r2 bucket create epzero-assets
+      - name: Deploy the site and the www redirect
+        if: steps.creds.outputs.ok == 'true'
+        working-directory: web
+        run: |
+          $WRANGLER deploy
+          $WRANGLER deploy -c wrangler.www.jsonc
+      - name: Upload the CLIP models to R2 (only those the site doesn't serve yet)
+        if: steps.creds.outputs.ok == 'true'
+        working-directory: web/dist
+        run: |
+          find models -type f | while read -r file; do
+            if curl -sfI "https://epzero.dev/$file" > /dev/null; then
+              echo "present: $file"
+            else
+              echo "uploading: $file"
+              $WRANGLER r2 object put "epzero-assets/$file" --file "$file" --remote
+            fi
+          done
+      - name: Smoke test the deployed site
+        if: steps.creds.outputs.ok == 'true'
+        run: |
+          for path in / /try /benchmarks /models/clip-vit-base-patch32/config.json; do
+            status=$(curl -s -o /dev/null -w "%{http_code}" "https://epzero.dev$path")
+            echo "$path -> $status"
+            [ "$status" = "200" ]
+          done
+          curl -sI https://epzero.dev/ | grep -i "cross-origin-embedder-policy: require-corp"
+
+  # The old GitHub Pages address (lazeeez.github.io/<repo>/...) now forwards to the same path on epzero.dev.
+  redirect:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Write the redirect page
+        run: |
+          mkdir -p redirect
+          cat > redirect/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <title>Epzero has moved to epzero.dev</title>
+            <meta name="robots" content="noindex">
+            <link rel="canonical" href="https://epzero.dev/">
+            <meta http-equiv="refresh" content="0; url=https://epzero.dev/">
+            <script>
+              // Keep the page and query: /<repo>/try?q=x -> https://epzero.dev/try?q=x
+              var rest = location.pathname.split("/").slice(2).join("/");
+              location.replace("https://epzero.dev/" + rest + location.search + location.hash);
+            </script>
+          </head>
+          <body><p>Epzero has moved to <a href="https://epzero.dev/">epzero.dev</a>.</p></body>
+          </html>
+          HTML
+          cp redirect/index.html redirect/404.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: redirect
+      - id: deployment
+        uses: actions/deploy-pages@v4
