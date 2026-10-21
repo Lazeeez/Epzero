@@ -30,6 +30,9 @@ class Oryx(BaseANN):
         if self.quantization != "none":
             self.index.train(X[: min(len(X), 200_000)])
         self.index.add(X, threads=os.cpu_count() or 1)
+        # Measure the best memory-prefetch setting for this machine on a sample of the data.
+        sample = np.random.default_rng(0).choice(len(X), min(len(X), 1000), replace=False)
+        self.index.tune_prefetch(X[sample])
 
     def set_query_arguments(self, ef):
         self.ef = ef
