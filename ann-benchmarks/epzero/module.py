@@ -1,30 +1,30 @@
-"""ann-benchmarks wrapper for Oryx (https://pypi.org/project/oryxdb/).
+"""ann-benchmarks wrapper for Epzero (https://pypi.org/project/epzero/).
 
-Copied into ann_benchmarks/algorithms/oryx/ in the ann-benchmarks repository.
+Copied into ann_benchmarks/algorithms/epzero/ in the ann-benchmarks repository.
 """
 
 import os
 
 import numpy as np
-import oryxdb
+import epzero
 
 from ..base.module import BaseANN
 
 
-class Oryx(BaseANN):
+class Epzero(BaseANN):
     def __init__(self, metric, method_param, quantization="none"):
         if metric not in ("angular", "euclidean"):
-            raise NotImplementedError(f"Oryx does not support the {metric} metric")
+            raise NotImplementedError(f"Epzero does not support the {metric} metric")
         self.metric = "cosine" if metric == "angular" else "l2"
         self.M = method_param["M"]
         self.ef_construction = method_param["efConstruction"]
         self.quantization = quantization
         self.ef = 10
-        self.name = f"oryx(M={self.M}, efC={self.ef_construction}, {quantization})"
+        self.name = f"epzero(M={self.M}, efC={self.ef_construction}, {quantization})"
 
     def fit(self, X):
         X = np.ascontiguousarray(X, dtype=np.float32)
-        self.index = oryxdb.Index(
+        self.index = epzero.Index(
             X.shape[1], self.metric, len(X), self.M, self.ef_construction, quantization=self.quantization
         )
         if self.quantization != "none":
@@ -36,7 +36,7 @@ class Oryx(BaseANN):
 
     def set_query_arguments(self, ef):
         self.ef = ef
-        self.name = f"oryx(M={self.M}, efC={self.ef_construction}, {self.quantization}, ef={ef})"
+        self.name = f"epzero(M={self.M}, efC={self.ef_construction}, {self.quantization}, ef={ef})"
 
     def query(self, v, n):
         labels, _ = self.index.search(np.ascontiguousarray(v[None, :], dtype=np.float32), k=n, ef=max(self.ef, n))
@@ -53,6 +53,6 @@ class Oryx(BaseANN):
         return self.name
 
 
-class OryxSQ8(Oryx):
+class EpzeroSQ8(Epzero):
     def __init__(self, metric, method_param):
         super().__init__(metric, method_param, quantization="sq8")
