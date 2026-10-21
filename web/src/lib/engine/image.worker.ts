@@ -36,7 +36,7 @@ const ready = (async () => {
   // let transformers.js keep a second copy of the model in its own cache: that doubled the disk
   // writes on a first visit and the reads on every later one. Without it, keep the library cache.
   try {
-    env.useBrowserCache = !(await caches.keys()).some((name) => name.startsWith("oryx-shell-"));
+    env.useBrowserCache = !(await caches.keys()).some((name) => name.startsWith("epzero-shell-"));
   } catch {
     env.useBrowserCache = true;
   }
