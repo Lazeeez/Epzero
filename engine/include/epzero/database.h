@@ -9,9 +9,9 @@
 #include <string>
 #include <vector>
 
-#include "oryx/hnsw.h"
+#include "epzero/hnsw.h"
 
-namespace oryx {
+namespace epzero {
 
 enum class SyncMode {
   Always,  // fsync after every write: an acknowledged write survives power loss
@@ -45,7 +45,7 @@ struct RecoveryInfo {
 
 // A durable vector collection: an HnswIndex plus a write-ahead log in a directory.
 //
-//   dir/snapshot-<lsn>.oryx  index snapshot containing every write up to log sequence number lsn
+//   dir/snapshot-<lsn>.epzero  index snapshot containing every write up to log sequence number lsn
 //   dir/CHECKPOINT           which lsn (and so which snapshot) is current, checksummed
 //   dir/wal.log              records: [u32 length][u32 crc32c][u8 type][u64 lsn][u64 label][vector]
 //
@@ -131,4 +131,4 @@ class Database {
 // CRC-32C (Castagnoli), as used by the log records.
 std::uint32_t crc32c(const void* data, std::size_t size, std::uint32_t crc = 0) noexcept;
 
-}  // namespace oryx
+}  // namespace epzero
