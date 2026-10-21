@@ -167,6 +167,34 @@ With re-ranking, SQ8 is strictly better (same or higher recall, faster).
 Without it, codes-only trades a recall ceiling of about 0.989 for roughly 3×
 less memory.
 
+## RaBitQ: correct, but not faster in memory
+
+RaBitQ (Gao and Long, SIGMOD 2024) stores each vector as one bit per (randomly rotated)
+dimension plus three floats, and estimates distances with a provable error bound
+(`Quantization::RaBitQ`, `src/rabitq.h`). Two ways to use it in the graph walk were tried.
+
+1. **Navigate on the estimates, re-rank at the end** (as SQ8 does). On SIFT1M the estimates
+   are too noisy at 128 dimensions to steer the walk: recall@10 fell to 0.63 at `ef` 64, against
+   0.956 for full precision.
+2. **Use the estimate as a filter** (kept): a neighbour whose estimate, less its error bound,
+   cannot beat the beam's worst is dropped without reading its full vector; any other is scored
+   exactly. The beam then holds exact distances, and recall matches full precision at every beam
+   width.
+
+Laptop, one search thread, `ef` 64:
+
+| Data | Recall@10 (float / RaBitQ) | QPS (float / SQ8 / RaBitQ) | Full-vector reads skipped |
+|---|---|---|---|
+| SIFT1M, 128-d | 0.9566 / 0.9555 | 11,944 / 19,045 / 7,179 | 27% |
+| CLIP, 512-d (28,825 photos) | 0.9959 / 0.9960 | 8,875 / 10,855 / 8,978 | 64% |
+
+The bound skips more reads as dimensions grow (it shrinks as 1/sqrt(D)), but skipping them
+doesn't pay here: the full vectors live in a separate array, so every read that remains is an
+extra cache miss, and computing the estimates isn't free. Loosening the bound (eps0 0.5 instead of
+the paper's 1.9) bought 10-20% at a small recall cost, still behind SQ8. RaBitQ belongs where a
+full vector is expensive to fetch: on SSD, or in collections far larger than memory. It stays as an
+experimental, tested mode for that; in memory, SQ8 is the one to use.
+
 ## Exact ground truth: cache blocking
 
 The benchmark lab (and `bench_recall`) needs the exact 10 nearest neighbors of every query.
@@ -220,7 +248,7 @@ Measured on the Try page (local server, 12-thread laptop):
 
 1. **Graph-parameter tuning** (M, efConstruction) for the best
    recall-vs-distance-computations trade-off.
-2. **Product quantization** for datasets where memory, not speed, is the limit.
+2. **Vectors on SSD** (a DiskANN-style layout), where RaBitQ's skipped reads would pay off.
 
 ## Reproduce
 
