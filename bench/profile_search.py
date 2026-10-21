@@ -1,5 +1,5 @@
 """Hardware counters for one library's search loop, at the setting where it reaches a target recall:
-where the time per query goes (instructions, cycles, cache and TLB misses), to compare Oryx with
+where the time per query goes (instructions, cycles, cache and TLB misses), to compare Epzero with
 the faster libraries in bench/compete.py on equal terms.
 
     run      one library, under `perf stat --control` (the counters only run during the timed loop):
@@ -118,7 +118,7 @@ def main():
     p = sub.add_parser("pick")
     p.add_argument("--results", required=True)
     p.add_argument("--target", type=float, default=0.95)
-    p.add_argument("--libs", default="oryx,oryx-sq8,hnswlib,glass")
+    p.add_argument("--libs", default="epzero,epzero-sq8,hnswlib,glass")
     s = sub.add_parser("report")
     s.add_argument("--dir", required=True)
     s.add_argument("--out", required=True)
