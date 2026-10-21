@@ -3,7 +3,7 @@
 // truth, and records which strategy Auto picks.
 //
 //   bench_filter --synthetic --n 100000
-//   bench_filter --base sift_base.fvecs --query sift_query.fvecs --load sift.oryx --json filter.json
+//   bench_filter --base sift_base.fvecs --query sift_query.fvecs --load sift.epzero --json filter.json
 //
 // Filters are random subsets of the labels (a fixed seed per selectivity), so which vectors pass
 // is uncorrelated with where they sit in the vector space: the case a graph walk finds hardest.
@@ -21,11 +21,11 @@
 #include <thread>
 #include <vector>
 
-#include "oryx/brute_force.h"
-#include "oryx/dataset.h"
-#include "oryx/hnsw.h"
+#include "epzero/brute_force.h"
+#include "epzero/dataset.h"
+#include "epzero/hnsw.h"
 
-using namespace oryx;
+using namespace epzero;
 using Clock = std::chrono::steady_clock;
 
 namespace {
