@@ -6,7 +6,7 @@ import (
 	"context"
 	"fmt"
 
-	pb "github.com/Lazeeez/Oryx/cluster/gen/oryxv1"
+	pb "github.com/Lazeeez/Epzero/cluster/gen/epzerov1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
