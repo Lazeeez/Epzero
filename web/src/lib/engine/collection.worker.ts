@@ -1,8 +1,8 @@
-// Owns the Oryx engine for the site: downloads the int8 CLIP vectors and the prebuilt HNSW graph
+// Owns the Oryx engine for the site: streams the int8 CLIP vectors and the prebuilt HNSW graph
 // (or builds the graph on every core when there isn't one, and on request), and answers searches
 // with full traversal traces. Nothing here touches the DOM.
 import { cachedFetch } from "../cached-fetch";
-import type { Evaluation, Explanation, FilterInfo, FromWorker, Neighborhood, Request, ToWorker, Trace } from "./protocol";
+import { stageEnds, type Evaluation, type Explanation, type FilterInfo, type FromWorker, type Neighborhood, type Request, type ToWorker, type Trace } from "./protocol";
 
 interface Collection {
   load(vectors: Int8Array, scales: Float32Array, dim: number): void;
@@ -30,67 +30,131 @@ const engine = import(/* @vite-ignore */ `${import.meta.env.BASE_URL}wasm/${vari
 );
 let collection: Collection | null = null;
 // The int8 codes and per-dimension scales, kept to answer vector and similarity requests in JS.
+// They are the photos' coordinates on the dataset's principal axes, and only the leading `dim` of
+// the `fullDim` axes until the rest have downloaded (see load).
 let codes = new Int8Array(0);
 let scales = new Float32Array(0);
 let dim = 0;
+let fullDim = 0;
 let count = 0;
+// The principal axes, one row of fullDim per axis: rotates queries in and photo vectors out.
+let axes = new Float32Array(0);
 // Base-layer adjacency (CSR), built on first use and dropped on rebuild.
 let adjacency: { offsets: Uint32Array; targets: Uint32Array } | null = null;
 // The page's filter (allowed photo ids), kept so it survives a rebuild of the index.
 let filterIds: Uint32Array | null = null;
 
-// Streams a binary file, reporting bytes as they arrive. A repeat visit reads straight from the
-// Cache API rather than through the service worker's fetch handler, which had to relay every chunk
-// through its own thread (measured: a cached 15 MB read took longer than the network). `expected`
-// sizes the buffer up front: GitHub Pages gzips responses, so there is often no Content-Length.
-async function download(url: string, onBytes: (bytes: number) => void, expected = 0): Promise<ArrayBuffer> {
-  const response = await cachedFetch(url);
-  if (!response.body) throw new Error(`${url}: empty response`);
-  const total = Math.max(Number(response.headers.get("Content-Length")) || 0, expected);
-  let buffer = new Uint8Array(total || 1 << 20);
-  let length = 0;
+// float16 -> float32 (the rotation is stored at half precision: plenty for rotating queries).
+function half(h: number): number {
+  const exponent = (h >> 10) & 0x1f;
+  const fraction = h & 0x3ff;
+  const sign = h & 0x8000 ? -1 : 1;
+  if (exponent === 0) return sign * fraction * 2 ** -24;
+  if (exponent === 31) return fraction ? NaN : sign * Infinity;
+  return sign * (1 + fraction / 1024) * 2 ** (exponent - 15);
+}
+
+// The prebuilt graph records the dimension it was built at, and refuses others. It holds only
+// links, which a prefix of the same vectors navigates as well, so it is relabelled with the
+// dimension being loaded (the field after the 8-byte magic and the 4-byte version).
+function graphFor(graph: Uint8Array, dims: number): Uint8Array {
+  const copy = graph.slice();
+  new DataView(copy.buffer).setBigUint64(12, BigInt(dims), true);
+  return copy;
+}
+
+// Downloads the vectors, which are stored dimension-block by dimension-block on the dataset's
+// principal axes (pipeline/progressive_vectors.py), and searches as soon as the first block has
+// arrived: 64 of 512 dimensions, under 2 MB. Each further block reloads the engine with more
+// dimensions and the same prebuilt graph, so results sharpen while the rest streams in.
+//
+// A repeat visit reads straight from the Cache API rather than through the service worker's fetch
+// handler, which had to relay every chunk through its own thread (measured: a cached 15 MB read
+// took longer than the network).
+async function load(message: Extract<ToWorker, { type: "load" }>) {
+  const { stages } = message;
+  const ends = stageEnds(message.count, message.dim, stages);
+  const total = ends[ends.length - 1];
+  fullDim = message.dim;
+  count = message.count;
+  axes = new Float32Array(fullDim * fullDim);
+  scales = new Float32Array(fullDim);
+  // The prebuilt graph (~1.3 MB) downloads alongside; if it's missing, the graph is built here.
+  const graph = message.graph
+    ? cachedFetch(`${message.base}${message.graph}`)
+        .then((r) => r.arrayBuffer())
+        .then((b) => new Uint8Array(b))
+        .catch(() => null)
+    : Promise.resolve(null);
+  const response = await cachedFetch(`${message.base}${message.vectors}`);
+  if (!response.body) throw new Error(`${message.vectors}: empty response`);
+  const file = new Uint8Array(total);
   const reader = response.body.getReader();
+  let length = 0;
+  let stage = 0;
+  let prebuilt = true;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    if (length + value.length > buffer.length) {
-      const bigger = new Uint8Array(Math.max(buffer.length * 2, length + value.length));
-      bigger.set(buffer.subarray(0, length));
-      buffer = bigger;
-    }
-    buffer.set(value, length);
+    if (length + value.length > total) throw new Error(`${message.vectors}: larger than the manifest says`);
+    file.set(value, length);
     length += value.length;
-    onBytes(length);
+    post({ type: "progress", stage: "download", done: length, total });
+    while (stage < stages.length && length >= ends[stage]) {
+      const start = performance.now();
+      addBlock(file, stage === 0 ? 0 : ends[stage - 1], stage === 0 ? 0 : stages[stage - 1], stages[stage]);
+      const module = await engine;
+      const bytes = prebuilt ? await graph : null;
+      collection ??= new module.Collection();
+      collection.load(codes, scales.subarray(0, dim), dim);
+      prebuilt = false;
+      if (bytes) {
+        try {
+          collection.loadGraph(graphFor(bytes, dim), message.M, message.efConstruction);
+          prebuilt = true;
+        } catch (error) {
+          console.warn("Prebuilt graph rejected; building once the vectors are in:", error);
+        }
+      }
+      if (prebuilt && stage === 0) publish(message.M, message.efConstruction, performance.now() - start, true);
+      else if (prebuilt) {
+        if (filterIds) collection.setFilter(filterIds);
+        post({ type: "precision", dims: dim });
+      }
+      stage++;
+    }
   }
-  return length === buffer.length ? buffer.buffer : buffer.buffer.slice(0, length);
+  if (length !== total) throw new Error(`${message.vectors}: the download stopped early`);
+  if (!prebuilt) build(message.M, message.efConstruction);
 }
 
-async function load(message: Extract<ToWorker, { type: "load" }>) {
-  const bytes = message.count * message.dim;
-  const [vectorBytes, scaleBytes, graphBytes, module] = await Promise.all([
-    download(`${message.base}vectors.i8`, (done) => post({ type: "progress", stage: "download", done, total: bytes }), bytes),
-    download(`${message.base}scales.f32`, () => {}),
-    // The prebuilt graph (~1.3 MB) downloads alongside; if it's missing, the graph is built here.
-    message.graph ? download(`${message.base}${message.graph}`, () => {}).catch(() => null) : Promise.resolve(null),
-    engine,
-  ]);
-  codes = new Int8Array(vectorBytes);
-  scales = new Float32Array(scaleBytes);
-  dim = message.dim;
-  count = codes.length / dim;
-  collection = new module.Collection();
-  collection.load(codes, scales, dim);
-  if (graphBytes) {
-    try {
-      const start = performance.now();
-      collection.loadGraph(new Uint8Array(graphBytes), message.M, message.efConstruction);
-      publish(message.M, message.efConstruction, performance.now() - start, true);
-      return;
-    } catch (error) {
-      console.warn("Prebuilt graph rejected; building instead:", error);
-    }
+// Appends the block of dimensions [lo, hi) at `offset` in the file: its scales, its rows of the
+// rotation, and its codes, interleaved into the row-major codes of the dimensions so far.
+function addBlock(file: Uint8Array, offset: number, lo: number, hi: number) {
+  const w = hi - lo;
+  scales.set(new Float32Array(file.buffer, offset, w), lo);
+  const rotation = new Uint16Array(file.buffer, offset + 4 * w, w * fullDim);
+  for (let i = 0; i < rotation.length; i++) axes[lo * fullDim + i] = half(rotation[i]);
+  const block = new Int8Array(file.buffer, offset + 4 * w + 2 * w * fullDim, count * w);
+  const next = new Int8Array(count * hi);
+  for (let i = 0; i < count; i++) {
+    if (lo) next.set(codes.subarray(i * lo, (i + 1) * lo), i * hi);
+    next.set(block.subarray(i * w, (i + 1) * w), i * hi + lo);
   }
-  build(message.M, message.efConstruction);
+  codes = next;
+  dim = hi;
+}
+
+// A query (in CLIP's own coordinates) on the leading principal axes the engine has.
+function rotate(query: Float32Array): Float32Array {
+  if (query.length !== fullDim) throw new Error("query has the wrong dimension");
+  const out = new Float32Array(dim);
+  for (let j = 0; j < dim; j++) {
+    let sum = 0;
+    for (let i = 0, row = j * fullDim; i < fullDim; i++) sum += axes[row + i] * query[i];
+    out[j] = sum;
+  }
+  return out;
 }
 
 // Builds the graph in slices so the page can animate nodes arriving while every core inserts.
@@ -124,7 +188,8 @@ function publish(M: number, efConstruction: number, buildMs: number, prebuilt: b
   );
 }
 
-// A photo's vector, dequantized exactly as the engine does it (per-dimension scale, normalized).
+// A photo's vector on the principal axes, dequantized exactly as the engine does it (per-dimension
+// scale, normalized). Inner products are the same as in CLIP's coordinates.
 function vectorOf(id: number): Float32Array {
   if (!(id >= 0 && id < count)) throw new Error(`no photo #${id}`);
   const out = new Float32Array(dim);
@@ -166,7 +231,14 @@ function answer(request: Request): { value: unknown; transfer: Transferable[] } 
   if (!collection) throw new Error("the index is not built yet");
   switch (request.method) {
     case "vector": {
-      const vector = vectorOf(request.id);
+      // Back in CLIP's coordinates, to mix with text and image queries.
+      const rotated = vectorOf(request.id);
+      const vector = new Float32Array(fullDim);
+      for (let j = 0; j < dim; j++) for (let i = 0, row = j * fullDim; i < fullDim; i++) vector[i] += rotated[j] * axes[row + i];
+      let norm = 0;
+      for (let i = 0; i < fullDim; i++) norm += vector[i] * vector[i];
+      norm = Math.sqrt(norm) || 1;
+      for (let i = 0; i < fullDim; i++) vector[i] /= norm;
       return { value: vector, transfer: [vector.buffer] };
     }
     case "neighbors": {
@@ -189,7 +261,7 @@ function answer(request: Request): { value: unknown; transfer: Transferable[] } 
     case "explain": {
       const { query, label, k, ef } = request;
       const value =
-        query.kind === "id" ? collection.explainById(query.id, k, label, ef) : collection.explain(query.vector, k, label, ef);
+        query.kind === "id" ? collection.explainById(query.id, k, label, ef) : collection.explain(rotate(query.vector), k, label, ef);
       return { value, transfer: [] };
     }
   }
@@ -202,6 +274,7 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
       await load(message);
     } else if (message.type === "rebuild") {
       if (!collection) throw new Error("the index is not built yet");
+      if (dim < fullDim) throw new Error("the full vectors are still loading");
       build(message.M, message.efConstruction);
     } else if (message.type === "request") {
       const { value, transfer } = answer(message.request);
@@ -212,7 +285,7 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
       const trace =
         query.kind === "id"
           ? collection.searchById(query.id, message.k, message.ef)
-          : collection.search(query.vector, message.k, message.ef);
+          : collection.search(rotate(query.vector), message.k, message.ef);
       post({ type: "result", seq: message.seq, query, trace });
     }
   } catch (error) {
