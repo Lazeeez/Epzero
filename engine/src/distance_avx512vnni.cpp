@@ -6,7 +6,7 @@
 
 #include "kernels.h"
 
-namespace oryx::kernels {
+namespace epzero::kernels {
 
 // vpdpbusd on 64 bytes: 64 uint8 codes times 64 int8 weights, summed in fours into int32 lanes.
 // The tail is a masked load, so there is no scalar loop.
@@ -29,6 +29,6 @@ std::int32_t sq8_int_dot_avx512vnni(const std::int8_t* w, const std::uint8_t* co
   return _mm512_reduce_add_epi32(_mm512_add_epi32(acc0, acc1));
 }
 
-}  // namespace oryx::kernels
+}  // namespace epzero::kernels
 
 #endif
