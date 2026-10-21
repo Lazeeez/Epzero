@@ -222,7 +222,7 @@
       {#if rows.length}
         <div class="card pad">
           <RecallChart
-            series={[{ name: "Oryx on this device", color: "var(--accent)", points: rows }]}
+            series={[{ name: "Epzero on this device", color: "var(--accent)", points: rows }]}
             {baseline}
             baselineLabel="Exact scan on this device"
             height={360}
