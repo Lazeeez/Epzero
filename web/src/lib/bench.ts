@@ -2,7 +2,9 @@
 // figures as the comparison run on a dedicated server node (bench/results/pace/gold6226/). There,
 // the kernel gives every library 2 MiB huge pages, so the comparison is on equal footing.
 import compare from "../../../bench/results/pace/gold6226/sift1m-compare.json";
-import drift from "../../../bench/results/sift1m-guard-laptop.json";
+import drift from "../../../bench/results/pace/gold6226/sift1m-guard-0.95.json";
+import filterRun from "../../../bench/results/pace/gold6226/sift1m-filter.json";
+import churn from "../../../bench/results/pace/gold6226/sift1m-churn.json";
 
 export { compare };
 
@@ -32,6 +34,31 @@ function qpsAtRecall(sweep: Point[], recall: number): number {
 
 /** Recall under drift (engine/bench/bench_guard.cpp): three policies through four kinds of drift. */
 export { drift };
+
+/** Search under writes (engine/bench/bench_churn.cpp): mixed read/write load and delete/re-insert cycles. */
+export { churn };
+
+/** Filtered search (engine/bench/bench_filter.cpp): each strategy's best throughput at a recall target. */
+export const FILTER_RECALL = 0.95;
+export const FILTER_STRATEGIES = [
+  { strategy: "exact", name: "Exact scan" },
+  { strategy: "inline", name: "Inline walk" },
+  { strategy: "two-hop", name: "Two-hop walk" },
+] as const;
+
+export const filterTable = [...new Set(filterRun.results.map((r) => r.selectivity))]
+  .sort((a, b) => a - b)
+  .map((selectivity) => {
+    const rows = filterRun.results.filter((r) => r.selectivity === selectivity);
+    const best = Object.fromEntries(
+      FILTER_STRATEGIES.map(({ strategy }) => {
+        const ok = rows.filter((r) => r.strategy === strategy && r.recall >= FILTER_RECALL);
+        return [strategy, ok.length ? ok.reduce((a, b) => (b.qps > a.qps ? b : a)) : null];
+      }),
+    ) as Record<(typeof FILTER_STRATEGIES)[number]["strategy"], (typeof rows)[number] | null>;
+    const winner = FILTER_STRATEGIES.map((s) => s.strategy).reduce((a, b) => ((best[b]?.qps ?? 0) > (best[a]?.qps ?? 0) ? b : a));
+    return { selectivity, allowed: rows[0].allowed, best, winner };
+  });
 
 export const DRIFT_POLICIES = [
   { policy: "guard", name: "Recall guard", color: "var(--series-1)" },
