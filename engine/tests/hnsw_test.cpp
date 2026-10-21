@@ -9,11 +9,11 @@
 #include <thread>
 #include <vector>
 
-#include "oryx/brute_force.h"
-#include "oryx/dataset.h"
-#include "oryx/hnsw.h"
+#include "epzero/brute_force.h"
+#include "epzero/dataset.h"
+#include "epzero/hnsw.h"
 
-namespace oryx {
+namespace epzero {
 namespace {
 
 constexpr std::size_t kDim = 32;
@@ -217,7 +217,7 @@ TEST_F(HnswTest, ConcurrentInsertAndSearch) {
 TEST_F(HnswTest, SaveLoadRoundTrip) {
   HnswIndex index(params_for(Metric::L2));
   for (std::size_t i = 0; i < kBase; ++i) index.add(i * 10, data_.base.row(i));
-  const auto path = (std::filesystem::temp_directory_path() / "oryx_roundtrip.idx").string();
+  const auto path = (std::filesystem::temp_directory_path() / "epzero_roundtrip.idx").string();
   index.save(path);
   const auto loaded = HnswIndex::load(path);
   std::filesystem::remove(path);
@@ -323,7 +323,7 @@ TEST_F(HnswTest, GraphImportRejectsLinksToNodesNotOnThatLayer) {
 TEST_F(HnswTest, LoadRespectsAMemoryLimit) {
   HnswIndex index(params_for(Metric::L2));
   for (std::size_t i = 0; i < 100; ++i) index.add(i, data_.base.row(i));
-  const auto path = (std::filesystem::temp_directory_path() / "oryx_limit.idx").string();
+  const auto path = (std::filesystem::temp_directory_path() / "epzero_limit.idx").string();
   index.save(path);
   // The index was made with room for kBase vectors: what loading it would allocate.
   const std::size_t needed = HnswIndex::estimated_bytes(params_for(Metric::L2));
@@ -386,7 +386,7 @@ TEST_F(HnswTest, Sq8SaveLoadRoundTrip) {
   HnswIndex index(sq8_params(Metric::L2, true));
   index.train(data_.base.data.data(), kBase);
   for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
-  const auto path = (std::filesystem::temp_directory_path() / "oryx_sq8.idx").string();
+  const auto path = (std::filesystem::temp_directory_path() / "epzero_sq8.idx").string();
   index.save(path);
   const auto loaded = HnswIndex::load(path);
   std::filesystem::remove(path);
@@ -463,7 +463,7 @@ TEST_F(HnswTest, RabitqSaveLoadAndCompaction) {
   index.train(data_.base.data.data(), kBase);
   for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
   for (std::size_t i = 0; i < kBase; i += 4) index.remove(i);
-  const auto path = (std::filesystem::temp_directory_path() / "oryx_rabitq.idx").string();
+  const auto path = (std::filesystem::temp_directory_path() / "epzero_rabitq.idx").string();
   index.save(path);
   const auto loaded = HnswIndex::load(path);
   std::filesystem::remove(path);
@@ -542,7 +542,7 @@ TEST_F(HnswTest, TombstonesSurviveSaveAndCompaction) {
   for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
   for (std::size_t i = 0; i < kBase; i += 2) index.remove(i);
 
-  const auto path = (std::filesystem::temp_directory_path() / "oryx_tombstones.idx").string();
+  const auto path = (std::filesystem::temp_directory_path() / "epzero_tombstones.idx").string();
   index.save(path);
   const auto loaded = HnswIndex::load(path);
   std::filesystem::remove(path);
@@ -720,7 +720,7 @@ TEST(Hnsw, FilterStrategyNames) {
 }
 
 TEST(Hnsw, LoadRejectsGarbage) {
-  const auto path = (std::filesystem::temp_directory_path() / "oryx_garbage.idx").string();
+  const auto path = (std::filesystem::temp_directory_path() / "epzero_garbage.idx").string();
   {
     std::ofstream out(path, std::ios::binary);
     out << "definitely not an index";
@@ -730,4 +730,4 @@ TEST(Hnsw, LoadRejectsGarbage) {
 }
 
 }  // namespace
-}  // namespace oryx
+}  // namespace epzero
