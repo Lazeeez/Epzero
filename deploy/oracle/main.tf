@@ -1,4 +1,4 @@
-# Oryx cluster on Oracle Cloud Always Free: three Ampere A1 nodes (1 OCPU / 6 GB each, within the
+# Epzero cluster on Oracle Cloud Always Free: three Ampere A1 nodes (1 OCPU / 6 GB each, within the
 # free 4 OCPU / 24 GB), one VCN, one public subnet. Only HTTPS (router) and key-only SSH are open to
 # the internet; shard-to-shard and router-to-shard traffic stays on the private network.
 #
@@ -40,33 +40,33 @@ locals {
   image_id    = data.oci_core_images.ubuntu.images[0].id
 }
 
-resource "oci_core_vcn" "oryx" {
+resource "oci_core_vcn" "epzero" {
   compartment_id = var.tenancy_ocid
   cidr_blocks    = [local.vcn_cidr]
-  display_name   = "oryx"
-  dns_label      = "oryx"
+  display_name   = "epzero"
+  dns_label      = "epzero"
 }
 
-resource "oci_core_internet_gateway" "oryx" {
+resource "oci_core_internet_gateway" "epzero" {
   compartment_id = var.tenancy_ocid
-  vcn_id         = oci_core_vcn.oryx.id
-  display_name   = "oryx-igw"
+  vcn_id         = oci_core_vcn.epzero.id
+  display_name   = "epzero-igw"
 }
 
 resource "oci_core_route_table" "public" {
   compartment_id = var.tenancy_ocid
-  vcn_id         = oci_core_vcn.oryx.id
-  display_name   = "oryx-public"
+  vcn_id         = oci_core_vcn.epzero.id
+  display_name   = "epzero-public"
   route_rules {
     destination       = "0.0.0.0/0"
-    network_entity_id = oci_core_internet_gateway.oryx.id
+    network_entity_id = oci_core_internet_gateway.epzero.id
   }
 }
 
 resource "oci_core_security_list" "nodes" {
   compartment_id = var.tenancy_ocid
-  vcn_id         = oci_core_vcn.oryx.id
-  display_name   = "oryx-nodes"
+  vcn_id         = oci_core_vcn.epzero.id
+  display_name   = "epzero-nodes"
 
   egress_security_rules {
     destination = "0.0.0.0/0"
@@ -111,9 +111,9 @@ resource "oci_core_security_list" "nodes" {
 
 resource "oci_core_subnet" "nodes" {
   compartment_id    = var.tenancy_ocid
-  vcn_id            = oci_core_vcn.oryx.id
+  vcn_id            = oci_core_vcn.epzero.id
   cidr_block        = local.subnet_cidr
-  display_name      = "oryx-nodes"
+  display_name      = "epzero-nodes"
   dns_label         = "nodes"
   route_table_id    = oci_core_route_table.public.id
   security_list_ids = [oci_core_security_list.nodes.id]
@@ -123,7 +123,7 @@ resource "oci_core_instance" "node" {
   count               = var.node_count
   compartment_id      = var.tenancy_ocid
   availability_domain = data.oci_identity_availability_domains.ads.availability_domains[0].name
-  display_name        = "oryx-node${count.index + 1}"
+  display_name        = "epzero-node${count.index + 1}"
   shape               = "VM.Standard.A1.Flex"
 
   shape_config {
