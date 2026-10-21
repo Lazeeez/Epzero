@@ -86,7 +86,13 @@ Both are fixed. Before the first fix, even primary-only reads failed the check u
   replica catches up. That is by design (available, and reported to the client), not a bug.
   Refusing writes without a live replica, like Kafka's `min.insync.replicas = 2`, would be the
   alternative.
-- **The router itself.** One router process holds the shard map (persisted to disk). Running
-  several routers needs the shard map in a consensus store such as etcd: next on the list.
+- **Many routers.** Several routers can share one etcd cluster (`-etcd`). They all serve searches
+  and writes from the shard map, which etcd pushes to them; an election picks one leader to
+  health-check the nodes and fail shards over. Its changes are compare-and-swap writes fenced by
+  its election key, so a leader cut off from etcd can't save once its lease (`-lease`, default
+  5 s) expires, even before it notices. Tests run two routers against an embedded etcd: the
+  follower serves strong reads through a failover, takes over when the leader stops, and fails
+  over the next node itself; a deposed leader's save is refused. The linearizability runs above
+  use a single router.
 - **Simulation fidelity.** The simulated nodes reproduce `oryx-node`'s replication protocol, not
   its code. The real nodes are covered by the three-node failover test in CI (`-tags integration`).
