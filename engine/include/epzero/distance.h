@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-namespace oryx {
+namespace epzero {
 
 enum class Metric {
   L2,            // squared Euclidean distance
@@ -25,7 +25,7 @@ std::string_view to_string(SimdLevel level) noexcept;
 // True if the kernel for `level` was compiled in and the running CPU supports it.
 bool simd_level_supported(SimdLevel level) noexcept;
 
-// Best supported level, detected once per process. Setting ORYX_SIMD=scalar|avx2|avx512|neon|wasm
+// Best supported level, detected once per process. Setting EPZERO_SIMD=scalar|avx2|avx512|neon|wasm
 // forces a specific (supported) level, which is how the benchmarks measure SIMD speedups.
 SimdLevel active_simd_level() noexcept;
 
@@ -60,4 +60,4 @@ RabitqIpFn get_rabitq_ip_fn(SimdLevel level) noexcept;
 // Scales `v` to unit length in place. Zero vectors are left unchanged.
 void normalize(float* v, std::size_t dim) noexcept;
 
-}  // namespace oryx
+}  // namespace epzero
