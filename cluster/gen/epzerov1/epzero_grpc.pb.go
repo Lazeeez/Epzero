@@ -1,4 +1,4 @@
-// Oryx cluster protocol: the router talks to data nodes, and each shard's primary talks to its
+// Epzero cluster protocol: the router talks to data nodes, and each shard's primary talks to its
 // replica. Every shard lives on two nodes (primary + replica); an epoch per shard, bumped on
 // every failover, fences off stale primaries.
 
@@ -6,9 +6,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.2
 // - protoc             v3.21.12
-// source: oryx/v1/oryx.proto
+// source: epzero/v1/epzero.proto
 
-package oryxv1
+package epzerov1
 
 import (
 	context "context"
@@ -23,14 +23,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Node_Upsert_FullMethodName    = "/oryx.v1.Node/Upsert"
-	Node_Remove_FullMethodName    = "/oryx.v1.Node/Remove"
-	Node_Search_FullMethodName    = "/oryx.v1.Node/Search"
-	Node_Replicate_FullMethodName = "/oryx.v1.Node/Replicate"
-	Node_Fetch_FullMethodName     = "/oryx.v1.Node/Fetch"
-	Node_Assign_FullMethodName    = "/oryx.v1.Node/Assign"
-	Node_Status_FullMethodName    = "/oryx.v1.Node/Status"
-	Node_Crash_FullMethodName     = "/oryx.v1.Node/Crash"
+	Node_Upsert_FullMethodName    = "/epzero.v1.Node/Upsert"
+	Node_Remove_FullMethodName    = "/epzero.v1.Node/Remove"
+	Node_Search_FullMethodName    = "/epzero.v1.Node/Search"
+	Node_Replicate_FullMethodName = "/epzero.v1.Node/Replicate"
+	Node_Fetch_FullMethodName     = "/epzero.v1.Node/Fetch"
+	Node_Assign_FullMethodName    = "/epzero.v1.Node/Assign"
+	Node_Status_FullMethodName    = "/epzero.v1.Node/Status"
+	Node_Crash_FullMethodName     = "/epzero.v1.Node/Crash"
 )
 
 // NodeClient is the client API for Node service.
@@ -354,7 +354,7 @@ func _Node_Crash_Handler(srv interface{}, ctx context.Context, dec func(interfac
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var Node_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "oryx.v1.Node",
+	ServiceName: "epzero.v1.Node",
 	HandlerType: (*NodeServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -391,5 +391,5 @@ var Node_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "oryx/v1/oryx.proto",
+	Metadata: "epzero/v1/epzero.proto",
 }
