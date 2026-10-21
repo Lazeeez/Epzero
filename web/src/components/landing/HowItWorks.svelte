@@ -550,8 +550,7 @@
       padding: 20px;
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      background: var(--glass);
-      backdrop-filter: blur(16px);
+      background: var(--glass-fill);
     }
   }
 </style>
