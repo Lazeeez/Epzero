@@ -73,6 +73,8 @@ jobs:
   cloudflare:
     needs: build
     runs-on: ubuntu-24.04
+    outputs:
+      deployed: ${{ steps.smoke.outcome == 'success' }}
     environment:
       name: production
       url: https://epzero.dev/
@@ -121,6 +123,7 @@ jobs:
             fi
           done
       - name: Smoke test the deployed site
+        id: smoke
         if: steps.creds.outputs.ok == 'true'
         run: |
           for path in / /try /benchmarks /models/clip-vit-base-patch32/config.json; do
@@ -130,9 +133,11 @@ jobs:
           done
           curl -sI https://epzero.dev/ | grep -i "cross-origin-embedder-policy: require-corp"
 
-  # The old GitHub Pages address (lazeeez.github.io/<repo>/...) now forwards to the same path on epzero.dev.
+  # The old GitHub Pages address (lazeeez.github.io/<repo>/...) now forwards to the same path on
+  # epzero.dev, but only once epzero.dev is live: until then the last GitHub Pages deploy stays up.
   redirect:
-    needs: build
+    needs: cloudflare
+    if: needs.cloudflare.outputs.deployed == 'true'
     runs-on: ubuntu-24.04
     permissions:
       pages: write
