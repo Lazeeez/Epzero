@@ -1,4 +1,4 @@
-// Oryx cluster protocol: the router talks to data nodes, and each shard's primary talks to its
+// Epzero cluster protocol: the router talks to data nodes, and each shard's primary talks to its
 // replica. Every shard lives on two nodes (primary + replica); an epoch per shard, bumped on
 // every failover, fences off stale primaries.
 
@@ -6,9 +6,9 @@
 // versions:
 // 	protoc-gen-go v1.36.12
 // 	protoc        v3.21.12
-// source: oryx/v1/oryx.proto
+// source: epzero/v1/epzero.proto
 
-package oryxv1
+package epzerov1
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -58,11 +58,11 @@ func (x Role) String() string {
 }
 
 func (Role) Descriptor() protoreflect.EnumDescriptor {
-	return file_oryx_v1_oryx_proto_enumTypes[0].Descriptor()
+	return file_epzero_v1_epzero_proto_enumTypes[0].Descriptor()
 }
 
 func (Role) Type() protoreflect.EnumType {
-	return &file_oryx_v1_oryx_proto_enumTypes[0]
+	return &file_epzero_v1_epzero_proto_enumTypes[0]
 }
 
 func (x Role) Number() protoreflect.EnumNumber {
@@ -71,12 +71,12 @@ func (x Role) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Role.Descriptor instead.
 func (Role) EnumDescriptor() ([]byte, []int) {
-	return file_oryx_v1_oryx_proto_rawDescGZIP(), []int{0}
+	return file_epzero_v1_epzero_proto_rawDescGZIP(), []int{0}
 }
 
 type Record struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Type          uint32                 `protobuf:"varint,1,opt,name=type,proto3" json:"type,omitempty"` // 1 = upsert, 2 = remove (matches oryx::LogRecord::Type)
+	Type          uint32                 `protobuf:"varint,1,opt,name=type,proto3" json:"type,omitempty"` // 1 = upsert, 2 = remove (matches epzero::LogRecord::Type)
 	Lsn           uint64                 `protobuf:"varint,2,opt,name=lsn,proto3" json:"lsn,omitempty"`
 	Label         uint64                 `protobuf:"varint,3,opt,name=label,proto3" json:"label,omitempty"`
 	Vector        []float32              `protobuf:"fixed32,4,rep,packed,name=vector,proto3" json:"vector,omitempty"`
@@ -86,7 +86,7 @@ type Record struct {
 
 func (x *Record) Reset() {
 	*x = Record{}
-	mi := &file_oryx_v1_oryx_proto_msgTypes[0]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -98,7 +98,7 @@ func (x *Record) String() string {
 func (*Record) ProtoMessage() {}
 
 func (x *Record) ProtoReflect() protoreflect.Message {
-	mi := &file_oryx_v1_oryx_proto_msgTypes[0]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -111,7 +111,7 @@ func (x *Record) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Record.ProtoReflect.Descriptor instead.
 func (*Record) Descriptor() ([]byte, []int) {
-	return file_oryx_v1_oryx_proto_rawDescGZIP(), []int{0}
+	return file_epzero_v1_epzero_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Record) GetType() uint32 {
@@ -152,7 +152,7 @@ type Hit struct {
 
 func (x *Hit) Reset() {
 	*x = Hit{}
-	mi := &file_oryx_v1_oryx_proto_msgTypes[1]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -164,7 +164,7 @@ func (x *Hit) String() string {
 func (*Hit) ProtoMessage() {}
 
 func (x *Hit) ProtoReflect() protoreflect.Message {
-	mi := &file_oryx_v1_oryx_proto_msgTypes[1]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -177,7 +177,7 @@ func (x *Hit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Hit.ProtoReflect.Descriptor instead.
 func (*Hit) Descriptor() ([]byte, []int) {
-	return file_oryx_v1_oryx_proto_rawDescGZIP(), []int{1}
+	return file_epzero_v1_epzero_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Hit) GetLabel() uint64 {
@@ -206,7 +206,7 @@ type UpsertRequest struct {
 
 func (x *UpsertRequest) Reset() {
 	*x = UpsertRequest{}
-	mi := &file_oryx_v1_oryx_proto_msgTypes[2]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -218,7 +218,7 @@ func (x *UpsertRequest) String() string {
 func (*UpsertRequest) ProtoMessage() {}
 
 func (x *UpsertRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_oryx_v1_oryx_proto_msgTypes[2]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -231,7 +231,7 @@ func (x *UpsertRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpsertRequest.ProtoReflect.Descriptor instead.
 func (*UpsertRequest) Descriptor() ([]byte, []int) {
-	return file_oryx_v1_oryx_proto_rawDescGZIP(), []int{2}
+	return file_epzero_v1_epzero_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *UpsertRequest) GetShard() uint32 {
@@ -273,7 +273,7 @@ type RemoveRequest struct {
 
 func (x *RemoveRequest) Reset() {
 	*x = RemoveRequest{}
-	mi := &file_oryx_v1_oryx_proto_msgTypes[3]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -285,7 +285,7 @@ func (x *RemoveRequest) String() string {
 func (*RemoveRequest) ProtoMessage() {}
 
 func (x *RemoveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_oryx_v1_oryx_proto_msgTypes[3]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -298,7 +298,7 @@ func (x *RemoveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveRequest.ProtoReflect.Descriptor instead.
 func (*RemoveRequest) Descriptor() ([]byte, []int) {
-	return file_oryx_v1_oryx_proto_rawDescGZIP(), []int{3}
+	return file_epzero_v1_epzero_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *RemoveRequest) GetShard() uint32 {
@@ -332,7 +332,7 @@ type WriteReply struct {
 
 func (x *WriteReply) Reset() {
 	*x = WriteReply{}
-	mi := &file_oryx_v1_oryx_proto_msgTypes[4]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -344,7 +344,7 @@ func (x *WriteReply) String() string {
 func (*WriteReply) ProtoMessage() {}
 
 func (x *WriteReply) ProtoReflect() protoreflect.Message {
-	mi := &file_oryx_v1_oryx_proto_msgTypes[4]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -357,7 +357,7 @@ func (x *WriteReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteReply.ProtoReflect.Descriptor instead.
 func (*WriteReply) Descriptor() ([]byte, []int) {
-	return file_oryx_v1_oryx_proto_rawDescGZIP(), []int{4}
+	return file_epzero_v1_epzero_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *WriteReply) GetLsn() uint64 {
@@ -386,7 +386,7 @@ type SearchRequest struct {
 
 func (x *SearchRequest) Reset() {
 	*x = SearchRequest{}
-	mi := &file_oryx_v1_oryx_proto_msgTypes[5]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -398,7 +398,7 @@ func (x *SearchRequest) String() string {
 func (*SearchRequest) ProtoMessage() {}
 
 func (x *SearchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_oryx_v1_oryx_proto_msgTypes[5]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -411,7 +411,7 @@ func (x *SearchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchRequest.ProtoReflect.Descriptor instead.
 func (*SearchRequest) Descriptor() ([]byte, []int) {
-	return file_oryx_v1_oryx_proto_rawDescGZIP(), []int{5}
+	return file_epzero_v1_epzero_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SearchRequest) GetShard() uint32 {
@@ -453,7 +453,7 @@ type SearchReply struct {
 
 func (x *SearchReply) Reset() {
 	*x = SearchReply{}
-	mi := &file_oryx_v1_oryx_proto_msgTypes[6]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -465,7 +465,7 @@ func (x *SearchReply) String() string {
 func (*SearchReply) ProtoMessage() {}
 
 func (x *SearchReply) ProtoReflect() protoreflect.Message {
-	mi := &file_oryx_v1_oryx_proto_msgTypes[6]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -478,7 +478,7 @@ func (x *SearchReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchReply.ProtoReflect.Descriptor instead.
 func (*SearchReply) Descriptor() ([]byte, []int) {
-	return file_oryx_v1_oryx_proto_rawDescGZIP(), []int{6}
+	return file_epzero_v1_epzero_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *SearchReply) GetHits() []*Hit {
@@ -513,7 +513,7 @@ type ReplicateRequest struct {
 
 func (x *ReplicateRequest) Reset() {
 	*x = ReplicateRequest{}
-	mi := &file_oryx_v1_oryx_proto_msgTypes[7]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -525,7 +525,7 @@ func (x *ReplicateRequest) String() string {
 func (*ReplicateRequest) ProtoMessage() {}
 
 func (x *ReplicateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_oryx_v1_oryx_proto_msgTypes[7]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -538,7 +538,7 @@ func (x *ReplicateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplicateRequest.ProtoReflect.Descriptor instead.
 func (*ReplicateRequest) Descriptor() ([]byte, []int) {
-	return file_oryx_v1_oryx_proto_rawDescGZIP(), []int{7}
+	return file_epzero_v1_epzero_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ReplicateRequest) GetShard() uint32 {
@@ -571,7 +571,7 @@ type ReplicateReply struct {
 
 func (x *ReplicateReply) Reset() {
 	*x = ReplicateReply{}
-	mi := &file_oryx_v1_oryx_proto_msgTypes[8]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -583,7 +583,7 @@ func (x *ReplicateReply) String() string {
 func (*ReplicateReply) ProtoMessage() {}
 
 func (x *ReplicateReply) ProtoReflect() protoreflect.Message {
-	mi := &file_oryx_v1_oryx_proto_msgTypes[8]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -596,7 +596,7 @@ func (x *ReplicateReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplicateReply.ProtoReflect.Descriptor instead.
 func (*ReplicateReply) Descriptor() ([]byte, []int) {
-	return file_oryx_v1_oryx_proto_rawDescGZIP(), []int{8}
+	return file_epzero_v1_epzero_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ReplicateReply) GetLsn() uint64 {
@@ -622,7 +622,7 @@ type FetchRequest struct {
 
 func (x *FetchRequest) Reset() {
 	*x = FetchRequest{}
-	mi := &file_oryx_v1_oryx_proto_msgTypes[9]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -634,7 +634,7 @@ func (x *FetchRequest) String() string {
 func (*FetchRequest) ProtoMessage() {}
 
 func (x *FetchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_oryx_v1_oryx_proto_msgTypes[9]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -647,7 +647,7 @@ func (x *FetchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchRequest.ProtoReflect.Descriptor instead.
 func (*FetchRequest) Descriptor() ([]byte, []int) {
-	return file_oryx_v1_oryx_proto_rawDescGZIP(), []int{9}
+	return file_epzero_v1_epzero_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *FetchRequest) GetShard() uint32 {
@@ -697,7 +697,7 @@ type FetchReply struct {
 
 func (x *FetchReply) Reset() {
 	*x = FetchReply{}
-	mi := &file_oryx_v1_oryx_proto_msgTypes[10]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -709,7 +709,7 @@ func (x *FetchReply) String() string {
 func (*FetchReply) ProtoMessage() {}
 
 func (x *FetchReply) ProtoReflect() protoreflect.Message {
-	mi := &file_oryx_v1_oryx_proto_msgTypes[10]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -722,7 +722,7 @@ func (x *FetchReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchReply.ProtoReflect.Descriptor instead.
 func (*FetchReply) Descriptor() ([]byte, []int) {
-	return file_oryx_v1_oryx_proto_rawDescGZIP(), []int{10}
+	return file_epzero_v1_epzero_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *FetchReply) GetRecords() []*Record {
@@ -757,7 +757,7 @@ type AssignRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Shard         uint32                 `protobuf:"varint,1,opt,name=shard,proto3" json:"shard,omitempty"`
 	Epoch         uint64                 `protobuf:"varint,2,opt,name=epoch,proto3" json:"epoch,omitempty"`
-	Role          Role                   `protobuf:"varint,3,opt,name=role,proto3,enum=oryx.v1.Role" json:"role,omitempty"`
+	Role          Role                   `protobuf:"varint,3,opt,name=role,proto3,enum=epzero.v1.Role" json:"role,omitempty"`
 	Peer          string                 `protobuf:"bytes,4,opt,name=peer,proto3" json:"peer,omitempty"` // primary: its replica ("" = none); replica: its primary
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -765,7 +765,7 @@ type AssignRequest struct {
 
 func (x *AssignRequest) Reset() {
 	*x = AssignRequest{}
-	mi := &file_oryx_v1_oryx_proto_msgTypes[11]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -777,7 +777,7 @@ func (x *AssignRequest) String() string {
 func (*AssignRequest) ProtoMessage() {}
 
 func (x *AssignRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_oryx_v1_oryx_proto_msgTypes[11]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -790,7 +790,7 @@ func (x *AssignRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssignRequest.ProtoReflect.Descriptor instead.
 func (*AssignRequest) Descriptor() ([]byte, []int) {
-	return file_oryx_v1_oryx_proto_rawDescGZIP(), []int{11}
+	return file_epzero_v1_epzero_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *AssignRequest) GetShard() uint32 {
@@ -829,7 +829,7 @@ type AssignReply struct {
 
 func (x *AssignReply) Reset() {
 	*x = AssignReply{}
-	mi := &file_oryx_v1_oryx_proto_msgTypes[12]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -841,7 +841,7 @@ func (x *AssignReply) String() string {
 func (*AssignReply) ProtoMessage() {}
 
 func (x *AssignReply) ProtoReflect() protoreflect.Message {
-	mi := &file_oryx_v1_oryx_proto_msgTypes[12]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -854,7 +854,7 @@ func (x *AssignReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssignReply.ProtoReflect.Descriptor instead.
 func (*AssignReply) Descriptor() ([]byte, []int) {
-	return file_oryx_v1_oryx_proto_rawDescGZIP(), []int{12}
+	return file_epzero_v1_epzero_proto_rawDescGZIP(), []int{12}
 }
 
 type StatusRequest struct {
@@ -865,7 +865,7 @@ type StatusRequest struct {
 
 func (x *StatusRequest) Reset() {
 	*x = StatusRequest{}
-	mi := &file_oryx_v1_oryx_proto_msgTypes[13]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -877,7 +877,7 @@ func (x *StatusRequest) String() string {
 func (*StatusRequest) ProtoMessage() {}
 
 func (x *StatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_oryx_v1_oryx_proto_msgTypes[13]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -890,13 +890,13 @@ func (x *StatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusRequest.ProtoReflect.Descriptor instead.
 func (*StatusRequest) Descriptor() ([]byte, []int) {
-	return file_oryx_v1_oryx_proto_rawDescGZIP(), []int{13}
+	return file_epzero_v1_epzero_proto_rawDescGZIP(), []int{13}
 }
 
 type ShardStatus struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Shard         uint32                 `protobuf:"varint,1,opt,name=shard,proto3" json:"shard,omitempty"`
-	Role          Role                   `protobuf:"varint,2,opt,name=role,proto3,enum=oryx.v1.Role" json:"role,omitempty"`
+	Role          Role                   `protobuf:"varint,2,opt,name=role,proto3,enum=epzero.v1.Role" json:"role,omitempty"`
 	Epoch         uint64                 `protobuf:"varint,3,opt,name=epoch,proto3" json:"epoch,omitempty"`
 	Lsn           uint64                 `protobuf:"varint,4,opt,name=lsn,proto3" json:"lsn,omitempty"`
 	Vectors       uint64                 `protobuf:"varint,5,opt,name=vectors,proto3" json:"vectors,omitempty"`
@@ -908,7 +908,7 @@ type ShardStatus struct {
 
 func (x *ShardStatus) Reset() {
 	*x = ShardStatus{}
-	mi := &file_oryx_v1_oryx_proto_msgTypes[14]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -920,7 +920,7 @@ func (x *ShardStatus) String() string {
 func (*ShardStatus) ProtoMessage() {}
 
 func (x *ShardStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_oryx_v1_oryx_proto_msgTypes[14]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -933,7 +933,7 @@ func (x *ShardStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShardStatus.ProtoReflect.Descriptor instead.
 func (*ShardStatus) Descriptor() ([]byte, []int) {
-	return file_oryx_v1_oryx_proto_rawDescGZIP(), []int{14}
+	return file_epzero_v1_epzero_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ShardStatus) GetShard() uint32 {
@@ -997,7 +997,7 @@ type StatusReply struct {
 
 func (x *StatusReply) Reset() {
 	*x = StatusReply{}
-	mi := &file_oryx_v1_oryx_proto_msgTypes[15]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1009,7 +1009,7 @@ func (x *StatusReply) String() string {
 func (*StatusReply) ProtoMessage() {}
 
 func (x *StatusReply) ProtoReflect() protoreflect.Message {
-	mi := &file_oryx_v1_oryx_proto_msgTypes[15]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1022,7 +1022,7 @@ func (x *StatusReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusReply.ProtoReflect.Descriptor instead.
 func (*StatusReply) Descriptor() ([]byte, []int) {
-	return file_oryx_v1_oryx_proto_rawDescGZIP(), []int{15}
+	return file_epzero_v1_epzero_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *StatusReply) GetNode() string {
@@ -1062,7 +1062,7 @@ type CrashRequest struct {
 
 func (x *CrashRequest) Reset() {
 	*x = CrashRequest{}
-	mi := &file_oryx_v1_oryx_proto_msgTypes[16]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1074,7 +1074,7 @@ func (x *CrashRequest) String() string {
 func (*CrashRequest) ProtoMessage() {}
 
 func (x *CrashRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_oryx_v1_oryx_proto_msgTypes[16]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1087,7 +1087,7 @@ func (x *CrashRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CrashRequest.ProtoReflect.Descriptor instead.
 func (*CrashRequest) Descriptor() ([]byte, []int) {
-	return file_oryx_v1_oryx_proto_rawDescGZIP(), []int{16}
+	return file_epzero_v1_epzero_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *CrashRequest) GetToken() string {
@@ -1105,7 +1105,7 @@ type CrashReply struct {
 
 func (x *CrashReply) Reset() {
 	*x = CrashReply{}
-	mi := &file_oryx_v1_oryx_proto_msgTypes[17]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1117,7 +1117,7 @@ func (x *CrashReply) String() string {
 func (*CrashReply) ProtoMessage() {}
 
 func (x *CrashReply) ProtoReflect() protoreflect.Message {
-	mi := &file_oryx_v1_oryx_proto_msgTypes[17]
+	mi := &file_epzero_v1_epzero_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1130,14 +1130,14 @@ func (x *CrashReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CrashReply.ProtoReflect.Descriptor instead.
 func (*CrashReply) Descriptor() ([]byte, []int) {
-	return file_oryx_v1_oryx_proto_rawDescGZIP(), []int{17}
+	return file_epzero_v1_epzero_proto_rawDescGZIP(), []int{17}
 }
 
-var File_oryx_v1_oryx_proto protoreflect.FileDescriptor
+var File_epzero_v1_epzero_proto protoreflect.FileDescriptor
 
-const file_oryx_v1_oryx_proto_rawDesc = "" +
+const file_epzero_v1_epzero_proto_rawDesc = "" +
 	"\n" +
-	"\x12oryx/v1/oryx.proto\x12\aoryx.v1\"\\\n" +
+	"\x16epzero/v1/epzero.proto\x12\tepzero.v1\"\\\n" +
 	"\x06Record\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\rR\x04type\x12\x10\n" +
 	"\x03lsn\x18\x02 \x01(\x04R\x03lsn\x12\x14\n" +
@@ -1165,15 +1165,15 @@ const file_oryx_v1_oryx_proto_rawDesc = "" +
 	"\x05shard\x18\x01 \x01(\rR\x05shard\x12\x14\n" +
 	"\x05query\x18\x02 \x03(\x02R\x05query\x12\f\n" +
 	"\x01k\x18\x03 \x01(\rR\x01k\x12\x0e\n" +
-	"\x02ef\x18\x04 \x01(\rR\x02ef\"|\n" +
-	"\vSearchReply\x12 \n" +
-	"\x04hits\x18\x01 \x03(\v2\f.oryx.v1.HitR\x04hits\x12\x16\n" +
+	"\x02ef\x18\x04 \x01(\rR\x02ef\"~\n" +
+	"\vSearchReply\x12\"\n" +
+	"\x04hits\x18\x01 \x03(\v2\x0e.epzero.v1.HitR\x04hits\x12\x16\n" +
 	"\x06micros\x18\x02 \x01(\x04R\x06micros\x123\n" +
-	"\x15distance_computations\x18\x03 \x01(\x04R\x14distanceComputations\"i\n" +
+	"\x15distance_computations\x18\x03 \x01(\x04R\x14distanceComputations\"k\n" +
 	"\x10ReplicateRequest\x12\x14\n" +
 	"\x05shard\x18\x01 \x01(\rR\x05shard\x12\x14\n" +
-	"\x05epoch\x18\x02 \x01(\x04R\x05epoch\x12)\n" +
-	"\arecords\x18\x03 \x03(\v2\x0f.oryx.v1.RecordR\arecords\"\"\n" +
+	"\x05epoch\x18\x02 \x01(\x04R\x05epoch\x12+\n" +
+	"\arecords\x18\x03 \x03(\v2\x11.epzero.v1.RecordR\arecords\"\"\n" +
 	"\x0eReplicateReply\x12\x10\n" +
 	"\x03lsn\x18\x01 \x01(\x04R\x03lsn\"\xa7\x01\n" +
 	"\fFetchRequest\x12\x14\n" +
@@ -1181,32 +1181,32 @@ const file_oryx_v1_oryx_proto_rawDesc = "" +
 	"\x05epoch\x18\x02 \x01(\x04R\x05epoch\x12\x1b\n" +
 	"\tafter_lsn\x18\x03 \x01(\x04R\bafterLsn\x12'\n" +
 	"\x0freplica_address\x18\x04 \x01(\tR\x0ereplicaAddress\x12%\n" +
-	"\x0eforce_snapshot\x18\x05 \x01(\bR\rforceSnapshot\"\x99\x01\n" +
+	"\x0eforce_snapshot\x18\x05 \x01(\bR\rforceSnapshot\"\x9b\x01\n" +
 	"\n" +
-	"FetchReply\x12)\n" +
-	"\arecords\x18\x01 \x03(\v2\x0f.oryx.v1.RecordR\arecords\x12!\n" +
+	"FetchReply\x12+\n" +
+	"\arecords\x18\x01 \x03(\v2\x11.epzero.v1.RecordR\arecords\x12!\n" +
 	"\fhas_snapshot\x18\x02 \x01(\bR\vhasSnapshot\x12!\n" +
 	"\fsnapshot_lsn\x18\x03 \x01(\x04R\vsnapshotLsn\x12\x1a\n" +
-	"\bsnapshot\x18\x04 \x01(\fR\bsnapshot\"r\n" +
+	"\bsnapshot\x18\x04 \x01(\fR\bsnapshot\"t\n" +
 	"\rAssignRequest\x12\x14\n" +
 	"\x05shard\x18\x01 \x01(\rR\x05shard\x12\x14\n" +
-	"\x05epoch\x18\x02 \x01(\x04R\x05epoch\x12!\n" +
-	"\x04role\x18\x03 \x01(\x0e2\r.oryx.v1.RoleR\x04role\x12\x12\n" +
+	"\x05epoch\x18\x02 \x01(\x04R\x05epoch\x12#\n" +
+	"\x04role\x18\x03 \x01(\x0e2\x0f.epzero.v1.RoleR\x04role\x12\x12\n" +
 	"\x04peer\x18\x04 \x01(\tR\x04peer\"\r\n" +
 	"\vAssignReply\"\x0f\n" +
-	"\rStatusRequest\"\xb5\x01\n" +
+	"\rStatusRequest\"\xb7\x01\n" +
 	"\vShardStatus\x12\x14\n" +
-	"\x05shard\x18\x01 \x01(\rR\x05shard\x12!\n" +
-	"\x04role\x18\x02 \x01(\x0e2\r.oryx.v1.RoleR\x04role\x12\x14\n" +
+	"\x05shard\x18\x01 \x01(\rR\x05shard\x12#\n" +
+	"\x04role\x18\x02 \x01(\x0e2\x0f.epzero.v1.RoleR\x04role\x12\x14\n" +
 	"\x05epoch\x18\x03 \x01(\x04R\x05epoch\x12\x10\n" +
 	"\x03lsn\x18\x04 \x01(\x04R\x03lsn\x12\x18\n" +
 	"\avectors\x18\x05 \x01(\x04R\avectors\x12\x12\n" +
 	"\x04peer\x18\x06 \x01(\tR\x04peer\x12\x17\n" +
-	"\ain_sync\x18\a \x01(\bR\x06inSync\"\x8b\x01\n" +
+	"\ain_sync\x18\a \x01(\bR\x06inSync\"\x8d\x01\n" +
 	"\vStatusReply\x12\x12\n" +
 	"\x04node\x18\x01 \x01(\tR\x04node\x12&\n" +
-	"\x0fstarted_unix_ms\x18\x02 \x01(\x04R\rstartedUnixMs\x12,\n" +
-	"\x06shards\x18\x03 \x03(\v2\x14.oryx.v1.ShardStatusR\x06shards\x12\x12\n" +
+	"\x0fstarted_unix_ms\x18\x02 \x01(\x04R\rstartedUnixMs\x12.\n" +
+	"\x06shards\x18\x03 \x03(\v2\x16.epzero.v1.ShardStatusR\x06shards\x12\x12\n" +
 	"\x04simd\x18\x04 \x01(\tR\x04simd\"$\n" +
 	"\fCrashRequest\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\"\f\n" +
@@ -1215,75 +1215,75 @@ const file_oryx_v1_oryx_proto_rawDesc = "" +
 	"\x04Role\x12\x14\n" +
 	"\x10ROLE_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fROLE_PRIMARY\x10\x01\x12\x10\n" +
-	"\fROLE_REPLICA\x10\x022\xc7\x03\n" +
-	"\x04Node\x125\n" +
-	"\x06Upsert\x12\x16.oryx.v1.UpsertRequest\x1a\x13.oryx.v1.WriteReply\x125\n" +
-	"\x06Remove\x12\x16.oryx.v1.RemoveRequest\x1a\x13.oryx.v1.WriteReply\x126\n" +
-	"\x06Search\x12\x16.oryx.v1.SearchRequest\x1a\x14.oryx.v1.SearchReply\x12?\n" +
-	"\tReplicate\x12\x19.oryx.v1.ReplicateRequest\x1a\x17.oryx.v1.ReplicateReply\x123\n" +
-	"\x05Fetch\x12\x15.oryx.v1.FetchRequest\x1a\x13.oryx.v1.FetchReply\x126\n" +
-	"\x06Assign\x12\x16.oryx.v1.AssignRequest\x1a\x14.oryx.v1.AssignReply\x126\n" +
-	"\x06Status\x12\x16.oryx.v1.StatusRequest\x1a\x14.oryx.v1.StatusReply\x123\n" +
-	"\x05Crash\x12\x15.oryx.v1.CrashRequest\x1a\x13.oryx.v1.CrashReplyB3Z1github.com/Lazeeez/Oryx/cluster/gen/oryxv1;oryxv1b\x06proto3"
+	"\fROLE_REPLICA\x10\x022\xe7\x03\n" +
+	"\x04Node\x129\n" +
+	"\x06Upsert\x12\x18.epzero.v1.UpsertRequest\x1a\x15.epzero.v1.WriteReply\x129\n" +
+	"\x06Remove\x12\x18.epzero.v1.RemoveRequest\x1a\x15.epzero.v1.WriteReply\x12:\n" +
+	"\x06Search\x12\x18.epzero.v1.SearchRequest\x1a\x16.epzero.v1.SearchReply\x12C\n" +
+	"\tReplicate\x12\x1b.epzero.v1.ReplicateRequest\x1a\x19.epzero.v1.ReplicateReply\x127\n" +
+	"\x05Fetch\x12\x17.epzero.v1.FetchRequest\x1a\x15.epzero.v1.FetchReply\x12:\n" +
+	"\x06Assign\x12\x18.epzero.v1.AssignRequest\x1a\x16.epzero.v1.AssignReply\x12:\n" +
+	"\x06Status\x12\x18.epzero.v1.StatusRequest\x1a\x16.epzero.v1.StatusReply\x127\n" +
+	"\x05Crash\x12\x17.epzero.v1.CrashRequest\x1a\x15.epzero.v1.CrashReplyB9Z7github.com/Lazeeez/Epzero/cluster/gen/epzerov1;epzerov1b\x06proto3"
 
 var (
-	file_oryx_v1_oryx_proto_rawDescOnce sync.Once
-	file_oryx_v1_oryx_proto_rawDescData []byte
+	file_epzero_v1_epzero_proto_rawDescOnce sync.Once
+	file_epzero_v1_epzero_proto_rawDescData []byte
 )
 
-func file_oryx_v1_oryx_proto_rawDescGZIP() []byte {
-	file_oryx_v1_oryx_proto_rawDescOnce.Do(func() {
-		file_oryx_v1_oryx_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_oryx_v1_oryx_proto_rawDesc), len(file_oryx_v1_oryx_proto_rawDesc)))
+func file_epzero_v1_epzero_proto_rawDescGZIP() []byte {
+	file_epzero_v1_epzero_proto_rawDescOnce.Do(func() {
+		file_epzero_v1_epzero_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_epzero_v1_epzero_proto_rawDesc), len(file_epzero_v1_epzero_proto_rawDesc)))
 	})
-	return file_oryx_v1_oryx_proto_rawDescData
+	return file_epzero_v1_epzero_proto_rawDescData
 }
 
-var file_oryx_v1_oryx_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_oryx_v1_oryx_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
-var file_oryx_v1_oryx_proto_goTypes = []any{
-	(Role)(0),                // 0: oryx.v1.Role
-	(*Record)(nil),           // 1: oryx.v1.Record
-	(*Hit)(nil),              // 2: oryx.v1.Hit
-	(*UpsertRequest)(nil),    // 3: oryx.v1.UpsertRequest
-	(*RemoveRequest)(nil),    // 4: oryx.v1.RemoveRequest
-	(*WriteReply)(nil),       // 5: oryx.v1.WriteReply
-	(*SearchRequest)(nil),    // 6: oryx.v1.SearchRequest
-	(*SearchReply)(nil),      // 7: oryx.v1.SearchReply
-	(*ReplicateRequest)(nil), // 8: oryx.v1.ReplicateRequest
-	(*ReplicateReply)(nil),   // 9: oryx.v1.ReplicateReply
-	(*FetchRequest)(nil),     // 10: oryx.v1.FetchRequest
-	(*FetchReply)(nil),       // 11: oryx.v1.FetchReply
-	(*AssignRequest)(nil),    // 12: oryx.v1.AssignRequest
-	(*AssignReply)(nil),      // 13: oryx.v1.AssignReply
-	(*StatusRequest)(nil),    // 14: oryx.v1.StatusRequest
-	(*ShardStatus)(nil),      // 15: oryx.v1.ShardStatus
-	(*StatusReply)(nil),      // 16: oryx.v1.StatusReply
-	(*CrashRequest)(nil),     // 17: oryx.v1.CrashRequest
-	(*CrashReply)(nil),       // 18: oryx.v1.CrashReply
+var file_epzero_v1_epzero_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_epzero_v1_epzero_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_epzero_v1_epzero_proto_goTypes = []any{
+	(Role)(0),                // 0: epzero.v1.Role
+	(*Record)(nil),           // 1: epzero.v1.Record
+	(*Hit)(nil),              // 2: epzero.v1.Hit
+	(*UpsertRequest)(nil),    // 3: epzero.v1.UpsertRequest
+	(*RemoveRequest)(nil),    // 4: epzero.v1.RemoveRequest
+	(*WriteReply)(nil),       // 5: epzero.v1.WriteReply
+	(*SearchRequest)(nil),    // 6: epzero.v1.SearchRequest
+	(*SearchReply)(nil),      // 7: epzero.v1.SearchReply
+	(*ReplicateRequest)(nil), // 8: epzero.v1.ReplicateRequest
+	(*ReplicateReply)(nil),   // 9: epzero.v1.ReplicateReply
+	(*FetchRequest)(nil),     // 10: epzero.v1.FetchRequest
+	(*FetchReply)(nil),       // 11: epzero.v1.FetchReply
+	(*AssignRequest)(nil),    // 12: epzero.v1.AssignRequest
+	(*AssignReply)(nil),      // 13: epzero.v1.AssignReply
+	(*StatusRequest)(nil),    // 14: epzero.v1.StatusRequest
+	(*ShardStatus)(nil),      // 15: epzero.v1.ShardStatus
+	(*StatusReply)(nil),      // 16: epzero.v1.StatusReply
+	(*CrashRequest)(nil),     // 17: epzero.v1.CrashRequest
+	(*CrashReply)(nil),       // 18: epzero.v1.CrashReply
 }
-var file_oryx_v1_oryx_proto_depIdxs = []int32{
-	2,  // 0: oryx.v1.SearchReply.hits:type_name -> oryx.v1.Hit
-	1,  // 1: oryx.v1.ReplicateRequest.records:type_name -> oryx.v1.Record
-	1,  // 2: oryx.v1.FetchReply.records:type_name -> oryx.v1.Record
-	0,  // 3: oryx.v1.AssignRequest.role:type_name -> oryx.v1.Role
-	0,  // 4: oryx.v1.ShardStatus.role:type_name -> oryx.v1.Role
-	15, // 5: oryx.v1.StatusReply.shards:type_name -> oryx.v1.ShardStatus
-	3,  // 6: oryx.v1.Node.Upsert:input_type -> oryx.v1.UpsertRequest
-	4,  // 7: oryx.v1.Node.Remove:input_type -> oryx.v1.RemoveRequest
-	6,  // 8: oryx.v1.Node.Search:input_type -> oryx.v1.SearchRequest
-	8,  // 9: oryx.v1.Node.Replicate:input_type -> oryx.v1.ReplicateRequest
-	10, // 10: oryx.v1.Node.Fetch:input_type -> oryx.v1.FetchRequest
-	12, // 11: oryx.v1.Node.Assign:input_type -> oryx.v1.AssignRequest
-	14, // 12: oryx.v1.Node.Status:input_type -> oryx.v1.StatusRequest
-	17, // 13: oryx.v1.Node.Crash:input_type -> oryx.v1.CrashRequest
-	5,  // 14: oryx.v1.Node.Upsert:output_type -> oryx.v1.WriteReply
-	5,  // 15: oryx.v1.Node.Remove:output_type -> oryx.v1.WriteReply
-	7,  // 16: oryx.v1.Node.Search:output_type -> oryx.v1.SearchReply
-	9,  // 17: oryx.v1.Node.Replicate:output_type -> oryx.v1.ReplicateReply
-	11, // 18: oryx.v1.Node.Fetch:output_type -> oryx.v1.FetchReply
-	13, // 19: oryx.v1.Node.Assign:output_type -> oryx.v1.AssignReply
-	16, // 20: oryx.v1.Node.Status:output_type -> oryx.v1.StatusReply
-	18, // 21: oryx.v1.Node.Crash:output_type -> oryx.v1.CrashReply
+var file_epzero_v1_epzero_proto_depIdxs = []int32{
+	2,  // 0: epzero.v1.SearchReply.hits:type_name -> epzero.v1.Hit
+	1,  // 1: epzero.v1.ReplicateRequest.records:type_name -> epzero.v1.Record
+	1,  // 2: epzero.v1.FetchReply.records:type_name -> epzero.v1.Record
+	0,  // 3: epzero.v1.AssignRequest.role:type_name -> epzero.v1.Role
+	0,  // 4: epzero.v1.ShardStatus.role:type_name -> epzero.v1.Role
+	15, // 5: epzero.v1.StatusReply.shards:type_name -> epzero.v1.ShardStatus
+	3,  // 6: epzero.v1.Node.Upsert:input_type -> epzero.v1.UpsertRequest
+	4,  // 7: epzero.v1.Node.Remove:input_type -> epzero.v1.RemoveRequest
+	6,  // 8: epzero.v1.Node.Search:input_type -> epzero.v1.SearchRequest
+	8,  // 9: epzero.v1.Node.Replicate:input_type -> epzero.v1.ReplicateRequest
+	10, // 10: epzero.v1.Node.Fetch:input_type -> epzero.v1.FetchRequest
+	12, // 11: epzero.v1.Node.Assign:input_type -> epzero.v1.AssignRequest
+	14, // 12: epzero.v1.Node.Status:input_type -> epzero.v1.StatusRequest
+	17, // 13: epzero.v1.Node.Crash:input_type -> epzero.v1.CrashRequest
+	5,  // 14: epzero.v1.Node.Upsert:output_type -> epzero.v1.WriteReply
+	5,  // 15: epzero.v1.Node.Remove:output_type -> epzero.v1.WriteReply
+	7,  // 16: epzero.v1.Node.Search:output_type -> epzero.v1.SearchReply
+	9,  // 17: epzero.v1.Node.Replicate:output_type -> epzero.v1.ReplicateReply
+	11, // 18: epzero.v1.Node.Fetch:output_type -> epzero.v1.FetchReply
+	13, // 19: epzero.v1.Node.Assign:output_type -> epzero.v1.AssignReply
+	16, // 20: epzero.v1.Node.Status:output_type -> epzero.v1.StatusReply
+	18, // 21: epzero.v1.Node.Crash:output_type -> epzero.v1.CrashReply
 	14, // [14:22] is the sub-list for method output_type
 	6,  // [6:14] is the sub-list for method input_type
 	6,  // [6:6] is the sub-list for extension type_name
@@ -1291,27 +1291,27 @@ var file_oryx_v1_oryx_proto_depIdxs = []int32{
 	0,  // [0:6] is the sub-list for field type_name
 }
 
-func init() { file_oryx_v1_oryx_proto_init() }
-func file_oryx_v1_oryx_proto_init() {
-	if File_oryx_v1_oryx_proto != nil {
+func init() { file_epzero_v1_epzero_proto_init() }
+func file_epzero_v1_epzero_proto_init() {
+	if File_epzero_v1_epzero_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_oryx_v1_oryx_proto_rawDesc), len(file_oryx_v1_oryx_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_epzero_v1_epzero_proto_rawDesc), len(file_epzero_v1_epzero_proto_rawDesc)),
 			NumEnums:      1,
 			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_oryx_v1_oryx_proto_goTypes,
-		DependencyIndexes: file_oryx_v1_oryx_proto_depIdxs,
-		EnumInfos:         file_oryx_v1_oryx_proto_enumTypes,
-		MessageInfos:      file_oryx_v1_oryx_proto_msgTypes,
+		GoTypes:           file_epzero_v1_epzero_proto_goTypes,
+		DependencyIndexes: file_epzero_v1_epzero_proto_depIdxs,
+		EnumInfos:         file_epzero_v1_epzero_proto_enumTypes,
+		MessageInfos:      file_epzero_v1_epzero_proto_msgTypes,
 	}.Build()
-	File_oryx_v1_oryx_proto = out.File
-	file_oryx_v1_oryx_proto_goTypes = nil
-	file_oryx_v1_oryx_proto_depIdxs = nil
+	File_epzero_v1_epzero_proto = out.File
+	file_epzero_v1_epzero_proto_goTypes = nil
+	file_epzero_v1_epzero_proto_depIdxs = nil
 }
