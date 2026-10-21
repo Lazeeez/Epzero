@@ -1,6 +1,6 @@
 // Writes one valid input per fuzz target, so fuzzing starts from real files and mutates them,
 // rather than having to discover the formats from nothing:
-//   fuzz_seeds <dir>  ->  <dir>/snapshot/valid, <dir>/graph/valid, <dir>/wal/valid
+//   fuzz_seeds <dir>  ->  <dir>/snapshot/valid, <dir>/graph/valid, <dir>/wal/valid, <dir>/text/valid
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -9,6 +9,7 @@
 
 #include "common.h"
 #include "oryx/database.h"
+#include "oryx/text.h"
 
 namespace fs = std::filesystem;
 using namespace oryx::fuzz;
@@ -19,7 +20,7 @@ int main(int argc, char** argv) {
     return 2;
   }
   const fs::path out = argv[1];
-  for (const char* name : {"snapshot", "graph", "wal"}) fs::create_directories(out / name);
+  for (const char* name : {"snapshot", "graph", "wal", "text"}) fs::create_directories(out / name);
 
   std::vector<float> vectors(40 * kDim);
   for (std::size_t i = 0; i < vectors.size(); ++i) vectors[i] = static_cast<float>((i * 7919) % 101) / 101.0f;
@@ -45,6 +46,12 @@ int main(int argc, char** argv) {
   }
   fs::copy_file(dir / "wal.log", out / "wal" / "valid", fs::copy_options::overwrite_existing);
   fs::remove_all(dir.parent_path());
+
+  oryx::TextIndex text;
+  text.add(1, "red car by the river");
+  text.add(2, "night city lights, city traffic");
+  text.add(7, "café über 42");
+  text.save((out / "text" / "valid").string());
   std::printf("seeds written to %s\n", out.string().c_str());
   return 0;
 }
