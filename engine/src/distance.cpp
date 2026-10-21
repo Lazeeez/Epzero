@@ -110,6 +110,14 @@ Sq8DotFn get_sq8_dot_fn(SimdLevel level) noexcept {
   }
 }
 
+RabitqIpFn get_rabitq_ip_fn(SimdLevel level) noexcept {
+  if (!simd_level_supported(level)) return nullptr;
+#if defined(__x86_64__) || defined(_M_X64)
+  if (level == SimdLevel::AVX2 || level == SimdLevel::AVX512) return kernels::rabitq_ip_popcnt;
+#endif
+  return kernels::rabitq_ip_scalar;
+}
+
 void normalize(float* v, std::size_t dim) noexcept {
   float norm_sq = 0.0f;
   for (std::size_t i = 0; i < dim; ++i) norm_sq += v[i] * v[i];
