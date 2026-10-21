@@ -290,6 +290,10 @@ accumulators.
   target recall, so Auto weighs a scan against the plain walk by estimated
   cost. The thresholds come from measuring every strategy at 12 selectivities
   on a dedicated server (`bench/results/pace/gold6226/sift1m-filter.json`).
+  Re-measured there against the earlier fixed thresholds: filters allowing
+  0.5–1% of the vectors went from recall as low as 0.34 to 1.000 at every
+  beam width, 30% filters got 24–36% faster, and exact scans no longer slow
+  down as the beam widens (38.6k queries/s at 0.1%, was 11k at `ef` 320).
 - **Recall monitoring and control.** See [docs/recall-guard.md](docs/recall-guard.md).
 
 ## Python
