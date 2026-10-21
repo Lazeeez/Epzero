@@ -61,7 +61,7 @@ export interface SearchOutcome {
 
 const DATA = `${import.meta.env.BASE_URL}data/openimages/`;
 
-const HYBRID_KEY = "oryx-hybrid";
+const HYBRID_KEY = "epzero-hybrid";
 function readHybrid(): boolean {
   try {
     return localStorage.getItem(HYBRID_KEY) !== "0";
@@ -294,14 +294,19 @@ class Engine {
 
   // The captions, one line per photo (its title, or its labels), for the worker's keyword index.
   // Sent once, after the first build: a few hundred kilobytes, indexed in WebAssembly in the worker.
+  // Built when the browser is idle, so it never competes with the page's first moments.
   private sendKeywords() {
     if (this.keywordsSent || !this.worker || !this.meta) return;
     this.keywordsSent = true;
-    const m = this.meta;
-    const lines = m.title.map((title, id) =>
-      (title ? decodeEntities(title) : m.labels[id].map((l) => m.labelNames[l]).join(" ")).replace(/\s+/g, " "),
-    );
-    this.worker.postMessage({ type: "keywords", texts: lines.join("\n") });
+    const send = () => {
+      const m = this.meta!;
+      const lines = m.title.map((title, id) =>
+        (title ? decodeEntities(title) : m.labels[id].map((l) => m.labelNames[l]).join(" ")).replace(/\s+/g, " "),
+      );
+      this.worker?.postMessage({ type: "keywords", texts: lines.join("\n") });
+    };
+    if ("requestIdleCallback" in window) requestIdleCallback(send, { timeout: 3000 });
+    else setTimeout(send, 500);
   }
 
   /** Turns hybrid search on or off (remembered on this device). */
