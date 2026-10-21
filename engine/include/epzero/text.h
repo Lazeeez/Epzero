@@ -17,9 +17,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include "oryx/hnsw.h"
+#include "epzero/hnsw.h"
 
-namespace oryx {
+namespace epzero {
 
 // Okapi BM25 over short documents, keyed by the same labels as the vector index.
 //
@@ -102,4 +102,4 @@ struct HybridOptions {
 std::vector<SearchResult> hybrid_search(const HnswIndex& vectors, const TextIndex& text, const float* query_vector,
                                         std::string_view query_text, std::size_t k, const HybridOptions& options = {});
 
-}  // namespace oryx
+}  // namespace epzero
