@@ -1,3 +1,5 @@
+//go:build !js
+
 package router
 
 import (
@@ -7,9 +9,6 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
 // Handler serves the public HTTP API:
@@ -76,6 +75,8 @@ func (r *Router) handleSearch(w http.ResponseWriter, req *http.Request) {
 		Vector []float32 `json:"vector"`
 		K      int       `json:"k"`
 		EF     int       `json:"ef"`
+		// "strong" or "eventual"; empty: the router's default.
+		Consistency Consistency `json:"consistency"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, req.Body, 1<<20)).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -83,7 +84,13 @@ func (r *Router) handleSearch(w http.ResponseWriter, req *http.Request) {
 	}
 	body.K = min(max(body.K, 1), 100)
 	body.EF = min(max(body.EF, body.K, 16), 1024)
-	result, err := r.Search(req.Context(), body.Vector, body.K, body.EF)
+	if body.Consistency == "" {
+		body.Consistency = r.cfg.Consistency
+	} else if body.Consistency != Strong && body.Consistency != Eventual {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("consistency must be %q or %q", Strong, Eventual))
+		return
+	}
+	result, err := r.SearchWith(req.Context(), body.Vector, body.K, body.EF, body.Consistency)
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, err)
 		return
@@ -154,43 +161,7 @@ func (r *Router) handleCrash(w http.ResponseWriter, req *http.Request) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Metrics in the Prometheus text format, without a client library.
-
-var latencyBuckets = []float64{0.5, 1, 2, 5, 10, 20, 50, 100, 250, 500, 1000}
-
-type metrics struct {
-	searches, partial, hedges, failovers, writes atomic.Uint64
-	mu                                           sync.Mutex
-	buckets                                      []uint64
-	sumMs                                        float64
-	up                                           map[string]bool
-}
-
-func newMetrics() *metrics {
-	return &metrics{buckets: make([]uint64, len(latencyBuckets)), up: map[string]bool{}}
-}
-
-func (m *metrics) observeSearch(d time.Duration, partial bool) {
-	m.searches.Add(1)
-	if partial {
-		m.partial.Add(1)
-	}
-	ms := float64(d.Microseconds()) / 1000
-	m.mu.Lock()
-	m.sumMs += ms
-	for i, b := range latencyBuckets {
-		if ms <= b {
-			m.buckets[i]++
-		}
-	}
-	m.mu.Unlock()
-}
-
-func (m *metrics) nodeUp(name string, up bool) {
-	m.mu.Lock()
-	m.up[name] = up
-	m.mu.Unlock()
-}
+// Metrics in the Prometheus text format, without a client library (counted in metrics.go).
 
 func (m *metrics) serve(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
