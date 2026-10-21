@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { spotlight } from "../../lib/spotlight";
   import { speedup } from "../../lib/bench";
   import { router } from "../../lib/router.svelte";
   import { reveal } from "../../lib/reveal";
@@ -31,7 +32,7 @@
     </header>
 
     <div class="bento">
-      <article class="card tile wide" use:reveal>
+      <article class="card tile wide" use:reveal use:spotlight>
         <div class="copy">
           <span class="kicker">Throughput at equal recall, on a dedicated server</span>
           <h3><span class="big num">{vsHnswlib.toFixed(2)}×</span> hnswlib, {vsFaiss.toFixed(2)}× FAISS</h3>
@@ -51,7 +52,7 @@
         </div>
       </article>
 
-      <article class="card tile" use:reveal={0.08}>
+      <article class="card tile" use:reveal={0.08} use:spotlight>
         <span class="kicker">+31% from profiling</span>
         <h3>Memory latency, attacked</h3>
         <ol class="ladder num">
@@ -64,7 +65,7 @@
         <p class="small">QPS on SIFT1M, one thread, development laptop. Prefetch the next 32 neighbours at once; back layer 0 with huge pages.</p>
       </article>
 
-      <article class="card tile" use:reveal={0.16}>
+      <article class="card tile" use:reveal={0.16} use:spotlight>
         <span class="kicker">SQ8 quantization</span>
         <h3><span class="big num">+48%</span> QPS, same recall</h3>
         <p>
@@ -73,7 +74,7 @@
         </p>
       </article>
 
-      <article class="card tile" use:reveal>
+      <article class="card tile" use:reveal use:spotlight>
         <span class="kicker">Concurrency</span>
         <h3>Lock-free reads</h3>
         <p>
@@ -82,7 +83,7 @@
         </p>
       </article>
 
-      <article class="card tile" use:reveal={0.08}>
+      <article class="card tile" use:reveal={0.08} use:spotlight>
         <span class="kicker">Durability</span>
         <h3>Crash-safe write-ahead log</h3>
         <p>
@@ -91,7 +92,7 @@
         </p>
       </article>
 
-      <article class="card tile" use:reveal={0.16}>
+      <article class="card tile" use:reveal={0.16} use:spotlight>
         <span class="kicker">SIMD</span>
         <h3>One kernel, four ISAs</h3>
         <div class="chips">
@@ -100,7 +101,7 @@
         <p class="small">Selected at runtime by CPU detection. The build you're running uses SIMD128.</p>
       </article>
 
-      <article class="card tile wide cluster" use:reveal>
+      <article class="card tile wide cluster" use:reveal use:spotlight>
         <div class="copy">
           <span class="kicker">Distributed</span>
           <h3>Replicated, sharded, and it fails over</h3>
