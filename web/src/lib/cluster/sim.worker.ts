@@ -1,8 +1,8 @@
-// Runs the cluster simulator (cluster/cmd/oryx-sim: the real Go router against simulated nodes,
+// Runs the cluster simulator (cluster/cmd/epzero-sim: the real Go router against simulated nodes,
 // compiled to WebAssembly) off the page's thread, and relays its state a few times a second.
 import type { FromSim, ToSim } from "./protocol";
 
-interface OryxSim {
+interface EpzeroSim {
   start(options: string): Promise<void>;
   fault(command: string): string;
   rates(searches: number, keyOps: number): void;
@@ -15,14 +15,14 @@ declare const Go: new () => { importObject: WebAssembly.Imports; run(instance: W
 
 const post = (message: FromSim) => (self as unknown as Worker).postMessage(message);
 const base = import.meta.env.BASE_URL;
-let sim: OryxSim | null = null;
+let sim: EpzeroSim | null = null;
 
 async function boot(options: Extract<ToSim, { type: "start" }>["options"]) {
   await import(/* @vite-ignore */ `${base}sim/wasm_exec.js`); // defines globalThis.Go
   const go = new Go();
-  const { instance } = await WebAssembly.instantiateStreaming(fetch(`${base}sim/oryx-sim.wasm`), go.importObject);
+  const { instance } = await WebAssembly.instantiateStreaming(fetch(`${base}sim/epzero-sim.wasm`), go.importObject);
   void go.run(instance);
-  sim = (globalThis as unknown as { oryxSim: OryxSim }).oryxSim;
+  sim = (globalThis as unknown as { epzeroSim: EpzeroSim }).epzeroSim;
   post({ type: "booted" });
   await sim.start(JSON.stringify(options));
   post({ type: "started" });
