@@ -68,5 +68,13 @@ for (const theme of ["dark", "light"]) {
     await expect(lab.locator('.stages li[data-state="done"]')).toHaveCount(6, { timeout: 150_000 });
     await page.waitForTimeout(1200);
     await scan(page, "benchmarks");
+
+    await page.goto("cluster");
+    await expect(page.locator(".node")).toHaveCount(4, { timeout: 60_000 });
+    await page.evaluate(() => document.querySelectorAll("[data-reveal]").forEach((el) => el.classList.add("revealed")));
+    await page.getByRole("button", { name: "Check linearizability" }).click();
+    await expect(page.locator(".verdict")).toBeVisible({ timeout: 30_000 });
+    await page.waitForTimeout(1200); // the reveal transitions finish
+    await scan(page, "cluster");
   });
 }
