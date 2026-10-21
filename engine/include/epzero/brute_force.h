@@ -4,10 +4,10 @@
 #include <cstdint>
 #include <vector>
 
-#include "oryx/distance.h"
-#include "oryx/hnsw.h"
+#include "epzero/distance.h"
+#include "epzero/hnsw.h"
 
-namespace oryx {
+namespace epzero {
 
 // Exact k-NN by scanning every row: the ground truth for recall and the baseline for speedups.
 // Labels are row indices. For Metric::Cosine, `data` must already be normalized (the query is
@@ -25,4 +25,4 @@ std::vector<std::vector<std::uint32_t>> compute_ground_truth(const float* data, 
 double recall_at_k(const std::vector<std::vector<SearchResult>>& results,
                    const std::vector<std::vector<std::uint32_t>>& ground_truth, std::size_t k);
 
-}  // namespace oryx
+}  // namespace epzero
