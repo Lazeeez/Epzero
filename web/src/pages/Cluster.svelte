@@ -473,7 +473,7 @@
   @media (max-width: 980px) {
     .grid,
     .lower {
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr); /* 1fr would let wide content push the page sideways */
     }
   }
   @media (max-width: 640px) {
