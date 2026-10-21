@@ -1,35 +1,45 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { defineConfig, type Plugin } from "vite";
 
 // WebAssembly threads need SharedArrayBuffer, which browsers only expose on cross-origin isolated
-// pages. The dev and preview servers send the isolation headers directly; on GitHub Pages (which
-// cannot set headers) the site's service worker adds them.
+// pages. The dev and preview servers send the isolation headers directly, as Cloudflare does in
+// production (public/_headers); on a host that can't set headers, the site's service worker adds them.
 const isolation = {
   "Cross-Origin-Opener-Policy": "same-origin",
   "Cross-Origin-Embedder-Policy": "require-corp",
 };
 
 // The site is a single-page app with client-side routes. Give every route its own index.html so a
-// deep link (e.g. /Oryx/try) loads with a 200 on a static host, and keep a 404.html fallback.
+// deep link (e.g. /try) loads with a 200 on a static host, and keep a 404.html fallback. Each copy
+// names its own address as canonical (otherwise search engines fold every page into the home page),
+// and the 404 page asks not to be indexed.
+const SITE = "https://epzero.dev/";
 const ROUTES = ["try", "play", "cluster", "benchmarks"];
 function staticRoutes(): Plugin {
   let outDir = "dist";
   return {
-    name: "oryx-static-routes",
+    name: "epzero-static-routes",
     apply: "build",
     configResolved(config) {
       outDir = config.build.outDir;
     },
     async closeBundle() {
       const index = join(outDir, "index.html");
+      const html = await readFile(index, "utf8");
+      const canonical = `<link rel="canonical" href="${SITE}" />`;
+      const ogUrl = `<meta property="og:url" content="${SITE}" />`;
+      if (!html.includes(canonical) || !html.includes(ogUrl)) throw new Error("index.html: canonical or og:url not found");
       for (const route of ROUTES) {
         await mkdir(join(outDir, route), { recursive: true });
-        await copyFile(index, join(outDir, route, "index.html"));
+        const page = html
+          .replace(canonical, `<link rel="canonical" href="${SITE}${route}" />`)
+          .replace(ogUrl, `<meta property="og:url" content="${SITE}${route}" />`);
+        await writeFile(join(outDir, route, "index.html"), page);
       }
-      await copyFile(index, join(outDir, "404.html"));
+      await writeFile(join(outDir, "404.html"), html.replace(canonical, `<meta name="robots" content="noindex" />`));
     },
   };
 }
@@ -38,7 +48,7 @@ function staticRoutes(): Plugin {
 // blocking the first paint), and the Content Security Policy allows exactly that script by its hash.
 function inlineBoot(): Plugin {
   return {
-    name: "oryx-inline-boot",
+    name: "epzero-inline-boot",
     transformIndexHtml: {
       order: "pre", // before Vite looks at the script tags
       async handler(html) {
@@ -56,7 +66,7 @@ function inlineBoot(): Plugin {
 // encoders load the self-hosted build in public/ort instead (wasmPaths), so drop the unused copy.
 function dropBundledOrt(): Plugin {
   return {
-    name: "oryx-drop-bundled-ort",
+    name: "epzero-drop-bundled-ort",
     apply: "build",
     generateBundle(_, bundle) {
       for (const name of Object.keys(bundle)) if (/ort-wasm[^/]*\.wasm$/.test(name)) delete bundle[name];
@@ -73,7 +83,7 @@ const precached = (name: string) =>
 // deploy gets a fresh shell cache while large data/model caches survive.
 function serviceWorker(): Plugin {
   return {
-    name: "oryx-service-worker",
+    name: "epzero-service-worker",
     apply: "build",
     async generateBundle(_, bundle) {
       const files = Object.keys(bundle).filter((name) => !name.endsWith(".map") && name !== "sw.js");
@@ -82,7 +92,7 @@ function serviceWorker(): Plugin {
       // names never change: a C++-only change must still replace the cached engine.
       const hash = createHash("sha256").update(files.sort().join("\n"));
       for (const variant of ["mt", "st"]) {
-        for (const file of ["oryx.js", "oryx.wasm"]) {
+        for (const file of ["epzero.js", "epzero.wasm"]) {
           try {
             hash.update(await readFile(new URL(`./public/wasm/${variant}/${file}`, import.meta.url)));
           } catch {
@@ -102,12 +112,13 @@ function serviceWorker(): Plugin {
 }
 
 export default defineConfig({
-  base: process.env.ORYX_BASE ?? "/Oryx/",
+  // The site lives at the root of epzero.dev; EPZERO_BASE serves it under a path instead.
+  base: process.env.EPZERO_BASE ?? "/",
   plugins: [svelte(), inlineBoot(), dropBundledOrt(), staticRoutes(), serviceWorker()],
   // The benchmark pages import their numbers straight from bench/results at the repo root.
   server: { headers: isolation, fs: { allow: [".."] } },
-  // ORYX_NO_ISOLATION serves like GitHub Pages (no headers), for the service worker's own tests.
-  preview: { headers: process.env.ORYX_NO_ISOLATION ? {} : isolation },
+  // EPZERO_NO_ISOLATION serves without the isolation headers, for the service worker's own tests.
+  preview: { headers: process.env.EPZERO_NO_ISOLATION ? {} : isolation },
   worker: { format: "es" },
   build: {
     target: "es2022",
