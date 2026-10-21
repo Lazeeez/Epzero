@@ -18,6 +18,25 @@ export interface Trace {
   /** With a filter: how the engine honored it, and how many photos it allowed. */
   strategy?: FilterStrategy;
   allowed?: number;
+  /** Hybrid search: the vector candidates and the caption keyword matches merged by reciprocal
+   * rank fusion. `results` above stays the vector search's own answer (what the walk, the exact
+   * comparison and the recall figures describe); this is what the results grid shows. */
+  hybrid?: Hybrid;
+}
+
+export interface Hybrid {
+  results: Uint32Array;
+  /** Each result's own cosine distance to the query. */
+  distances: Float32Array;
+  /** 1 where the result matched the words (BM25 over captions) / was among the vector candidates. */
+  fromWords: Uint8Array;
+  fromVector: Uint8Array;
+  /** Photos whose captions matched any of the words. */
+  matches: number;
+  /** The keyword search and the fusion, on top of the vector search's time. */
+  micros: number;
+  /** The words matched (the query minus common words). */
+  words: string;
 }
 
 /** How a filtered search ran: scan the allowed photos, or walk the graph (keeping only allowed
@@ -121,7 +140,10 @@ export type ToWorker =
       graph?: string;
     }
   | { type: "rebuild"; M: number; efConstruction: number }
-  | { type: "search"; seq: number; query: Query; k: number; ef: number }
+  /** The photos' captions, newline-separated, line i for photo i: indexed for keyword search. */
+  | { type: "keywords"; texts: string }
+  /** `hybrid`: also match the words of a text query against captions, and fuse the two rankings. */
+  | { type: "search"; seq: number; query: Query; k: number; ef: number; hybrid?: boolean }
   | { type: "request"; seq: number; request: Request };
 
 export type FromWorker =
