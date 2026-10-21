@@ -30,10 +30,11 @@ jobs:
         run: |
           test -z "$(gofmt -l .)" || { gofmt -l .; echo "run gofmt -w"; exit 1; }
           go vet ./... && go vet -tags integration ./...
+          GOOS=js GOARCH=wasm go vet ./router ./sim ./cmd/oryx-sim
       - name: Known vulnerabilities reachable from our code
         working-directory: cluster
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-      - name: HTTP API validation and auth
+      - name: HTTP API, and linearizability under crashes, partitions and lossy links (simulated, Porcupine)
         working-directory: cluster
         run: go test -race -count=1 ./...
       - name: Kill a node mid-traffic, fail over, recover, lose nothing
