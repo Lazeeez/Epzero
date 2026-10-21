@@ -1,5 +1,5 @@
 // Client-side routing for the pages, with the View Transitions API for page changes.
-// Paths are relative to the site's base (e.g. /Oryx/).
+// Paths are relative to the site's base (e.g. /Epzero/).
 
 export type Route = "home" | "try" | "play" | "cluster" | "benchmarks" | "notfound";
 
