@@ -11,9 +11,9 @@ test("cluster: the Go router in WebAssembly fails over a killed node, and strong
   await page.goto("cluster");
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Break the cluster");
   const nodes = page.locator(".node");
-  await expect(nodes).toHaveCount(4, { timeout: 60_000 });
-  // Every shard has a primary and a replica somewhere.
-  await expect(page.locator(".copies li.primary")).toHaveCount(4);
+  await expect(nodes).toHaveCount(4); // drawn while the simulator starts
+  // Once it runs, every shard has a primary and a replica somewhere.
+  await expect(page.locator(".copies li.primary")).toHaveCount(4, { timeout: 60_000 });
   await expect(page.locator(".copies li.replica")).toHaveCount(4, { timeout: 15_000 });
   // Searches run and match the exact answers.
   await expect(page.locator(".tile").first().locator("b")).toHaveText("100.0%", { timeout: 20_000 });
