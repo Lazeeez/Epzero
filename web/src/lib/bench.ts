@@ -99,18 +99,18 @@ export const driftEstimates = (() => {
 
 /** The operating point quoted everywhere: recall@10 = 0.95, each library interpolated to it. */
 export const OPERATING_RECALL = 0.95;
-export const operating = { recall: OPERATING_RECALL, qps: qpsAtRecall(compare.libraries.oryx.sweep, OPERATING_RECALL) };
+export const operating = { recall: OPERATING_RECALL, qps: qpsAtRecall(compare.libraries.epzero.sweep, OPERATING_RECALL) };
 
-/** Oryx's QPS divided by `other`'s, at equal recall (the operating point). */
-export function speedup(other: Exclude<Library, "oryx">): number {
+/** Epzero's QPS divided by `other`'s, at equal recall (the operating point). */
+export function speedup(other: Exclude<Library, "epzero">): number {
   return operating.qps / qpsAtRecall(compare.libraries[other].sweep, operating.recall);
 }
 
-/** The competitive benchmark (bench/compete.py): seven libraries on four ann-benchmarks datasets,
+/** The competitive benchmark (bench/compete.py): Epzero and five other libraries on four ann-benchmarks datasets,
  *  each library's QPS at the same recall@10, one search thread, same graph degree and build beam. */
 const FIELD_NAMES: Record<string, string> = {
-  oryx: "Oryx",
-  "oryx-sq8": "Oryx SQ8",
+  epzero: "Epzero",
+  "epzero-sq8": "Epzero SQ8",
   hnswlib: "hnswlib",
   "faiss-hnsw": "FAISS HNSW",
   "faiss-ivfpq": "FAISS IVF-PQ",
@@ -139,7 +139,7 @@ export interface FieldEntry {
   qps: number | null; // null: never reaches the recall target
   build: number;
   best: number; // highest recall measured
-  oryx: boolean;
+  epzero: boolean;
 }
 export const field = FIELD_RUNS.map(({ key, name, what, recall, run }) => {
   const r = run as CompeteRun;
@@ -151,7 +151,7 @@ export const field = FIELD_RUNS.map(({ key, name, what, recall, run }) => {
       qps: Number.isFinite(qps) ? qps : null,
       build: lib.build_seconds,
       best: Math.max(...lib.sweep.map((p) => p.recall)),
-      oryx: id.startsWith("oryx"),
+      epzero: id.startsWith("epzero"),
     };
   });
   entries.sort((a, b) => (b.qps ?? -1) - (a.qps ?? -1));
