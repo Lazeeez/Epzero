@@ -9,7 +9,7 @@
 #
 # Submit from the repository root, after scripts/download_sift1m.sh on the login node:
 #   sbatch scripts/pace/sift1m.sbatch
-#SBATCH --job-name=oryx-sift1m
+#SBATCH --job-name=epzero-sift1m
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --constraint=gold6226
@@ -19,12 +19,12 @@
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
 source scripts/pace/env.sh
-[ -x "$ORYX_BUILD/bench_recall" ] || { echo "build first: scripts/pace/build.sh"; exit 1; }
+[ -x "$EPZERO_BUILD/bench_recall" ] || { echo "build first: scripts/pace/build.sh"; exit 1; }
 [ -f data/sift/sift_base.fvecs ] || { echo "download first: scripts/download_sift1m.sh"; exit 1; }
 
 OUT=pace-results/gold6226
 mkdir -p "$OUT" data/indexes
-INDEX=data/indexes/sift1m-M16-efc200.oryx
+INDEX=data/indexes/sift1m-M16-efc200.epzero
 SIFT=(--base data/sift/sift_base.fvecs --query data/sift/sift_query.fvecs --gt data/sift/sift_groundtruth.ivecs
       --queries 10000 --k 10 --M 16 --efc 200 --ef 10,40,80,200,400 --search-threads 1)
 
@@ -34,10 +34,10 @@ free -g | awk '/Mem:/ {print "Memory (GB): " $2}' >> "$OUT/hardware.txt"
 gcc --version | head -1 >> "$OUT/hardware.txt"
 
 echo "== build (all $(nproc) cores) + brute-force baseline"
-"$ORYX_BUILD/bench_recall" "${SIFT[@]}" --threads "$(nproc)" --save "$INDEX" --json "$OUT/sift1m-build.json"
+"$EPZERO_BUILD/bench_recall" "${SIFT[@]}" --threads "$(nproc)" --save "$INDEX" --json "$OUT/sift1m-build.json"
 
 for run in 1 2 3; do
   echo "== search run $run (pinned to socket 0)"
   numactl --cpunodebind=0 --membind=0 \
-    "$ORYX_BUILD/bench_recall" "${SIFT[@]}" --load "$INDEX" --no-baseline --json "$OUT/sift1m-run$run.json"
+    "$EPZERO_BUILD/bench_recall" "${SIFT[@]}" --load "$INDEX" --no-baseline --json "$OUT/sift1m-run$run.json"
 done
