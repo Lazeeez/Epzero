@@ -6,8 +6,8 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 data="$here/public/data/openimages"
 build=${BUILD_DIR:-"$here/../engine/build/release"}
-cmake -S "$here/../engine" -B "$build" -DCMAKE_BUILD_TYPE=Release -DORYX_BUILD_TESTS=OFF >/dev/null
-cmake --build "$build" --target oryx_export_graph -j
+cmake -S "$here/../engine" -B "$build" -DCMAKE_BUILD_TYPE=Release -DEPZERO_BUILD_TESTS=OFF >/dev/null
+cmake --build "$build" --target epzero_export_graph -j
 # The tool reads row-major int8 vectors and their scales: unpack them from the progressive file
 # (pipeline/progressive_vectors.py), which stores them dimension-block by dimension-block.
 tmp=$(mktemp -d)
@@ -28,4 +28,4 @@ np.hstack(codes).tofile(os.path.join(out, "vectors.i8"))
 np.concatenate(scales).tofile(os.path.join(out, "scales.f32"))
 PY
 # Parameters must match manifest.json ("graph") and the fallback build in collection.worker.ts.
-"$build/oryx-export-graph" "$tmp/vectors.i8" "$tmp/scales.f32" 512 16 128 "$data/graph.bin"
+"$build/epzero-export-graph" "$tmp/vectors.i8" "$tmp/scales.f32" 512 16 128 "$data/graph.bin"
