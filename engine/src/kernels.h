@@ -6,7 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace oryx::kernels {
+namespace epzero::kernels {
 
 // Float kernels: L2 returns the squared distance, IP returns 1 - dot.
 // SQ8 kernels return sum_i w[i] * codes[i]: the core of asymmetric distance against uint8 codes.
@@ -43,4 +43,4 @@ float ip_wasm(const float* a, const float* b, std::size_t dim) noexcept;
 float sq8_dot_wasm(const float* w, const std::uint8_t* codes, std::size_t dim) noexcept;
 #endif
 
-}  // namespace oryx::kernels
+}  // namespace epzero::kernels
