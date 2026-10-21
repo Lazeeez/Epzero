@@ -2,9 +2,9 @@ import { defineConfig, devices } from "@playwright/test";
 
 // Two local servers for the production build:
 //   - 4173 sends the cross-origin isolation headers itself (most tests: isolation is a given);
-//   - 4174 sends none, like GitHub Pages, so the service worker must provide isolation
+//   - 4174 sends none, like a host that cannot set headers, so the service worker must provide isolation
 //     (isolation.spec.ts tests exactly that).
-// Set E2E_BASE_URL to test a deployed site instead (e.g. the live Pages URL).
+// Set E2E_BASE_URL to test a deployed site instead (e.g. https://epzero.dev/).
 const deployed = process.env.E2E_BASE_URL;
 
 export default defineConfig({
@@ -18,23 +18,23 @@ export default defineConfig({
     {
       name: "chromium",
       testIgnore: /(isolation|cross-browser)\.spec\.ts/,
-      use: { baseURL: deployed ?? "http://localhost:4173/Oryx/" },
+      use: { baseURL: deployed ?? "http://localhost:4173/" },
     },
     // Core journeys in the other two engines (Safari ships WebKit).
     {
       name: "firefox",
       testMatch: /cross-browser\.spec\.ts/,
-      use: { ...devices["Desktop Firefox"], baseURL: deployed ?? "http://localhost:4173/Oryx/" },
+      use: { ...devices["Desktop Firefox"], baseURL: deployed ?? "http://localhost:4173/" },
     },
     {
       name: "webkit",
       testMatch: /cross-browser\.spec\.ts/,
-      use: { ...devices["Desktop Safari"], baseURL: deployed ?? "http://localhost:4173/Oryx/" },
+      use: { ...devices["Desktop Safari"], baseURL: deployed ?? "http://localhost:4173/" },
     },
     {
       name: "pages-like",
       testMatch: /isolation\.spec\.ts/,
-      use: { baseURL: deployed ?? "http://localhost:4174/Oryx/" },
+      use: { baseURL: deployed ?? "http://localhost:4174/" },
     },
   ],
   webServer: deployed
@@ -42,13 +42,13 @@ export default defineConfig({
     : [
         {
           command: "npm run preview -- --port 4173 --strictPort",
-          url: "http://localhost:4173/Oryx/",
+          url: "http://localhost:4173/",
           reuseExistingServer: !process.env.CI,
         },
         {
           command: "npm run preview -- --port 4174 --strictPort",
-          url: "http://localhost:4174/Oryx/",
-          env: { ORYX_NO_ISOLATION: "1" },
+          url: "http://localhost:4174/",
+          env: { EPZERO_NO_ISOLATION: "1" },
           reuseExistingServer: !process.env.CI,
         },
       ],
