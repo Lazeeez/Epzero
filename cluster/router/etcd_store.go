@@ -36,13 +36,13 @@ type EtcdStore struct {
 // ErrNotLeader: a save was attempted by a router that does not (or no longer) lead.
 var ErrNotLeader = errors.New("not the leader")
 
-// NewEtcdStore keeps the map of cluster `name` under /oryx/<name>/ in etcd. ttl is how long a
+// NewEtcdStore keeps the map of cluster `name` under /epzero/<name>/ in etcd. ttl is how long a
 // leader may be silent before another router takes over (seconds, at least 1).
 func NewEtcdStore(client *clientv3.Client, name string, ttl int) *EtcdStore {
 	if ttl < 1 {
 		ttl = 5
 	}
-	prefix := "/oryx/" + name
+	prefix := "/epzero/" + name
 	return &EtcdStore{client: client, key: prefix + "/shards", elect: prefix + "/leader", ttl: ttl}
 }
 
