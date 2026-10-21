@@ -29,7 +29,7 @@
           onclick={() => onpick(id)}
           aria-label="Result {rank + 1}: {engine.caption(id)}, by {engine.author(id)}. Search for similar photos."
         >
-          <Thumb {id} size="n" alt={engine.caption(id)} />
+          <Thumb {id} size="n" alt={engine.caption(id)} eager={rank < 12} />
           <span class="rank num">{query.kind === "id" && query.id === id ? "query" : `#${rank + 1}`}</span>
           <span class="score num" title="Cosine similarity">{(1 - outcome.trace.resultDistances[rank]).toFixed(2)}</span>
           {#if !exact.has(id)}<span class="approx" title="Not in the exact top-{outcome.trace.results.length}">≈</span>{/if}
