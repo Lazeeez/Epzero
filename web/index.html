@@ -4,30 +4,34 @@
     <meta charset="utf-8" />
     <!-- Only this site's own code runs (no injected scripts or eval; WebAssembly allowed). The one
          inline script, the theme bootstrap, is added to script-src by its hash at build time.
-         Photos come from Flickr. GitHub Pages can't send this as a header, so it's a meta tag. -->
+         Photos come from Flickr. A meta tag, so the policy (with the build's script hash) travels with the
+         page on any host; frame-ancestors, which a meta tag can't carry, is a header (public/_headers). -->
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.staticflickr.com; media-src 'self' blob:; font-src 'self' data:; connect-src 'self' blob: data: https://*.staticflickr.com; object-src 'none'; base-uri 'self'; form-action 'self'"
     />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Oryx · A vector database, running in your browser</title>
+    <title>Epzero · A vector database, running in your browser</title>
     <meta
       name="description"
-      content="Oryx is an HNSW vector database written from scratch in C++20: SIMD kernels, 8-bit quantization, crash-safe storage and replication. This site runs it as WebAssembly to search 29,825 photos in your browser."
+      content="Epzero is an HNSW vector database written from scratch in C++20: SIMD kernels, 8-bit quantization, crash-safe storage and replication. This site runs it as WebAssembly to search 29,825 photos in your browser."
     />
     <meta name="theme-color" content="#06070a" />
     <meta name="color-scheme" content="dark light" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="Oryx · A vector database, running in your browser" />
+    <meta property="og:site_name" content="Epzero" />
+    <meta property="og:url" content="https://epzero.dev/" />
+    <meta property="og:title" content="Epzero · A vector database, running in your browser" />
     <meta property="og:description" content="HNSW from scratch in C++20, compiled to WebAssembly. Search 29,825 photos by text, photo or webcam, and watch every query traverse the graph." />
-    <meta property="og:image" content="https://lazeeez.github.io/Oryx/og.jpg" />
+    <meta property="og:image" content="https://epzero.dev/og.jpg" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" href="%BASE_URL%favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="%BASE_URL%apple-touch-icon.png" />
     <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
-    <link rel="canonical" href="https://lazeeez.github.io/Oryx/" />
+    <link rel="canonical" href="https://epzero.dev/" />
     <!-- Photos all come from one host: open the connection while the app starts. -->
     <link rel="preconnect" href="https://live.staticflickr.com" crossorigin />
     <!-- The text font is needed for the first paint: fetch it alongside the styles, not after them. -->
@@ -41,6 +45,6 @@
   </head>
   <body>
     <div id="app"></div>
-    <noscript>Oryx runs a C++ search engine in your browser and needs JavaScript.</noscript>
+    <noscript>Epzero runs a C++ search engine in your browser and needs JavaScript.</noscript>
   </body>
 </html>
