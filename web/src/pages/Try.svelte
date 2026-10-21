@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import { FREE_LOOK_TOGGLE, freeLook } from "../lib/free-look.svelte";
   import { imageEncoder, textEncoder } from "../lib/engine/encoders.svelte";
   import { engine, type SearchOutcome } from "../lib/engine/engine.svelte";
@@ -16,6 +16,7 @@
   import NavHud from "../components/try/NavHud.svelte";
   import ViewControls from "../components/try/ViewControls.svelte";
   import RecallGuard from "../components/try/RecallGuard.svelte";
+  import Sharpening from "../components/try/Sharpening.svelte";
   import WhyNot from "../components/try/WhyNot.svelte";
   import type { BlendBase } from "../components/try/BlendBox.svelte";
 
@@ -98,6 +99,15 @@
       );
     else if (engine.last && engine.last.query.kind === "vector") search(engine.last.query); // back from another page
     else surprise();
+  });
+
+  // Search starts on the vectors' leading dimensions; each further block that arrives re-runs the
+  // current query on more of them, so its results visibly sharpen.
+  let shownDims = 0;
+  $effect(() => {
+    const dims = engine.dims;
+    if (shownDims && dims > shownDims) untrack(() => outcome && search(outcome.query, { live: true }));
+    shownDims = dims;
   });
 
   // Re-run the current query live when ef changes.
@@ -232,6 +242,8 @@
     />
 
     <CategoryFilter onchange={() => outcome && search(outcome.query)} disabled={engine.status !== "ready" || engine.rebuilding} />
+
+    <Sharpening />
 
     {#if searchError}<p class="search-error" role="alert">Search failed: {searchError}</p>{/if}
 
