@@ -6,7 +6,7 @@
 # Results: pace-results/gold6226/sift1m-guard-<target>[-ref1024].json (untracked; scp back)
 #
 #   sbatch scripts/pace/guard.sbatch
-#SBATCH --job-name=oryx-guard
+#SBATCH --job-name=epzero-guard
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --constraint=gold6226
@@ -17,17 +17,17 @@ set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
 source scripts/pace/env.sh
 [ -f data/sift/sift_base.fvecs ] || { echo "download first: scripts/download_sift1m.sh"; exit 1; }
-cmake --build "$ORYX_BUILD" --target bench_guard -j "$(nproc)"
+cmake --build "$EPZERO_BUILD" --target bench_guard -j "$(nproc)"
 
 OUT=pace-results/gold6226
 mkdir -p "$OUT"
 for target in 0.90 0.95 0.99; do
-  numactl --interleave=all "$ORYX_BUILD/bench_guard" \
+  numactl --interleave=all "$EPZERO_BUILD/bench_guard" \
     --base data/sift/sift_base.fvecs --query data/sift/sift_query.fvecs --queries 10000 \
     --batch 2500 --passes 6 --target "$target" --sample-rate 0.02 --threads "$(nproc)" \
     --json "$OUT/sift1m-guard-$target.json"
 done
-numactl --interleave=all "$ORYX_BUILD/bench_guard" \
+numactl --interleave=all "$EPZERO_BUILD/bench_guard" \
   --base data/sift/sift_base.fvecs --query data/sift/sift_query.fvecs --queries 10000 \
   --batch 2500 --passes 6 --target 0.95 --sample-rate 0.02 --reference-ef 1024 --threads "$(nproc)" \
   --json "$OUT/sift1m-guard-0.95-ref1024.json"
