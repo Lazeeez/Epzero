@@ -9,6 +9,7 @@
     drift,
     driftEstimates,
     driftSummary,
+    field,
     filterTable,
     operating,
     speedup,
@@ -17,6 +18,7 @@
   import { countUp } from "../lib/count-up";
   import { spotlight } from "../lib/spotlight";
   import DriftChart from "../components/bench/DriftChart.svelte";
+  import FieldChart from "../components/bench/FieldChart.svelte";
   import Lab from "../components/bench/Lab.svelte";
   import Optimizations from "../components/bench/Optimizations.svelte";
   import Quantization from "../components/bench/Quantization.svelte";
@@ -80,7 +82,7 @@
       />
     </div>
     <p class="eyebrow">Benchmarks</p>
-    <h1><span class="gradient-text">Faster than the libraries</span><br />it's measured against.</h1>
+    <h1><span class="gradient-text">Faster than hnswlib and FAISS.</span><br />Measured against seven libraries.</h1>
     <p class="section-lede">
       SIFT1M, the standard ANN benchmark: {compare.n.toLocaleString()} × {compare.dim}-D vectors, {compare.queries.toLocaleString()}
       queries, exact ground truth. Every library builds the same graph (M = {compare.M}, efConstruction = {compare.ef_construction}) and
@@ -129,6 +131,50 @@
       difference is memory-system engineering: batched prefetching, the node layout and the visited set. On this server every library
       gets 2 MiB huge pages, because the kernel enables them for all programs. Where huge pages are opt-in, as on many desktops, only
       Oryx asks for them, and its lead grows to about 1.46× (measured on a laptop).
+    </p>
+  </section>
+
+  <section class="container block" aria-labelledby="field-title">
+    <h2 id="field-title" class="block-title" use:reveal>Against the field</h2>
+    <p class="caption lead" use:reveal>
+      Four more ann-benchmarks datasets, from 96 to 1,536 dimensions and up to 10 million vectors, against seven libraries: hnswlib,
+      FAISS (HNSW and a tuned IVF-PQ), USearch, VSAG and Glass. Same rules as above: the same graph degree (M = 16) and build beam
+      (200), one process, one search thread, the median of three interleaved rounds, on the same server.
+    </p>
+    <div class="card panel" use:reveal use:spotlight>
+      <FieldChart />
+      <details>
+        <summary>Show the data</summary>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Library</th>
+                {#each field as d (d.key)}<th>{d.name} QPS (recall {d.recall.toFixed(2)})</th><th>{d.name} build</th>{/each}
+              </tr>
+            </thead>
+            <tbody>
+              {#each field[0].entries as lib (lib.id)}
+                <tr>
+                  <td>{lib.name}</td>
+                  {#each field as d (d.key)}
+                    {@const e = d.entries.find((x) => x.id === lib.id)!}
+                    <td>{e.qps !== null ? Math.round(e.qps).toLocaleString() : "—"}</td><td>{e.build.toFixed(0)} s</td>
+                  {/each}
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+    <p class="caption" use:reveal>
+      Glass is the fastest on every dataset, by 1.5–2.1× over Oryx SQ8. Like Oryx SQ8 and VSAG, it walks the graph on 8-bit codes
+      and re-ranks with the full vectors; it also tunes its prefetch distance to the machine before searching. Oryx SQ8 is second on
+      all four. Uncompressed, Oryx is level with
+      hnswlib on the high-dimensional sets (GIST, DBpedia: within 2%) and ahead on the low-dimensional ones (DEEP10M, GloVe: 3–16%),
+      where the memory work around each distance matters most. On DBpedia's 1,536-D vectors, FAISS HNSW is 14% ahead of it. GloVe is compared at recall 0.90: at M = 16 no library but VSAG reaches
+      0.95 by <code>ef</code> = 800.
     </p>
   </section>
 
