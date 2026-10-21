@@ -125,18 +125,27 @@ func (n *Node) Kill() {
 
 // Restart starts the node again: same disk, new process (roles unconfirmed, nothing in sync).
 func (n *Node) Restart() {
+	// Lock order is always node, then shard, never the other way while holding a shard (see
+	// catchUp and replicate), so the shards are reset without holding the node's lock.
 	n.mu.Lock()
-	defer n.mu.Unlock()
 	if n.up {
+		n.mu.Unlock()
 		return
 	}
-	n.up = true
-	n.started = time.Now()
+	shards := make([]*shard, 0, len(n.shards))
 	for _, s := range n.shards {
+		shards = append(shards, s)
+	}
+	n.mu.Unlock()
+	for _, s := range shards {
 		s.mu.Lock()
 		s.confirmed, s.inSync, s.catchingUp = false, false, false
 		s.mu.Unlock()
 	}
+	n.mu.Lock()
+	n.up = true
+	n.started = time.Now()
+	n.mu.Unlock()
 }
 
 func (n *Node) shard(id int, create bool) *shard {
@@ -271,6 +280,7 @@ func (n *Node) replicate(shardID int, epoch uint64, records []record) error {
 	if s == nil {
 		return errNoShard
 	}
+	generation := n.gen() // before taking the shard's lock (lock order: node, then shard)
 	s.mu.Lock()
 	// A forward can race with our own catch-up; wait for it rather than report a gap.
 	for deadline := time.Now().Add(20 * time.Second); s.catchingUp && time.Now().Before(deadline); {
@@ -284,7 +294,7 @@ func (n *Node) replicate(shardID int, epoch uint64, records []record) error {
 	}
 	if err := s.appendLocked(records); err != nil {
 		s.inSync = false
-		go n.catchUp(shardID, n.gen())
+		go n.catchUp(shardID, generation)
 		return err // the primary stops forwarding until we fetch
 	}
 	return nil
@@ -363,8 +373,9 @@ func (n *Node) catchUp(shardID int, generation int) {
 			})
 			cancel()
 		}
+		current := n.gen() == generation // read before taking the shard's lock (lock order)
 		s.mu.Lock()
-		if err == nil && n.gen() == generation {
+		if err == nil && current {
 			if reply.snapshot != nil {
 				s.data, s.lsn, s.base, s.log = reply.snapshot, reply.snapLSN, reply.snapLSN, nil
 			}
