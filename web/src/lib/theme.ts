@@ -23,7 +23,7 @@ export function setTheme(theme: "dark" | "light") {
   if (theme === "light") root.dataset.theme = "light";
   else delete root.dataset.theme;
   try {
-    localStorage.setItem("oryx-theme", theme);
+    localStorage.setItem("epzero-theme", theme);
   } catch {
     /* ignore */
   }
@@ -37,7 +37,7 @@ export function toggleTheme() {
 /** Applies the saved theme before first paint. */
 export function restoreTheme() {
   try {
-    if (localStorage.getItem("oryx-theme") === "light") root.dataset.theme = "light";
+    if (localStorage.getItem("epzero-theme") === "light") root.dataset.theme = "light";
   } catch {
     /* storage blocked */
   }
