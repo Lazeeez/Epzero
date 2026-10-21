@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Oryx against hnswlib, FAISS (HNSW and tuned IVF-PQ), USearch, VSAG and Glass on one
+# Epzero against hnswlib, FAISS (HNSW and tuned IVF-PQ), USearch, VSAG and Glass on one
 # ann-benchmarks dataset, on a dedicated Gold 6226 node, with bench/compete.py's fairness rules
 # (same graph degree and build beam, one process, interleaved rounds, median QPS, one search thread).
 #   1. Build every index on all cores (timed, cached).
@@ -12,7 +12,7 @@
 #   sbatch --export=ALL,DATASET=glove-100-angular scripts/pace/compete.sbatch
 #   sbatch --export=ALL,DATASET=dbpedia-openai-1000k-angular scripts/pace/compete.sbatch
 #   sbatch --export=ALL,DATASET=deep-image-96-angular --time=10:00:00 scripts/pace/compete.sbatch
-#SBATCH --job-name=oryx-compete
+#SBATCH --job-name=epzero-compete
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --constraint=gold6226
@@ -23,7 +23,7 @@ set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
 source scripts/pace/env.sh
 : "${DATASET:?pass the dataset: sbatch --export=ALL,DATASET=gist-960-euclidean ...}"
-VENV="$ORYX_ROOT/.pace-bench"
+VENV="$EPZERO_ROOT/.pace-bench"
 DATA="data/ann/$DATASET.hdf5"
 [ -x "$VENV/bin/python" ] || { echo "set up first: bash scripts/pace/bench-env.sh && bash scripts/pace/compete-env.sh"; exit 1; }
 [ -f "$DATA" ] || { echo "download first: scripts/download_ann_dataset.sh $DATASET"; exit 1; }
@@ -33,8 +33,8 @@ DATA="data/ann/$DATASET.hdf5"
 if [ -d "$VENV/src/pyglass/python" ]; then
   "$VENV/bin/pip" install --quiet --no-build-isolation --no-deps --force-reinstall "$VENV/src/pyglass/python" || echo "glass did not build: skipped"
 fi
-# Oryx from this checkout (it picks its SIMD kernels at run time).
-"$VENV/bin/pip" install --quiet --no-deps --force-reinstall "$ORYX_ROOT/engine"
+# Epzero from this checkout (it picks its SIMD kernels at run time).
+"$VENV/bin/pip" install --quiet --no-deps --force-reinstall "$EPZERO_ROOT/engine"
 
 OUT=pace-results/gold6226
 CACHE=data/indexes/compete-gold6226
