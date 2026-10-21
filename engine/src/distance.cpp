@@ -6,6 +6,10 @@
 
 #include "kernels.h"
 
+#if defined(__x86_64__) || defined(_M_X64)
+#include <cpuid.h>
+#endif
+
 namespace oryx {
 
 std::string_view to_string(Metric metric) noexcept {
@@ -107,6 +111,59 @@ Sq8DotFn get_sq8_dot_fn(SimdLevel level) noexcept {
     case SimdLevel::WasmSimd128: return kernels::sq8_dot_wasm;
 #endif
     default: return nullptr;
+  }
+}
+
+namespace {
+
+#if defined(__x86_64__) || defined(_M_X64)
+// VNNI is an extension within each SIMD level, so it is checked on its own (CPUID leaf 7).
+// The level's own check already covers the OS saving the vector registers.
+bool cpu_has_avx_vnni() noexcept {
+  unsigned a = 0, b = 0, c = 0, d = 0;
+  return __get_cpuid_count(7, 1, &a, &b, &c, &d) && (a & (1u << 4)) != 0;
+}
+bool cpu_has_avx512_vnni() noexcept {
+  unsigned a = 0, b = 0, c = 0, d = 0;
+  return __get_cpuid_count(7, 0, &a, &b, &c, &d) && (c & (1u << 11)) != 0 && (b & (1u << 30)) != 0;  // + AVX512BW
+}
+#endif
+
+}  // namespace
+
+std::vector<std::pair<std::string_view, Sq8IntDotFn>> sq8_int_dot_variants() {
+  std::vector<std::pair<std::string_view, Sq8IntDotFn>> out = {{"scalar", kernels::sq8_int_dot_scalar}};
+#if defined(__x86_64__) || defined(_M_X64)
+  if (simd_level_supported(SimdLevel::AVX2)) out.emplace_back("avx2", kernels::sq8_int_dot_avx2);
+#if defined(ORYX_HAVE_AVXVNNI)
+  if (simd_level_supported(SimdLevel::AVX2) && cpu_has_avx_vnni()) out.emplace_back("avx-vnni", kernels::sq8_int_dot_avxvnni);
+#endif
+#if defined(ORYX_HAVE_AVX512VNNI)
+  if (simd_level_supported(SimdLevel::AVX512) && cpu_has_avx512_vnni()) {
+    out.emplace_back("avx512-vnni", kernels::sq8_int_dot_avx512vnni);
+  }
+#endif
+#endif
+  return out;
+}
+
+Sq8IntDotFn get_sq8_int_dot_fn(SimdLevel level) noexcept {
+  if (!simd_level_supported(level)) return nullptr;
+  switch (level) {
+    case SimdLevel::Scalar: return kernels::sq8_int_dot_scalar;
+#if defined(__x86_64__) || defined(_M_X64)
+    case SimdLevel::AVX512:
+#if defined(ORYX_HAVE_AVX512VNNI)
+      if (cpu_has_avx512_vnni()) return kernels::sq8_int_dot_avx512vnni;
+#endif
+      [[fallthrough]];
+    case SimdLevel::AVX2:
+#if defined(ORYX_HAVE_AVXVNNI)
+      if (cpu_has_avx_vnni()) return kernels::sq8_int_dot_avxvnni;
+#endif
+      return kernels::sq8_int_dot_avx2;
+#endif
+    default: return nullptr;  // NEON and WebAssembly: the float kernel is as fast
   }
 }
 
