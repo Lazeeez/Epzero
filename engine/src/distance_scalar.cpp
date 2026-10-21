@@ -2,7 +2,7 @@
 
 #include "kernels.h"
 
-namespace oryx::kernels {
+namespace epzero::kernels {
 
 // Deliberately plain loops: without -ffast-math the compiler cannot reorder the float
 // reduction, so this stays a true scalar baseline for the SIMD speedup measurements.
@@ -50,4 +50,4 @@ std::uint32_t rabitq_ip_scalar(const std::uint64_t* bits, const std::uint64_t* p
   return sum;
 }
 
-}  // namespace oryx::kernels
+}  // namespace epzero::kernels
