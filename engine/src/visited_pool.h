@@ -6,7 +6,7 @@
 #include <mutex>
 #include <vector>
 
-namespace oryx::detail {
+namespace epzero::detail {
 
 // Visited set for one search. Instead of clearing n entries per query, each query bumps an
 // epoch and a node counts as visited when its tag equals the current epoch. The array is
@@ -83,4 +83,4 @@ class VisitedPool {
   std::vector<std::unique_ptr<VisitedList>> free_;
 };
 
-}  // namespace oryx::detail
+}  // namespace epzero::detail
