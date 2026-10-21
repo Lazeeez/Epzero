@@ -7,11 +7,11 @@
 
 #include <limits>
 
-#include "oryx/database.h"
-#include "oryx/hnsw.h"
-#include "oryx/parallel.h"
-#include "oryx/recall.h"
-#include "oryx/text.h"
+#include "epzero/database.h"
+#include "epzero/hnsw.h"
+#include "epzero/parallel.h"
+#include "epzero/recall.h"
+#include "epzero/text.h"
 
 namespace py = pybind11;
 using FloatArray = py::array_t<float, py::array::c_style | py::array::forcecast>;
@@ -19,36 +19,36 @@ using LabelArray = py::array_t<std::int64_t, py::array::c_style | py::array::for
 
 namespace {
 
-oryx::Metric parse_metric(const std::string& name) {
-  if (name == "l2") return oryx::Metric::L2;
-  if (name == "ip") return oryx::Metric::InnerProduct;
-  if (name == "cosine") return oryx::Metric::Cosine;
+epzero::Metric parse_metric(const std::string& name) {
+  if (name == "l2") return epzero::Metric::L2;
+  if (name == "ip") return epzero::Metric::InnerProduct;
+  if (name == "cosine") return epzero::Metric::Cosine;
   throw std::invalid_argument("metric must be 'l2', 'ip' or 'cosine'");
 }
 
-oryx::Quantization parse_quantization(const std::string& name) {
-  if (name == "none") return oryx::Quantization::None;
-  if (name == "sq8") return oryx::Quantization::SQ8;
-  if (name == "rabitq") return oryx::Quantization::RaBitQ;
+epzero::Quantization parse_quantization(const std::string& name) {
+  if (name == "none") return epzero::Quantization::None;
+  if (name == "sq8") return epzero::Quantization::SQ8;
+  if (name == "rabitq") return epzero::Quantization::RaBitQ;
   throw std::invalid_argument("quantization must be 'none', 'sq8' or 'rabitq'");
 }
 
-oryx::FilterStrategy parse_strategy(const std::string& name) {
-  for (const auto s : {oryx::FilterStrategy::Auto, oryx::FilterStrategy::Exact, oryx::FilterStrategy::Inline,
-                       oryx::FilterStrategy::TwoHop}) {
-    if (name == oryx::to_string(s)) return s;
+epzero::FilterStrategy parse_strategy(const std::string& name) {
+  for (const auto s : {epzero::FilterStrategy::Auto, epzero::FilterStrategy::Exact, epzero::FilterStrategy::Inline,
+                       epzero::FilterStrategy::TwoHop}) {
+    if (name == epzero::to_string(s)) return s;
   }
   throw std::invalid_argument("strategy must be 'auto', 'exact', 'inline' or 'two-hop'");
 }
 
-oryx::SyncMode parse_sync(const std::string& name) {
-  if (name == "always") return oryx::SyncMode::Always;
-  if (name == "batch") return oryx::SyncMode::Batch;
-  if (name == "none") return oryx::SyncMode::None;
+epzero::SyncMode parse_sync(const std::string& name) {
+  if (name == "always") return epzero::SyncMode::Always;
+  if (name == "batch") return epzero::SyncMode::Batch;
+  if (name == "none") return epzero::SyncMode::None;
   throw std::invalid_argument("sync must be 'always', 'batch' or 'none'");
 }
 
-oryx::HnswParams make_params(std::size_t dim, const std::string& metric, std::size_t max_elements, std::size_t M,
+epzero::HnswParams make_params(std::size_t dim, const std::string& metric, std::size_t max_elements, std::size_t M,
                              std::size_t ef_construction, std::uint64_t seed, const std::string& quantization,
                              bool keep_vectors) {
   return {.dim = dim, .metric = parse_metric(metric), .max_elements = max_elements, .M = M,
@@ -97,7 +97,7 @@ py::tuple batch_search(const FloatArray& queries, std::size_t dim, std::size_t k
   float* out_distances = distances.mutable_data();
   {
     py::gil_scoped_release release;
-    oryx::parallel_for(0, n, threads, [&](std::size_t q) {
+    epzero::parallel_for(0, n, threads, [&](std::size_t q) {
       const auto results = search(rows + q * dim, k);
       for (std::size_t i = 0; i < k; ++i) {
         const bool found = i < results.size();
@@ -113,10 +113,10 @@ class Index {
  public:
   Index(std::size_t dim, const std::string& metric, std::size_t max_elements, std::size_t M,
         std::size_t ef_construction, std::uint64_t seed, const std::string& quantization, bool keep_vectors)
-      : index_(std::make_unique<oryx::HnswIndex>(
+      : index_(std::make_unique<epzero::HnswIndex>(
             make_params(dim, metric, max_elements, M, ef_construction, seed, quantization, keep_vectors))) {}
 
-  explicit Index(std::unique_ptr<oryx::HnswIndex> index) : index_(std::move(index)) {}
+  explicit Index(std::unique_ptr<epzero::HnswIndex> index) : index_(std::move(index)) {}
 
   void train(const FloatArray& data) {
     std::size_t n;
@@ -131,26 +131,26 @@ class Index {
     const float* rows = rows_of(data, dim, n);
     const auto ids = labels_of(labels, n, index_->size());
     py::gil_scoped_release release;
-    oryx::parallel_for(0, n, threads, [&](std::size_t i) { index_->add(ids[i], rows + i * dim); });
+    epzero::parallel_for(0, n, threads, [&](std::size_t i) { index_->add(ids[i], rows + i * dim); });
   }
 
   bool remove(std::uint64_t label) { return index_->remove(label); }
 
-  // `filter` is None, an oryxdb.Filter from filter(), or a sequence of allowed labels (compiled
-  // for this call; build an oryxdb.Filter once to reuse it across calls).
-  // A filter argument: None, an oryxdb.Filter, or a sequence of labels compiled into `storage`.
-  const oryx::SearchFilter* resolve_filter(const py::object& filter, oryx::SearchFilter& storage) const {
+  // `filter` is None, an epzero.Filter from filter(), or a sequence of allowed labels (compiled
+  // for this call; build an epzero.Filter once to reuse it across calls).
+  // A filter argument: None, an epzero.Filter, or a sequence of labels compiled into `storage`.
+  const epzero::SearchFilter* resolve_filter(const py::object& filter, epzero::SearchFilter& storage) const {
     if (filter.is_none()) return nullptr;
-    if (py::isinstance<oryx::SearchFilter>(filter)) return filter.cast<const oryx::SearchFilter*>();
+    if (py::isinstance<epzero::SearchFilter>(filter)) return filter.cast<const epzero::SearchFilter*>();
     storage = make_filter(filter.cast<LabelArray>());
     return &storage;
   }
 
   py::tuple search(const FloatArray& queries, std::size_t k, std::size_t ef, std::size_t rerank, std::size_t threads,
                    const py::object& filter, const std::string& strategy, std::size_t patience) const {
-    const oryx::FilterStrategy chosen = parse_strategy(strategy);
-    oryx::SearchFilter compiled;
-    const oryx::SearchFilter* active = resolve_filter(filter, compiled);
+    const epzero::FilterStrategy chosen = parse_strategy(strategy);
+    epzero::SearchFilter compiled;
+    const epzero::SearchFilter* active = resolve_filter(filter, compiled);
     return batch_search(queries, index_->params().dim, k, threads, [&](const float* q, std::size_t kk) {
       return index_->search(q, kk, {.ef = ef, .patience = patience, .rerank = rerank, .filter = active, .strategy = chosen});
     });
@@ -176,8 +176,8 @@ class Index {
 
   // Exact answers by a full scan, the ground truth recall is measured against.
   py::tuple exact_search(const FloatArray& queries, std::size_t k, std::size_t threads, const py::object& filter) const {
-    oryx::SearchFilter compiled;
-    const oryx::SearchFilter* active = resolve_filter(filter, compiled);
+    epzero::SearchFilter compiled;
+    const epzero::SearchFilter* active = resolve_filter(filter, compiled);
     return batch_search(queries, index_->params().dim, k, threads, [&](const float* q, std::size_t kk) {
       return index_->exact_search(q, kk, active);
     });
@@ -188,15 +188,15 @@ class Index {
     std::size_t n;
     const float* row = rows_of(query, index_->params().dim, n);
     if (n != 1) throw std::invalid_argument("explain takes exactly one query");
-    oryx::SearchFilter compiled;
-    const oryx::SearchFilter* active = resolve_filter(filter, compiled);
-    oryx::MissExplanation why;
+    epzero::SearchFilter compiled;
+    const epzero::SearchFilter* active = resolve_filter(filter, compiled);
+    epzero::MissExplanation why;
     {
       py::gil_scoped_release release;
       why = index_->explain(row, k, label, {.ef = ef, .filter = active});
     }
     py::dict out;
-    out["cause"] = std::string(oryx::to_string(why.cause));
+    out["cause"] = std::string(epzero::to_string(why.cause));
     out["exact_rank"] = why.exact_rank;
     out["distance"] = why.distance;
     out["kth_distance"] = why.kth_distance;
@@ -205,7 +205,7 @@ class Index {
     return out;
   }
 
-  oryx::SearchFilter make_filter(const LabelArray& labels) const {
+  epzero::SearchFilter make_filter(const LabelArray& labels) const {
     if (labels.ndim() != 1) throw std::invalid_argument("filter labels must be a 1-D sequence");
     std::vector<std::uint64_t> allowed(static_cast<std::size_t>(labels.shape(0)));
     for (std::size_t i = 0; i < allowed.size(); ++i) {
@@ -221,8 +221,8 @@ class Index {
     std::size_t n;
     const float* row = rows_of(query, index_->params().dim, n);
     if (n != 1) throw std::invalid_argument("trace takes exactly one query");
-    oryx::SearchTrace trace;
-    oryx::SearchStats stats;
+    epzero::SearchTrace trace;
+    epzero::SearchStats stats;
     const auto results = index_->search(row, k, {.ef = ef, .stats = &stats, .trace = &trace});
 
     py::list events;
@@ -253,16 +253,16 @@ class Index {
 
   static Index load(const std::string& path) {
     py::gil_scoped_release release;
-    return Index(oryx::HnswIndex::load(path));
+    return Index(epzero::HnswIndex::load(path));
   }
 
-  const oryx::HnswIndex& raw() const { return *index_; }
+  const epzero::HnswIndex& raw() const { return *index_; }
 
  private:
-  std::unique_ptr<oryx::HnswIndex> index_;
+  std::unique_ptr<epzero::HnswIndex> index_;
 };
 
-py::dict estimate_to_dict(const oryx::RecallEstimate& e) {
+py::dict estimate_to_dict(const epzero::RecallEstimate& e) {
   py::dict out;
   out["samples"] = e.samples;
   out["recall"] = e.recall;
@@ -283,10 +283,10 @@ class Guard {
                              .monitor = {.sample_rate = sample_rate, .window = window, .reference_ef = reference_ef}}) {}
 
   py::tuple search(const FloatArray& queries, std::size_t k, std::size_t threads, const py::object& filter) {
-    oryx::SearchFilter compiled;
-    const oryx::SearchFilter* active = nullptr;
-    if (py::isinstance<oryx::SearchFilter>(filter)) {
-      active = filter.cast<const oryx::SearchFilter*>();
+    epzero::SearchFilter compiled;
+    const epzero::SearchFilter* active = nullptr;
+    if (py::isinstance<epzero::SearchFilter>(filter)) {
+      active = filter.cast<const epzero::SearchFilter*>();
     } else if (!filter.is_none()) {
       compiled = index_.make_filter(filter.cast<LabelArray>());
       active = &compiled;
@@ -314,11 +314,11 @@ class Guard {
 
  private:
   const Index& index_;
-  oryx::RecallGuard guard_;
+  epzero::RecallGuard guard_;
 };
 
 // Ranked results as (labels, scores) arrays, scores larger-is-better (the negated distances).
-py::tuple ranked(const std::vector<oryx::SearchResult>& results) {
+py::tuple ranked(const std::vector<epzero::SearchResult>& results) {
   py::array_t<std::int64_t> labels(static_cast<py::ssize_t>(results.size()));
   py::array_t<float> scores(static_cast<py::ssize_t>(results.size()));
   for (std::size_t i = 0; i < results.size(); ++i) {
@@ -331,7 +331,7 @@ py::tuple ranked(const std::vector<oryx::SearchResult>& results) {
 class TextIndex {
  public:
   TextIndex(float k1, float b) : index_({.k1 = k1, .b = b}) {}
-  explicit TextIndex(oryx::TextIndex index) : index_(std::move(index)) {}
+  explicit TextIndex(epzero::TextIndex index) : index_(std::move(index)) {}
 
   void add(const py::object& labels, const std::vector<std::string>& texts) {
     const auto ids = labels_of(labels, texts.size(), 0);
@@ -340,7 +340,7 @@ class TextIndex {
   }
   bool remove(std::uint64_t label) { return index_.remove(label); }
   py::tuple search(const std::string& query, std::size_t k) const {
-    std::vector<oryx::SearchResult> results;
+    std::vector<epzero::SearchResult> results;
     {
       py::gil_scoped_release release;
       results = index_.search(query, k);
@@ -348,26 +348,26 @@ class TextIndex {
     return ranked(results);
   }
   void save(const std::string& path) const { index_.save(path); }
-  static TextIndex load(const std::string& path) { return TextIndex(oryx::TextIndex::load(path)); }
-  const oryx::TextIndex& raw() const noexcept { return index_; }
+  static TextIndex load(const std::string& path) { return TextIndex(epzero::TextIndex::load(path)); }
+  const epzero::TextIndex& raw() const noexcept { return index_; }
 
  private:
-  oryx::TextIndex index_;
+  epzero::TextIndex index_;
 };
 
 class Database {
  public:
-  explicit Database(std::unique_ptr<oryx::Database> db) : db_(std::move(db)) {}
+  explicit Database(std::unique_ptr<epzero::Database> db) : db_(std::move(db)) {}
 
   static Database open(const std::string& path, std::size_t dim, const std::string& metric, std::size_t max_elements,
                        std::size_t M, std::size_t ef_construction, const std::string& quantization, bool keep_vectors,
                        const std::string& sync, double checkpoint_mb) {
-    oryx::DatabaseOptions options;
+    epzero::DatabaseOptions options;
     options.sync = parse_sync(sync);
     options.checkpoint_bytes = static_cast<std::size_t>(checkpoint_mb * 1024 * 1024);
     const auto params = make_params(dim, metric, max_elements, M, ef_construction, 42, quantization, keep_vectors);
     py::gil_scoped_release release;
-    return Database(oryx::Database::open(path, params, options));
+    return Database(epzero::Database::open(path, params, options));
   }
 
   void train(const FloatArray& data) {
@@ -422,25 +422,25 @@ class Database {
     return out;
   }
 
-  const oryx::Database& raw() const { return *db_; }
+  const epzero::Database& raw() const { return *db_; }
 
  private:
-  std::unique_ptr<oryx::Database> db_;
+  std::unique_ptr<epzero::Database> db_;
 };
 
 }  // namespace
 
 PYBIND11_MODULE(_core, m) {
-  m.doc() = "Oryx: HNSW vector search engine";
-  m.def("simd_level", [] { return std::string(oryx::to_string(oryx::active_simd_level())); },
+  m.doc() = "Epzero: HNSW vector search engine";
+  m.def("simd_level", [] { return std::string(epzero::to_string(epzero::active_simd_level())); },
         "SIMD instruction set used by the distance kernels on this CPU");
 
-  py::class_<oryx::SearchFilter>(m, "Filter",
+  py::class_<epzero::SearchFilter>(m, "Filter",
                                  "The labels a search may return, compiled by Index.filter() for reuse across queries.")
-      .def_property_readonly("allowed", &oryx::SearchFilter::allowed, "How many live vectors pass.")
-      .def_property_readonly("selectivity", &oryx::SearchFilter::selectivity, "The share of live vectors that pass.")
-      .def("__repr__", [](const oryx::SearchFilter& f) {
-        return "<oryxdb.Filter allowing " + std::to_string(f.allowed()) + " vectors (" +
+      .def_property_readonly("allowed", &epzero::SearchFilter::allowed, "How many live vectors pass.")
+      .def_property_readonly("selectivity", &epzero::SearchFilter::selectivity, "The share of live vectors that pass.")
+      .def("__repr__", [](const epzero::SearchFilter& f) {
+        return "<epzero.Filter allowing " + std::to_string(f.allowed()) + " vectors (" +
                std::to_string(f.selectivity() * 100.0).substr(0, 5) + "%)>";
       });
 
@@ -457,7 +457,7 @@ PYBIND11_MODULE(_core, m) {
       .def("search", &Index::search, py::arg("queries"), py::arg("k") = 10, py::arg("ef") = 64,
            py::arg("rerank") = 0, py::arg("threads") = 1, py::arg("filter") = py::none(), py::arg("strategy") = "auto",
            py::arg("patience") = 0,
-           "Returns (labels, distances), each of shape (n, k). With `filter` (an oryxdb.Filter or a list of\n"
+           "Returns (labels, distances), each of shape (n, k). With `filter` (an epzero.Filter or a list of\n"
            "allowed labels), only those labels are returned; `strategy` forces 'exact', 'inline' or\n"
            "'two-hop' instead of choosing by selectivity. With `patience`, each unfiltered query stops once\n"
            "its best k have gone that many steps unchanged (`ef` then caps the beam): easy queries finish\n"
@@ -469,7 +469,7 @@ PYBIND11_MODULE(_core, m) {
            "Times searches of `queries` (a few hundred rows, e.g. sampled from the data) at a grid of\n"
            "prefetch settings and keeps the fastest if it beats the default by 3%. Returns the setting.")
       .def("filter", &Index::make_filter, py::arg("labels"),
-           "Compiles the allowed labels into an oryxdb.Filter, reusable across searches.")
+           "Compiles the allowed labels into an epzero.Filter, reusable across searches.")
       .def("exact_search", &Index::exact_search, py::arg("queries"), py::arg("k") = 10, py::arg("threads") = 1,
            py::arg("filter") = py::none(), "Exact (labels, distances) by scanning every live vector: the ground truth.")
       .def("explain", &Index::explain, py::arg("query"), py::arg("k"), py::arg("label"), py::arg("ef") = 64,
@@ -490,7 +490,7 @@ PYBIND11_MODULE(_core, m) {
       .def_property_readonly("max_level", [](const Index& self) { return self.raw().max_level(); })
       .def_property_readonly("deleted_count", [](const Index& self) { return self.raw().deleted_count(); })
       .def_property_readonly("memory_bytes", [](const Index& self) { return self.raw().memory_bytes(); })
-      .def_property_readonly("simd", [](const Index& self) { return std::string(oryx::to_string(self.raw().simd_level())); });
+      .def_property_readonly("simd", [](const Index& self) { return std::string(epzero::to_string(self.raw().simd_level())); });
 
   py::class_<Guard>(m, "RecallGuard",
                     "Searches an Index at the smallest beam width that keeps live, measured recall above a\n"
@@ -519,7 +519,7 @@ PYBIND11_MODULE(_core, m) {
            "Returns (labels, scores), best first, by BM25 score. Texts sharing no word with the query are omitted.")
       .def("save", &TextIndex::save, py::arg("path"))
       .def_static("load", &TextIndex::load, py::arg("path"))
-      .def_static("tokenize", &oryx::TextIndex::tokenize, py::arg("text"), "The words a text is indexed by.")
+      .def_static("tokenize", &epzero::TextIndex::tokenize, py::arg("text"), "The words a text is indexed by.")
       .def("__len__", [](const TextIndex& self) { return self.raw().size(); })
       .def("__contains__", [](const TextIndex& self, std::uint64_t label) { return self.raw().contains(label); });
 
@@ -530,10 +530,10 @@ PYBIND11_MODULE(_core, m) {
         std::size_t n;
         const float* row = rows_of(vector, index.raw().params().dim, n);
         if (n != 1) throw std::invalid_argument("hybrid_search takes one query vector");
-        std::vector<oryx::SearchResult> results;
+        std::vector<epzero::SearchResult> results;
         {
           py::gil_scoped_release release;
-          results = oryx::hybrid_search(index.raw(), text.raw(), row, query, k,
+          results = epzero::hybrid_search(index.raw(), text.raw(), row, query, k,
                                         {.ef = ef, .candidates = candidates, .rrf_k = rrf_k,
                                          .vector_weight = vector_weight, .text_weight = text_weight});
         }
@@ -547,7 +547,7 @@ PYBIND11_MODULE(_core, m) {
       "fuse_rankings",
       [](const std::vector<std::vector<std::int64_t>>& rankings, std::size_t k, double rrf_k,
          const std::vector<double>& weights) {
-        std::vector<std::vector<oryx::SearchResult>> lists;
+        std::vector<std::vector<epzero::SearchResult>> lists;
         for (const auto& ranking : rankings) {
           auto& list = lists.emplace_back();
           for (const auto label : ranking) {
@@ -555,7 +555,7 @@ PYBIND11_MODULE(_core, m) {
             list.push_back({static_cast<std::uint64_t>(label), 0.0f});
           }
         }
-        return ranked(oryx::fuse_rankings(lists, k, rrf_k, weights));
+        return ranked(epzero::fuse_rankings(lists, k, rrf_k, weights));
       },
       py::arg("rankings"), py::arg("k") = 10, py::arg("rrf_k") = 60.0, py::arg("weights") = std::vector<double>{},
       "Reciprocal rank fusion of ranked label lists (each best first), e.g. from another search engine.\n"
