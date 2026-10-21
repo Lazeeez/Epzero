@@ -1,4 +1,4 @@
-# Read consistency in the Oryx cluster
+# Read consistency in the Epzero cluster
 
 What a search sees after a write, what can go wrong when nodes crash or the network misbehaves,
 and how that is tested. Short version: **`strong` reads are linearizable** under crashes,
@@ -33,7 +33,7 @@ default is `Config.Consistency`, which is `eventual` unless set.
 ## How it is tested
 
 `cluster/sim` runs the real router (package `cluster/router`, unchanged) against simulated data
-nodes whose replication mirrors `oryx-node`: forwarding, catch-up by `Fetch`, snapshots for a
+nodes whose replication mirrors `epzero-node`: forwarding, catch-up by `Fetch`, snapshots for a
 returning ex-primary, and epoch fencing. A simulated network can delay, drop or cut any link. Under
 `testing/synctest` the whole cluster runs on a virtual clock, so a minute of traffic and faults
 takes well under a second.
@@ -61,7 +61,7 @@ Results (3 seeds each, about 68,000 operations, `go test -race ./sim`):
 | partitions | linearizable | not linearizable (expected) |
 | lossy links | linearizable | not linearizable (expected) |
 
-The site's [cluster page](https://lazeeez.github.io/Oryx/cluster) runs the same simulation in the
+The site's [cluster page](https://epzero.dev/cluster) runs the same simulation in the
 browser, with a button that runs Porcupine over the live history.
 
 ## Bugs it found
@@ -94,5 +94,5 @@ Both are fixed. Before the first fix, even primary-only reads failed the check u
   follower serves strong reads through a failover, takes over when the leader stops, and fails
   over the next node itself; a deposed leader's save is refused. The linearizability runs above
   use a single router.
-- **Simulation fidelity.** The simulated nodes reproduce `oryx-node`'s replication protocol, not
+- **Simulation fidelity.** The simulated nodes reproduce `epzero-node`'s replication protocol, not
   its code. The real nodes are covered by the three-node failover test in CI (`-tags integration`).
