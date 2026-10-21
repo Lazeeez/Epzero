@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/Lazeeez/Oryx/cluster/router"
+	"github.com/Lazeeez/Epzero/cluster/router"
 )
 
 // RouterName is the router's endpoint on the simulated network.
