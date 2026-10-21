@@ -31,7 +31,7 @@ variable "boot_volume_gb" {
 
 variable "ssh_public_key_path" {
   type    = string
-  default = "~/.ssh/oryx_oci.pub"
+  default = "~/.ssh/epzero_oci.pub"
 }
 
 variable "admin_cidr" {
