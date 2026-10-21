@@ -83,6 +83,17 @@ float ip_avx2(const float* a, const float* b, std::size_t dim) noexcept {
   return 1.0f - dot;
 }
 
+// The same as rabitq_ip_scalar, with the hardware POPCNT instruction (every AVX2 CPU has it).
+std::uint32_t rabitq_ip_popcnt(const std::uint64_t* bits, const std::uint64_t* planes, std::size_t words) noexcept {
+  std::uint32_t sum = 0;
+  for (std::uint32_t j = 0; j < 4; ++j) {
+    std::uint64_t count = 0;
+    for (std::size_t w = 0; w < words; ++w) count += static_cast<std::uint64_t>(_mm_popcnt_u64(bits[w] & planes[j * words + w]));
+    sum += static_cast<std::uint32_t>(count) << j;
+  }
+  return sum;
+}
+
 }  // namespace oryx::kernels
 
 #endif
