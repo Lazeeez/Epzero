@@ -2,7 +2,7 @@
 // network otherwise. Going through the service worker's fetch handler instead means its single
 // thread relays every byte, so on a repeat visit the dataset queued behind the model downloads it
 // was also relaying (measured: 5 MB of metadata took over 5 s to arrive).
-export const DATA_CACHE = "oryx-data-v1"; // must match src/sw/sw-template.js
+export const DATA_CACHE = "epzero-data-v1"; // must match src/sw/sw-template.js
 
 export async function cachedFetch(url: string, { fresh = false } = {}): Promise<Response> {
   // Small files that say what the others are (the manifest) always check the network first; the
