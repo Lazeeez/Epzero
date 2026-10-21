@@ -57,86 +57,92 @@
   const ROLE = { primary: "P", replica: "R", none: "–" } as const;
 </script>
 
-<div class="topology">
-  <svg viewBox="0 0 {W} {H}" aria-hidden="true">
-    <defs>
-      <linearGradient id="wire" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="var(--accent)" stop-opacity="0.65" />
-        <stop offset="1" stop-color="var(--accent)" stop-opacity="0.15" />
-      </linearGradient>
-    </defs>
-    <!-- Replication: each shard's primary to its replica, below the nodes. -->
-    {#each shards as s (s.id)}
-      {@const a = index.get(s.primary)}
-      {@const b = index.get(s.replica)}
-      {#if a !== undefined && b !== undefined}
-        {@const x1 = xOf(a)}
-        {@const x2 = xOf(b)}
-        {@const dip = 48 + 26 * Math.abs(a - b)}
-        <path
-          class="repl"
-          class:lagging={!s.replica_in_sync}
-          d="M{x1} {NODE_Y + 64} C {x1} {NODE_Y + 64 + dip}, {x2} {NODE_Y + 64 + dip}, {x2} {NODE_Y + 64}"
-        />
-      {/if}
-    {/each}
-    {#each nodes as n, i (n.name)}
-      <line class="wire {nodeState(n)}" x1={ROUTER.x} y1={ROUTER.y + 26} x2={xOf(i)} y2={NODE_Y - 70} />
-    {/each}
-    {#each dots as d (d.id)}
-      {@const x = xOf(d.i)}
-      <circle
-        class="dot"
-        class:back={d.back}
-        r="3.2"
-        style:--x0="{d.back ? x : ROUTER.x}px"
-        style:--y0="{d.back ? NODE_Y - 70 : ROUTER.y + 26}px"
-        style:--x1="{d.back ? ROUTER.x : x}px"
-        style:--y1="{d.back ? ROUTER.y + 26 : NODE_Y - 70}px"
-        style:animation-delay="{Math.max(0, d.born - performance.now())}ms"
-      />
-    {/each}
-  </svg>
-
-  <div class="router" style:left="{(ROUTER.x / W) * 100}%" style:top="{(ROUTER.y / H) * 100}%">
-    <strong>Router</strong>
-    <span>Go · WebAssembly</span>
-  </div>
-
-  {#each nodes as n, i (n.name)}
-    {@const st = nodeState(n)}
-    <div class="node card {st}" style:left="{(xOf(i) / W) * 100}%" style:top="{(NODE_Y / H) * 100}%" style:--slot="{100 / nodes.length}%">
-      <header>
-        <strong>{n.name}</strong>
-        <span class="pill" class:pending={!ready}>{!ready ? "Starting" : st === "up" ? "Up" : st === "down" ? "Down" : st === "cut" ? "Cut off" : st === "lossy" ? "Lossy" : `Slow ${n.slow_ms} ms`}</span>
-      </header>
-      <ul class="copies" aria-label="Shard copies on {n.name}">
-        {#each n.shards ?? [] as c (c.shard)}
-          <li class={c.role} title="Shard {c.shard}: {c.role}, epoch {c.epoch}, {c.vectors.toLocaleString()} vectors, log at {c.lsn}{c.role === 'replica' ? (c.in_sync ? ', in sync' : ', catching up') : ''}">
-            <b>S{c.shard}</b><i>{ROLE[c.role]}</i><span class="num">e{c.epoch}</span>
-          </li>
-        {/each}
-      </ul>
-      <div class="actions">
-        {#if n.up}
-          <button onclick={() => clusterSim.fault({ kind: "kill", node: n.name })} disabled={!ready}>Kill</button>
-        {:else}
-          <button class="go" onclick={() => clusterSim.fault({ kind: "restart", node: n.name })}>Restart</button>
+<div class="frame">
+  <div class="topology">
+    <svg viewBox="0 0 {W} {H}" aria-hidden="true">
+      <defs>
+        <linearGradient id="wire" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="var(--accent)" stop-opacity="0.65" />
+          <stop offset="1" stop-color="var(--accent)" stop-opacity="0.15" />
+        </linearGradient>
+      </defs>
+      <!-- Replication: each shard's primary to its replica, below the nodes. -->
+      {#each shards as s (s.id)}
+        {@const a = index.get(s.primary)}
+        {@const b = index.get(s.replica)}
+        {#if a !== undefined && b !== undefined}
+          {@const x1 = xOf(a)}
+          {@const x2 = xOf(b)}
+          {@const dip = 48 + 26 * Math.abs(a - b)}
+          <path
+            class="repl"
+            class:lagging={!s.replica_in_sync}
+            d="M{x1} {NODE_Y + 64} C {x1} {NODE_Y + 64 + dip}, {x2} {NODE_Y + 64 + dip}, {x2} {NODE_Y + 64}"
+          />
         {/if}
-        <button onclick={() => clusterSim.fault({ kind: "isolate", node: n.name })} disabled={!ready || !n.up || st === "cut"}>Isolate</button>
-        <button onclick={() => clusterSim.fault({ kind: "slow", node: n.name, ms: n.slow_ms ? 0 : 120 })} disabled={!ready || !n.up} aria-pressed={n.slow_ms > 0}>
-          Slow
-        </button>
-      </div>
+      {/each}
+      {#each nodes as n, i (n.name)}
+        <line class="wire {nodeState(n)}" x1={ROUTER.x} y1={ROUTER.y + 26} x2={xOf(i)} y2={NODE_Y - 70} />
+      {/each}
+      {#each dots as d (d.id)}
+        {@const x = xOf(d.i)}
+        <circle
+          class="dot"
+          class:back={d.back}
+          r="3.2"
+          style:--x0="{d.back ? x : ROUTER.x}px"
+          style:--y0="{d.back ? NODE_Y - 70 : ROUTER.y + 26}px"
+          style:--x1="{d.back ? ROUTER.x : x}px"
+          style:--y1="{d.back ? ROUTER.y + 26 : NODE_Y - 70}px"
+          style:animation-delay="{Math.max(0, d.born - performance.now())}ms"
+        />
+      {/each}
+    </svg>
+
+    <div class="router" style:left="{(ROUTER.x / W) * 100}%" style:top="{(ROUTER.y / H) * 100}%">
+      <strong>Router</strong>
+      <span>Go · WebAssembly</span>
     </div>
-  {/each}
+
+    {#each nodes as n, i (n.name)}
+      {@const st = nodeState(n)}
+      <div class="node card {st}" style:left="{(xOf(i) / W) * 100}%" style:top="{(NODE_Y / H) * 100}%" style:--slot="{100 / nodes.length}%">
+        <header>
+          <strong>{n.name}</strong>
+          <span class="pill" class:pending={!ready}>{!ready ? "Starting" : st === "up" ? "Up" : st === "down" ? "Down" : st === "cut" ? "Cut off" : st === "lossy" ? "Lossy" : `Slow ${n.slow_ms} ms`}</span>
+        </header>
+        <ul class="copies" aria-label="Shard copies on {n.name}">
+          {#each n.shards ?? [] as c (c.shard)}
+            <li class={c.role} title="Shard {c.shard}: {c.role}, epoch {c.epoch}, {c.vectors.toLocaleString()} vectors, log at {c.lsn}{c.role === 'replica' ? (c.in_sync ? ', in sync' : ', catching up') : ''}">
+              <b>S{c.shard}</b><i>{ROLE[c.role]}</i><span class="num">e{c.epoch}</span>
+            </li>
+          {/each}
+        </ul>
+        <div class="actions">
+          {#if n.up}
+            <button onclick={() => clusterSim.fault({ kind: "kill", node: n.name })} disabled={!ready}>Kill</button>
+          {:else}
+            <button class="go" onclick={() => clusterSim.fault({ kind: "restart", node: n.name })}>Restart</button>
+          {/if}
+          <button onclick={() => clusterSim.fault({ kind: "isolate", node: n.name })} disabled={!ready || !n.up || st === "cut"}>Isolate</button>
+          <button onclick={() => clusterSim.fault({ kind: "slow", node: n.name, ms: n.slow_ms ? 0 : 120 })} disabled={!ready || !n.up} aria-pressed={n.slow_ms > 0}>
+            Slow
+          </button>
+        </div>
+      </div>
+    {/each}
+  </div>
 </div>
 
 <style>
+  /* The layout follows the room the diagram has, not the window: the page's side panel takes a
+     share of the width, so a wide window can still leave too little for four nodes in a row. */
+  .frame {
+    container: topology / inline-size;
+  }
   .topology {
     position: relative;
     aspect-ratio: 1000 / 440;
-    min-height: 360px;
   }
   svg {
     position: absolute;
@@ -335,7 +341,9 @@
     opacity: 0.4;
     cursor: not-allowed;
   }
-  @media (max-width: 760px) {
+  /* Under 740px a row of four would squeeze each node below its buttons' width (and the old
+     min-height forced the diagram past the panel's edge): the nodes go two by two instead. */
+  @container topology (max-width: 739px) {
     .topology {
       aspect-ratio: auto;
       min-height: 0;
