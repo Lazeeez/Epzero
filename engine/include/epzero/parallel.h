@@ -8,7 +8,7 @@
 #include <thread>
 #include <vector>
 
-namespace oryx {
+namespace epzero {
 
 // Runs fn(i) for every i in [begin, end) on up to `threads` threads (0 = hardware concurrency),
 // handing out indices dynamically so uneven work (e.g. HNSW inserts) stays balanced. The first
@@ -44,4 +44,4 @@ void parallel_for(std::size_t begin, std::size_t end, std::size_t threads, Fn fn
   if (error) std::rethrow_exception(error);
 }
 
-}  // namespace oryx
+}  // namespace epzero
