@@ -1,11 +1,29 @@
 <script lang="ts">
   import { FREE_LOOK_TOGGLE, freeLook } from "../lib/free-look.svelte";
+  import { untrack } from "svelte";
   import { router } from "../lib/router.svelte";
   import { isDark, toggleTheme } from "../lib/theme";
   import Logo from "./Logo.svelte";
 
   let scrolled = $state(false);
   let dark = $state(isDark());
+
+  // The active tab's highlight is one pill that glides to the new tab on navigation.
+  let links: HTMLElement | undefined = $state();
+  let pill = $state({ x: 0, w: 0, on: false });
+  $effect(() => {
+    void router.route;
+    if (!links) return;
+    const place = () => {
+      const active = links!.querySelector<HTMLElement>('[aria-current="page"]');
+      // Without an active tab the pill fades out where it is (read untracked: this effect writes it).
+      pill = active ? { x: active.offsetLeft, w: active.offsetWidth, on: true } : { ...untrack(() => pill), on: false };
+    };
+    place();
+    const observer = new ResizeObserver(place); // fonts loading, breakpoints
+    observer.observe(links);
+    return () => observer.disconnect();
+  });
 
   $effect(() => {
     const onScroll = () => (scrolled = scrollY > 12);
@@ -26,7 +44,8 @@
       <Logo size={24} />
       <span>Oryx</span>
     </a>
-    <nav aria-label="Main">
+    <nav aria-label="Main" bind:this={links}>
+      <span class="pill" class:on={pill.on} style:transform="translateX({pill.x}px)" style:width="{pill.w}px" aria-hidden="true"></span>
       <a href={router.href("try")} class="link" aria-current={router.route === "try" ? "page" : undefined}>Try it</a>
       <a href={router.href("play")} class="link" aria-current={router.route === "play" ? "page" : undefined}>Play</a>
       <a href={router.href("cluster")} class="link" aria-current={router.route === "cluster" ? "page" : undefined}>Cluster</a>
@@ -102,11 +121,13 @@
     letter-spacing: -0.02em;
   }
   nav {
+    position: relative;
     display: flex;
     gap: 4px;
     margin-left: 12px;
   }
   .link {
+    position: relative; /* above the pill */
     padding: 7px 12px;
     white-space: nowrap;
     border-radius: 9px;
@@ -120,8 +141,27 @@
   }
   .link[aria-current="page"] {
     color: var(--text);
+  }
+  .link[aria-current="page"]:hover {
+    background: none;
+  }
+  .pill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    border-radius: 9px;
     background: var(--surface);
-    box-shadow: inset 0 0 0 1px var(--border);
+    box-shadow: inset 0 0 0 1px var(--border-strong), 0 6px 20px -10px var(--accent-glow);
+    opacity: 0;
+    transition:
+      transform 0.45s var(--ease),
+      width 0.45s var(--ease),
+      opacity 0.3s;
+    pointer-events: none;
+  }
+  .pill.on {
+    opacity: 1;
   }
   .right {
     display: flex;
