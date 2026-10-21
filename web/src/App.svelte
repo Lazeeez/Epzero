@@ -13,7 +13,9 @@
 
   let stage: HTMLDivElement;
 
-  const modes: Record<string, SceneMode> = { home: "hero", try: "explore", play: "hidden", benchmarks: "hidden", notfound: "hidden" };
+  const modes: Record<string, SceneMode> = { home: "hero", try: "explore", play: "hidden", cluster: "hidden", benchmarks: "hidden", notfound: "hidden" };
+  // The cluster page carries its own (Go) engine: load its code only when it is opened.
+  const loadCluster = () => import("./pages/Cluster.svelte");
 
   // Pages that show the graph start the engine and the scene; the benchmarks page needs neither.
   $effect(() => {
@@ -30,7 +32,7 @@
   // which doesn't use them): the first text or photo search then answers without a download.
   let warmed = false;
   $effect(() => {
-    if (warmed || engine.status !== "ready" || router.route === "benchmarks") return;
+    if (warmed || engine.status !== "ready" || router.route === "benchmarks" || router.route === "cluster") return;
     warmed = true;
     warmUpEncoders();
   });
@@ -49,6 +51,7 @@
     home: "Oryx · A vector database, running in your browser",
     try: "Try it · Oryx",
     play: "Out-navigate Oryx · Oryx",
+    cluster: "Cluster · Oryx",
     benchmarks: "Benchmarks · Oryx",
     notfound: "Page not found · Oryx",
   };
@@ -78,6 +81,12 @@
     <Try />
   {:else if router.route === "play"}
     <Play />
+  {:else if router.route === "cluster"}
+    {#await loadCluster()}
+      <div class="page-pending"></div>
+    {:then { default: Cluster }}
+      <Cluster />
+    {/await}
   {:else if router.route === "benchmarks"}
     <Benchmarks />
   {:else}
@@ -90,6 +99,10 @@
 {/if}
 
 <style>
+  /* Holds the footer below the fold while a lazily loaded page arrives. */
+  .page-pending {
+    min-height: 100vh;
+  }
   .stage {
     position: fixed;
     inset: 0;
