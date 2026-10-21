@@ -1,4 +1,4 @@
-#include "oryx/brute_force.h"
+#include "epzero/brute_force.h"
 
 #include <algorithm>
 #include <atomic>
@@ -7,7 +7,7 @@
 #include <thread>
 #include <unordered_set>
 
-namespace oryx {
+namespace epzero {
 
 std::vector<SearchResult> brute_force_search(const float* data, std::size_t n, std::size_t dim, const float* query,
                                              std::size_t k, Metric metric) {
@@ -153,4 +153,4 @@ double recall_at_k(const std::vector<std::vector<SearchResult>>& results,
   return static_cast<double>(hits) / static_cast<double>(results.size() * k);
 }
 
-}  // namespace oryx
+}  // namespace epzero
