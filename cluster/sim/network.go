@@ -1,4 +1,4 @@
-// Package sim runs an Oryx cluster in memory: data nodes that replicate like oryx-node
+// Package sim runs an Epzero cluster in memory: data nodes that replicate like epzero-node
 // (engine/server/node_main.cpp), joined by a network whose links can be slowed, made lossy or cut.
 // The real router drives them through router.Node, so the same code that serves production
 // traffic is what the fault tests check (under testing/synctest, on a virtual clock) and what the
@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Lazeeez/Oryx/cluster/router"
+	"github.com/Lazeeez/Epzero/cluster/router"
 )
 
 // Link describes the path from one endpoint to another. The zero value is a perfect link.
