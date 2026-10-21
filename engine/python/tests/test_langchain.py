@@ -4,7 +4,7 @@ import pytest
 pytest.importorskip("langchain_core")
 from langchain_core.embeddings import DeterministicFakeEmbedding  # noqa: E402
 
-from oryxdb.langchain import OryxVectorStore  # noqa: E402
+from epzero.langchain import EpzeroVectorStore  # noqa: E402
 
 TEXTS = [f"document number {i} about {topic}" for i, topic in enumerate(["cats", "dogs", "boats", "trains"] * 10)]
 METAS = [{"topic": t.split()[-1], "n": i} for i, t in enumerate(TEXTS)]
@@ -12,7 +12,7 @@ METAS = [{"topic": t.split()[-1], "n": i} for i, t in enumerate(TEXTS)]
 
 @pytest.fixture
 def store():
-    return OryxVectorStore.from_texts(TEXTS, DeterministicFakeEmbedding(size=32), metadatas=METAS, capacity=16)
+    return EpzeroVectorStore.from_texts(TEXTS, DeterministicFakeEmbedding(size=32), metadatas=METAS, capacity=16)
 
 
 def test_finds_a_document_by_its_own_text(store):
@@ -80,7 +80,7 @@ def test_hybrid_search_finds_keywords_the_embedding_misses(store):
 def test_save_and_load(store, tmp_path):
     store.delete([store.similarity_search(TEXTS[1], k=1)[0].id])
     store.save_local(str(tmp_path))
-    loaded = OryxVectorStore.load_local(str(tmp_path), DeterministicFakeEmbedding(size=32))
+    loaded = EpzeroVectorStore.load_local(str(tmp_path), DeterministicFakeEmbedding(size=32))
     assert len(loaded) == len(store)
     for i in (0, 2, 33):
         assert loaded.similarity_search(TEXTS[i], k=1)[0].page_content == TEXTS[i]
@@ -91,10 +91,10 @@ def test_save_and_load(store, tmp_path):
 
 
 def test_rejects_bad_input():
-    store = OryxVectorStore(DeterministicFakeEmbedding(size=8))
+    store = EpzeroVectorStore(DeterministicFakeEmbedding(size=8))
     assert store.similarity_search("anything") == []
     with pytest.raises(ValueError):
-        OryxVectorStore(DeterministicFakeEmbedding(size=8), metric="hamming")
+        EpzeroVectorStore(DeterministicFakeEmbedding(size=8), metric="hamming")
     store.add_texts(["one"])
     with pytest.raises(ValueError):
         store.add_vectors(np.zeros((1, 4), dtype=np.float32), ["wrong width"])
@@ -111,4 +111,4 @@ if VectorStoreIntegrationTests is not None:
     class TestStandardVectorStore(VectorStoreIntegrationTests):
         @pytest.fixture
         def vectorstore(self):
-            return OryxVectorStore(embedding=self.get_embeddings())
+            return EpzeroVectorStore(embedding=self.get_embeddings())
