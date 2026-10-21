@@ -12,7 +12,8 @@ Stages are cached under --work, so reruns only redo what changed:
   3. embeddings   CLIP ViT-B/32 image embeddings (L2-normalized, 512-d), GPU if available
   4. check        text->image sanity check with the same model's text tower
   5. layout       UMAP to 2-D (cosine), used to place nodes in the 3D view
-  6. export       int8 vectors (per-dimension symmetric scales), layout, metadata, manifest
+  6. export       int8 vectors on their principal axes, in blocks of dimensions the browser can
+                  search as they arrive (progressive_vectors.py); layout, metadata, manifest
 
 The browser embeds text queries with the same model (Xenova/clip-vit-base-patch32 in
 transformers.js is a conversion of openai/clip-vit-base-patch32), so text and image vectors
@@ -32,6 +33,8 @@ import time
 import urllib.request
 
 import numpy as np
+
+import progressive_vectors
 
 MODEL = "openai/clip-vit-base-patch32"
 META_URL = "https://storage.googleapis.com/openimages/2018_04/validation/validation-images-with-rotation.csv"
@@ -220,31 +223,9 @@ def stage_layout(work, emb):
     return xy
 
 
-def quantize(emb):
-    """Symmetric per-dimension int8: q = round(x / scale * 127), scale = max |x| in that dimension."""
-    scales = np.abs(emb).max(axis=0).astype(np.float32)
-    scales[scales == 0] = 1.0
-    q = np.clip(np.rint(emb / scales * 127), -127, 127).astype(np.int8)
-    return q, scales
-
-
-def quantization_recall(emb, q, scales, k=10, queries=1000, seed=0):
-    """Recall@k of exact search over dequantized vectors vs. the float vectors (same queries)."""
-    rng = np.random.default_rng(seed)
-    picks = rng.choice(len(emb), size=min(queries, len(emb)), replace=False)
-    deq = q.astype(np.float32) * (scales / 127)
-    deq /= np.linalg.norm(deq, axis=1, keepdims=True)
-    exact = np.argsort(-(emb[picks] @ emb.T), axis=1)[:, 1:k + 1]
-    approx = np.argsort(-(emb[picks] @ deq.T), axis=1)[:, 1:k + 1]
-    return float(np.mean([len(set(a) & set(b)) / k for a, b in zip(exact, approx)]))
-
-
 def stage_export(rows, emb, xy, out, check):
     os.makedirs(out, exist_ok=True)
-    q, scales = quantize(emb)
-    recall = quantization_recall(emb, q, scales)
-    q.tofile(os.path.join(out, "vectors.i8"))
-    scales.tofile(os.path.join(out, "scales.f32"))
+    vectors = progressive_vectors.export(emb, out)
     np.rint((xy + 1) / 2 * 65535).clip(0, 65535).astype(np.uint16).tofile(os.path.join(out, "layout.u16"))
 
     licenses = sorted({r["license"] for r in rows})
@@ -258,8 +239,10 @@ def stage_export(rows, emb, xy, out, check):
         "model": MODEL,
         "browserTextModel": "Xenova/clip-vit-base-patch32",
         "metric": "cosine",
-        "files": {"vectors": "vectors.i8", "scales": "scales.f32", "layout": "layout.u16", "meta": META_FILE},
-        "quantization": {"scheme": "int8 symmetric per-dimension", "recallAt10VsFloat": round(recall, 4)},
+        "files": {"vectors": vectors["file"], "layout": "layout.u16", "meta": META_FILE},
+        "quantization": {"scheme": "int8 symmetric per-dimension",
+                         "recallAt10VsFloat": vectors["stages"][-1]["recallAt10VsFloat"]},
+        "vectors": {"layout": vectors["layout"], "stages": vectors["stages"]},
         "thumbnail": "https://c{host}.staticflickr.com/{path}_{size}.jpg",
         "attribution": ("Images from Open Images V7 (Google), hosted on Flickr under the licenses listed per image "
                         "(CC BY 2.0); image-level labels CC BY 4.0. Each image links to its author and source."),
@@ -268,7 +251,7 @@ def stage_export(rows, emb, xy, out, check):
     with open(os.path.join(out, "manifest.json"), "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
     sizes = {name: os.path.getsize(os.path.join(out, name)) for name in os.listdir(out)}
-    print(f"export: int8 recall@10 vs float = {recall:.4f}; licenses {licenses}; files: " +
+    print(f"export: licenses {licenses}; files: " +
           ", ".join(f"{k} {v / 1e6:.2f} MB" for k, v in sorted(sizes.items())))
 
 
