@@ -37,7 +37,7 @@ class Oryx:
     name = "oryx"
 
     def __init__(self, dim, args):
-        import oryx
+        import oryxdb as oryx
         self.mod, self.dim, self.args = oryx, dim, args
 
     def build(self, base):
