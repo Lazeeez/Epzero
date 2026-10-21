@@ -6,7 +6,7 @@
 
 #include "kernels.h"
 
-namespace oryx::kernels {
+namespace epzero::kernels {
 
 // vpdpbusd multiplies 32 uint8 codes by 32 int8 weights and adds each group of four products
 // straight into an int32 lane: one instruction per 32 dimensions.
@@ -32,6 +32,6 @@ std::int32_t sq8_int_dot_avxvnni(const std::int8_t* w, const std::uint8_t* codes
   return dot;
 }
 
-}  // namespace oryx::kernels
+}  // namespace epzero::kernels
 
 #endif
