@@ -79,12 +79,21 @@ class Oryx(Library):
         if self.quantization != "none":
             self.index.train(base[: min(len(base), 200_000)])
         self.index.add(base, threads=self.args.threads)
+        self._tune(base)
+
+    def _tune(self, base):
+        # The best prefetch setting for this machine, measured on a sample of the data (as Glass's
+        # optimize step does); not saved with the index, so it runs after loading too.
+        if hasattr(self.index, "tune_prefetch"):
+            sample = np.random.default_rng(0).choice(len(base), min(len(base), 1000), replace=False)
+            print(f"{self.name:12s} prefetch {self.index.tune_prefetch(base[sample])}")
 
     def save(self, path):
         self.index.save(path)
 
     def load(self, path, base):
         self.index = self.mod.Index.load(path)
+        self._tune(base)
 
     def search(self, q, k, ef):
         return self.index.search(q, k=k, ef=ef, threads=1)[0]
