@@ -6,7 +6,7 @@
 <footer class="footer">
   <div class="container inner">
     <div class="about">
-      <a class="brand" href={router.href("home")}><Logo size={20} /><span>Oryx</span></a>
+      <a class="brand" href={router.href("home")}><Logo size={20} /><span>Epzero</span></a>
       <p>An HNSW vector database written from scratch in C++20, compiled to WebAssembly for this site. Nothing you search leaves your browser.</p>
     </div>
     <nav aria-label="Footer">
