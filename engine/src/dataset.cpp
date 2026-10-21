@@ -1,10 +1,10 @@
-#include "oryx/dataset.h"
+#include "epzero/dataset.h"
 
 #include <fstream>
 #include <random>
 #include <stdexcept>
 
-namespace oryx {
+namespace epzero {
 namespace {
 
 // Reads TEXMEX-style rows of `T`, converting each value to `Out`.
@@ -85,4 +85,4 @@ SyntheticData make_clustered(std::size_t num_base, std::size_t num_queries, std:
   return out;
 }
 
-}  // namespace oryx
+}  // namespace epzero
