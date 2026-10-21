@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Where each library's search time goes: hardware counters (cycles, instructions, cache and TLB
-# misses) per query for Oryx, Oryx SQ8, hnswlib and Glass, each at the smallest search beam that
+# misses) per query for Epzero, Epzero SQ8, hnswlib and Glass, each at the smallest search beam that
 # reaches the same recall, on GloVe-100, GIST1M and DBpedia OpenAI. Counting covers only the timed
 # search loop (perf stat --control), searched from one thread pinned to socket 0, as in compete.sbatch.
 # Needs the indexes cached by compete.sbatch for each dataset (Glass is rebuilt: it isn't saved).
 # Result: pace-results/gold6226/profile.json (untracked; copy it back with scp)
 #
 #   sbatch scripts/pace/profile.sbatch
-#SBATCH --job-name=oryx-profile
+#SBATCH --job-name=epzero-profile
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --constraint=gold6226
@@ -17,15 +17,15 @@
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
 source scripts/pace/env.sh
-VENV="$ORYX_ROOT/.pace-bench"
+VENV="$EPZERO_ROOT/.pace-bench"
 [ -x "$VENV/bin/python" ] || { echo "set up first: bash scripts/pace/bench-env.sh && bash scripts/pace/compete-env.sh"; exit 1; }
 command -v perf >/dev/null || { echo "perf is not installed on this node"; exit 1; }
 echo "perf $(perf --version); perf_event_paranoid=$(cat /proc/sys/kernel/perf_event_paranoid)"
 
-# The same builds as compete.sbatch: native code for this node's CPU, Oryx from this checkout.
+# The same builds as compete.sbatch: native code for this node's CPU, Epzero from this checkout.
 "$VENV/bin/pip" install --quiet --no-index --no-build-isolation --no-deps --force-reinstall "$VENV"/src/hnswlib-*.tar.gz
 "$VENV/bin/pip" install --quiet --no-build-isolation --no-deps --force-reinstall "$VENV/src/pyglass/python"
-"$VENV/bin/pip" install --quiet --no-deps --force-reinstall "$ORYX_ROOT/engine"
+"$VENV/bin/pip" install --quiet --no-deps --force-reinstall "$EPZERO_ROOT/engine"
 
 # User-space counts only (allowed without root). The node has no hyperthreading, so these fit the
 # core's counters together without multiplexing; percent_counted in the result says if they didn't.
