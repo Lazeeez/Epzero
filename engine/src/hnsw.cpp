@@ -16,6 +16,7 @@
 #endif
 
 #include "oryx/parallel.h"
+#include "rabitq.h"
 #include "visited_pool.h"
 
 namespace oryx {
@@ -222,6 +223,13 @@ class HnswIndex::Scorer {
   Scorer(const HnswIndex& index, const float* query, bool adc) : index_(index), query_(query), adc_(adc) {
     if (!adc_) return;
     const std::size_t dim = index.params_.dim;
+    l2_ = index.params_.metric == Metric::L2;
+    if (index.rabitq()) {
+      rabitq::prepare(query, dim, index.rbq_center_.data(), index.rbq_signs_.data(), index.rbq_padded_, rbq_);
+      rbq_words_ = rabitq::words(index.rbq_padded_);
+      for (const float c : index.rbq_center_) center_sq_ += c * c;
+      return;
+    }
     weights_.resize(dim);
     float c = 0.0f;
     float qq = 0.0f;
@@ -230,17 +238,45 @@ class HnswIndex::Scorer {
       c += query[i] * index.sq8_min_[i];
       qq += query[i] * query[i];
     }
-    l2_ = index.params_.metric == Metric::L2;
     base_ = l2_ ? qq - 2.0f * c : 1.0f - c;
   }
 
   float operator()(id_t id) const noexcept {
+    if (rbq_words_ != 0) {
+      // RaBitQ: estimate <o, q> for the centred unit vectors, then the metric's distance.
+      const std::byte* rec = index_.record(id);
+      const auto& f = *reinterpret_cast<const rabitq::Factors*>(rec);
+      const auto* bits = reinterpret_cast<const std::uint64_t*>(rec + sizeof(rabitq::Factors));
+      const float est = rabitq::estimate(rbq_, index_.rabitq_ip_(bits, rbq_.planes.data(), rbq_words_), f);
+      if (l2_) return f.norm * f.norm + rbq_.norm * rbq_.norm - 2.0f * f.norm * rbq_.norm * est;
+      return 1.0f - (f.norm * rbq_.norm * est + f.dot_c + rbq_.dot_c - center_sq_);
+    }
     if (adc_) {
       const float dot = index_.sq8_dot_(weights_.data(), index_.codes_of(id), weights_.size());
       return l2_ ? base_ + index_.code_norm(id) - 2.0f * dot : base_ - dot;
     }
     return index_.dist_(query_, index_.full_vector(id), index_.params_.dim);
   }
+
+  // The distance of `id` if it could matter, given that only distances below `bound` do. RaBitQ:
+  // the estimate's error bound decides; a node that cannot beat `bound` keeps its (lower-bounded)
+  // estimate and costs no full-vector read, any other is scored exactly, so the beam holds exact
+  // distances only. Other modes score as usual. `exact` reports which happened.
+  float bounded(id_t id, float bound, bool& exact) const noexcept {
+    exact = rbq_words_ == 0;
+    if (rbq_words_ == 0) return (*this)(id);
+    const std::byte* rec = index_.record(id);
+    const auto& f = *reinterpret_cast<const rabitq::Factors*>(rec);
+    const auto* bits = reinterpret_cast<const std::uint64_t*>(rec + sizeof(rabitq::Factors));
+    const float est = rabitq::estimate(rbq_, index_.rabitq_ip_(bits, rbq_.planes.data(), rbq_words_), f);
+    const float scale = (l2_ ? 2.0f : 1.0f) * f.norm * rbq_.norm;
+    const float d = l2_ ? f.norm * f.norm + rbq_.norm * rbq_.norm - 2.0f * f.norm * rbq_.norm * est
+                        : 1.0f - (f.norm * rbq_.norm * est + f.dot_c + rbq_.dot_c - center_sq_);
+    if (d - scale * rabitq::error_bound(f, index_.rbq_padded_) > bound) return d;
+    exact = true;
+    return index_.dist_(query_, index_.full_vector(id), index_.params_.dim);
+  }
+  bool bounded_mode() const noexcept { return rbq_words_ != 0; }
 
   // What the distance computation will read first, for prefetching.
   const void* address(id_t id) const noexcept {
@@ -254,6 +290,9 @@ class HnswIndex::Scorer {
   bool l2_ = false;
   float base_ = 0.0f;
   std::vector<float> weights_;
+  rabitq::Query rbq_;
+  std::size_t rbq_words_ = 0;  // nonzero in RaBitQ mode
+  float center_sq_ = 0.0f;
 };
 
 void HnswIndex::AlignedFree::operator()(void* p) const noexcept { std::free(p); }
@@ -263,6 +302,7 @@ HnswIndex::HnswIndex(const HnswParams& params)
       simd_level_(active_simd_level()),
       dist_(get_distance_fn(params.metric, simd_level_)),
       sq8_dot_(get_sq8_dot_fn(simd_level_)),
+      rabitq_ip_(get_rabitq_ip_fn(simd_level_)),
       max_links0_(2 * params.M),
       level_mult_(params.M > 1 ? 1.0 / std::log(static_cast<double>(params.M)) : 1.0),
       rng_(params.seed) {
@@ -272,12 +312,17 @@ HnswIndex::HnswIndex(const HnswParams& params)
     throw std::invalid_argument("max_elements must fit in 32-bit node ids");
   }
   if (params_.M < 2) throw std::invalid_argument("M must be >= 2");
+  if (rabitq() && !params_.keep_vectors) throw std::invalid_argument("RaBitQ keeps the full vectors to re-rank");
+  rbq_padded_ = rabitq::padded_dim(params_.dim);
 
   // Record layout. None: [float x dim][links]. SQ8: [float norm][uint8 x dim][links].
-  links0_offset_ = sq8() ? round_up(sizeof(float) + params_.dim, sizeof(id_t)) : params_.dim * sizeof(float);
+  // RaBitQ: [factors][bits, one per padded dimension][links].
+  links0_offset_ = rabitq() ? rabitq_record_bytes()
+                   : sq8()  ? round_up(sizeof(float) + params_.dim, sizeof(id_t))
+                            : params_.dim * sizeof(float);
   node_stride_ = round_up(links0_offset_ + (1 + max_links0_) * sizeof(id_t), 64);
   level0_ = allocate_level0();
-  if (sq8() && params_.keep_vectors) {
+  if (quantized() && params_.keep_vectors) {
     full_.reset(static_cast<float*>(allocate_block(params_.max_elements * params_.dim * sizeof(float))));
   }
 
@@ -297,8 +342,12 @@ std::unique_ptr<std::byte[], HnswIndex::AlignedFree> HnswIndex::allocate_level0(
       static_cast<std::byte*>(allocate_block(node_stride_ * params_.max_elements)));
 }
 
+std::size_t HnswIndex::rabitq_record_bytes() const noexcept {
+  return sizeof(rabitq::Factors) + rabitq::words(rbq_padded_) * sizeof(std::uint64_t);
+}
+
 const float* HnswIndex::full_vector(id_t id) const noexcept {
-  if (!sq8()) return reinterpret_cast<const float*>(record(id));
+  if (!quantized()) return reinterpret_cast<const float*>(record(id));
   return full_ ? full_.get() + static_cast<std::size_t>(id) * params_.dim : nullptr;
 }
 
@@ -319,10 +368,24 @@ bool HnswIndex::is_deleted(id_t id) const noexcept {
 // Scalar quantization
 
 void HnswIndex::train(const float* data, std::size_t n) {
-  if (!sq8()) return;
+  if (!quantized()) return;
   if (size() > 0) throw std::logic_error("train() must be called before the first add()");
   if (n == 0) throw std::invalid_argument("train() needs at least one vector");
   const std::size_t dim = params_.dim;
+  if (rabitq()) {
+    // The centroid of what gets stored, and the rotation's signs (fixed by the seed).
+    std::vector<double> sum(dim, 0.0);
+    std::vector<float> row(dim);
+    for (std::size_t r = 0; r < n; ++r) {
+      std::copy(data + r * dim, data + (r + 1) * dim, row.begin());
+      if (params_.metric == Metric::Cosine) normalize(row.data(), dim);
+      for (std::size_t i = 0; i < dim; ++i) sum[i] += row[i];
+    }
+    rbq_center_.resize(dim);
+    for (std::size_t i = 0; i < dim; ++i) rbq_center_[i] = static_cast<float>(sum[i] / static_cast<double>(n));
+    rbq_signs_ = rabitq::random_signs(rbq_padded_, params_.seed);
+    return;
+  }
   std::vector<float> lo(dim, std::numeric_limits<float>::max());
   std::vector<float> hi(dim, std::numeric_limits<float>::lowest());
   std::vector<float> row(dim);
@@ -448,8 +511,10 @@ std::vector<HnswIndex::Candidate> HnswIndex::search_layer(const Scorer& scorer, 
   const bool has_deletions = !keep_deleted && deleted_count_.load(std::memory_order_relaxed) > 0;
   constexpr float kInfinity = std::numeric_limits<float>::infinity();
 
-  const float entry_dist = scorer(entry);
+  bool exact = true;
+  const float entry_dist = scorer.bounded(entry, kInfinity, exact);
   ++stats.distance_computations;
+  stats.full_distance_computations += exact;
   visited->test_and_set(entry);
   candidates.push({entry_dist, entry});
   if (!has_deletions || !is_deleted(entry)) best.push({entry_dist, entry});
@@ -482,8 +547,9 @@ std::vector<HnswIndex::Candidate> HnswIndex::search_layer(const Scorer& scorer, 
 
     for (std::size_t j = 0; j < pending; ++j) {
       const id_t neighbor = batch[j];
-      const float d = scorer(neighbor);
+      const float d = scorer.bounded(neighbor, best.size() < ef ? kInfinity : bound, exact);
       ++stats.distance_computations;
+      stats.full_distance_computations += exact;
       const bool accepted = best.size() < ef || d < bound;
       if (trace != nullptr) {
         trace->events.push_back({static_cast<std::uint32_t>(layer), labels_[current.id], labels_[neighbor], d, accepted});
@@ -850,7 +916,7 @@ void HnswIndex::connect(id_t id, const std::vector<Candidate>& neighbors, int la
 }
 
 void HnswIndex::add(std::uint64_t label, const float* vector) {
-  if (!trained()) throw std::logic_error("an SQ8 index must be trained before add()");
+  if (!trained()) throw std::logic_error("a quantized index must be trained before add()");
   id_t id;
   {
     std::lock_guard lock(label_lock_);
@@ -870,7 +936,13 @@ void HnswIndex::add(std::uint64_t label, const float* vector) {
     normalize(normalized.data(), params_.dim);
     vector = normalized.data();
   }
-  if (sq8()) {
+  if (rabitq()) {
+    std::vector<float> scratch(rbq_padded_);
+    auto* factors = reinterpret_cast<rabitq::Factors*>(record(id));
+    auto* bits = reinterpret_cast<std::uint64_t*>(record(id) + sizeof(rabitq::Factors));
+    rabitq::encode(vector, params_.dim, rbq_center_.data(), rbq_signs_.data(), rbq_padded_, bits, *factors, scratch.data());
+    std::memcpy(full_.get() + static_cast<std::size_t>(id) * params_.dim, vector, params_.dim * sizeof(float));
+  } else if (sq8()) {
     auto* codes = reinterpret_cast<std::uint8_t*>(record(id) + sizeof(float));
     encode(vector, codes, reinterpret_cast<float*>(record(id)));
     if (full_) std::memcpy(full_.get() + static_cast<std::size_t>(id) * params_.dim, vector, params_.dim * sizeof(float));
@@ -958,7 +1030,7 @@ std::vector<SearchResult> HnswIndex::search(const float* query, std::size_t k, c
   }
 
   SearchStats stats;
-  const Scorer scorer(*this, query, /*adc=*/sq8());
+  const Scorer scorer(*this, query, /*adc=*/quantized());
   const std::size_t ef = std::max(options.ef, k);
   std::vector<Candidate> candidates;
   if (options.filter == nullptr) {
@@ -976,13 +1048,15 @@ std::vector<SearchResult> HnswIndex::search(const float* query, std::size_t k, c
         strategy = FilterStrategy::Exact;
       }
     }
-    // An exact scan needs only the k best, unless SQ8 re-ranks a wider set below.
-    if (strategy == FilterStrategy::Exact) candidates = scan_allowed(scorer, filter, sq8() ? ef : k, stats);
+    // An exact scan needs only the k best, unless quantized distances are re-ranked below.
+    if (strategy == FilterStrategy::Exact) candidates = scan_allowed(scorer, filter, quantized() ? ef : k, stats);
     stats.strategy = strategy;
   }
 
-  // SQ8: the beam ran on approximate distances; re-score the best candidates exactly.
-  if (sq8() && full_ && !candidates.empty()) {
+  // Quantized: the beam ran on approximate distances; re-score the best candidates exactly.
+  // (RaBitQ's unfiltered beam already holds exact distances, see Scorer::bounded.)
+  const bool beam_exact = scorer.bounded_mode() && options.filter == nullptr;
+  if (quantized() && full_ && !candidates.empty() && !beam_exact) {
     std::size_t rerank = options.rerank == 0 ? candidates.size() : std::max(options.rerank, k);
     rerank = std::min(rerank, candidates.size());
     for (std::size_t i = 0; i < rerank; ++i) prefetch(full_vector(candidates[i].id));
@@ -990,6 +1064,7 @@ std::vector<SearchResult> HnswIndex::search(const float* query, std::size_t k, c
       candidates[i].distance = dist_(query, full_vector(candidates[i].id), params_.dim);
     }
     stats.distance_computations += rerank;
+    stats.full_distance_computations += rerank;
     std::sort(candidates.begin(), candidates.begin() + static_cast<std::ptrdiff_t>(rerank),
               [](const Candidate& a, const Candidate& b) { return a.distance < b.distance; });
   }
@@ -1007,6 +1082,8 @@ std::unique_ptr<HnswIndex> HnswIndex::compacted(std::size_t threads) const {
   auto out = std::make_unique<HnswIndex>(params_);
   out->sq8_min_ = sq8_min_;
   out->sq8_scale_ = sq8_scale_;
+  out->rbq_center_ = rbq_center_;
+  out->rbq_signs_ = rbq_signs_;
   std::vector<id_t> live;
   live.reserve(live_count());
   for (id_t id = 0; id < size(); ++id) {
@@ -1058,10 +1135,13 @@ std::vector<std::uint64_t> HnswIndex::neighbors_of(std::uint64_t label, int laye
 // the layer-0 block plus, for SQ8 with kept vectors, the full-precision copies.
 std::size_t HnswIndex::estimated_bytes(const HnswParams& params) noexcept {
   const bool sq8 = params.quantization == Quantization::SQ8;
-  const std::size_t links0 = sq8 ? round_up(sizeof(float) + params.dim, sizeof(id_t)) : params.dim * sizeof(float);
+  const bool rbq = params.quantization == Quantization::RaBitQ;
+  const std::size_t links0 = rbq ? sizeof(rabitq::Factors) + rabitq::padded_dim(params.dim) / 8
+                             : sq8 ? round_up(sizeof(float) + params.dim, sizeof(id_t))
+                                   : params.dim * sizeof(float);
   const std::size_t stride = round_up(links0 + (1 + 2 * params.M) * sizeof(id_t), 64);
   std::size_t bytes = stride * params.max_elements;
-  if (sq8 && params.keep_vectors) bytes += params.max_elements * params.dim * sizeof(float);
+  if ((sq8 || rbq) && params.keep_vectors) bytes += params.max_elements * params.dim * sizeof(float);
   return bytes;
 }
 
@@ -1111,10 +1191,19 @@ void HnswIndex::save(const std::string& path) const {
       out.array(sq8_scale_.data(), params_.dim);
     }
   }
+  if (rabitq()) {
+    out.pod<std::uint8_t>(rbq_center_.empty() ? 0 : 1);
+    if (!rbq_center_.empty()) {
+      out.array(rbq_center_.data(), params_.dim);
+      out.array(rbq_signs_.data(), rbq_signs_.size());
+    }
+  }
 
   for (id_t id = 0; id < count; ++id) {
     std::lock_guard lock(node_locks_[id]);
-    if (sq8()) {
+    if (rabitq()) {
+      out.array(reinterpret_cast<const std::uint8_t*>(record(id)), rabitq_record_bytes());
+    } else if (sq8()) {
       out.pod(code_norm(id));
       out.array(codes_of(id), params_.dim);
     } else {
@@ -1163,7 +1252,7 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
   params.seed = in.pod<std::uint64_t>();
   if (version >= 2) {
     const auto quantization = in.pod<std::uint32_t>();
-    if (quantization > static_cast<std::uint32_t>(Quantization::SQ8)) throw std::runtime_error(path + ": bad quantization");
+    if (quantization > static_cast<std::uint32_t>(Quantization::RaBitQ)) throw std::runtime_error(path + ": bad quantization");
     params.quantization = static_cast<Quantization>(quantization);
     params.keep_vectors = in.pod<std::uint8_t>() != 0;
   }
@@ -1177,7 +1266,11 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
   // Every node stores at least its vector (or codes), its layer-0 list, label and level: a header
   // claiming more nodes than the file can hold is corrupt, and is caught before allocating.
   const bool sq8_file = params.quantization == Quantization::SQ8;
-  const std::size_t per_node = (sq8_file ? sizeof(float) + params.dim : params.dim * sizeof(float)) +
+  const bool rbq_file = params.quantization == Quantization::RaBitQ;
+  if (rbq_file && !params.keep_vectors) throw std::runtime_error(path + ": corrupt header");
+  const std::size_t per_node = (rbq_file  ? sizeof(rabitq::Factors) + rabitq::padded_dim(params.dim) / 8
+                                : sq8_file ? sizeof(float) + params.dim
+                                           : params.dim * sizeof(float)) +
                                (1 + 2 * params.M) * sizeof(id_t) + sizeof(std::uint64_t) + 1;
   if (count > std::filesystem::file_size(path) / per_node) throw std::runtime_error(path + ": truncated");
   if (max_bytes != 0 && estimated_bytes(params) > max_bytes) {
@@ -1192,9 +1285,20 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
     in.array(index->sq8_min_.data(), params.dim);
     in.array(index->sq8_scale_.data(), params.dim);
   }
+  if (index->rabitq() && in.pod<std::uint8_t>() != 0) {
+    index->rbq_center_.resize(params.dim);
+    index->rbq_signs_.resize(3 * index->rbq_padded_);
+    in.array(index->rbq_center_.data(), params.dim);
+    in.array(index->rbq_signs_.data(), index->rbq_signs_.size());
+    for (const std::int8_t s : index->rbq_signs_) {
+      if (s != 1 && s != -1) throw std::runtime_error(path + ": corrupt RaBitQ rotation");
+    }
+  }
   std::size_t deleted = 0;
   for (id_t id = 0; id < count; ++id) {
-    if (index->sq8()) {
+    if (index->rabitq()) {
+      in.read(index->record(id), index->rabitq_record_bytes());
+    } else if (index->sq8()) {
       in.read(index->record(id), sizeof(float) + params.dim);
     } else {
       in.array(reinterpret_cast<float*>(index->record(id)), params.dim);
@@ -1274,7 +1378,7 @@ class ByteReader {
 }  // namespace
 
 std::vector<std::uint8_t> HnswIndex::export_graph() const {
-  if (sq8()) throw std::logic_error("export_graph: only full-precision indexes");
+  if (quantized()) throw std::logic_error("export_graph: only full-precision indexes");
   if (deleted_count() != 0) throw std::logic_error("export_graph: compact the index first");
   if (max_links0_ > 0xff) throw std::logic_error("export_graph: M too large for the format");
   const std::size_t count = size();
