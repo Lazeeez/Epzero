@@ -438,13 +438,14 @@ HnswIndex::id_t HnswIndex::greedy_descend(const Scorer& scorer, id_t entry, int 
 }
 
 std::vector<HnswIndex::Candidate> HnswIndex::search_layer(const Scorer& scorer, id_t entry, std::size_t ef,
-                                                          int layer, SearchStats& stats, SearchTrace* trace) const {
+                                                          int layer, SearchStats& stats, SearchTrace* trace,
+                                                          bool keep_deleted) const {
   auto visited = visited_pool_->acquire();
   std::priority_queue<Candidate, std::vector<Candidate>, CloserFirst> candidates;  // closest on top
   std::priority_queue<Candidate, std::vector<Candidate>, FartherFirst> best;       // farthest on top
   // Tombstoned nodes are explored (they keep the graph connected) but never kept as results, so
   // with deletions the beam must fill up before it may stop.
-  const bool has_deletions = deleted_count_.load(std::memory_order_relaxed) > 0;
+  const bool has_deletions = !keep_deleted && deleted_count_.load(std::memory_order_relaxed) > 0;
   constexpr float kInfinity = std::numeric_limits<float>::infinity();
 
   const float entry_dist = scorer(entry);
@@ -904,6 +905,13 @@ void HnswIndex::add(std::uint64_t label, const float* vector) {
         search_layer(scorer, entry_point, params_.ef_construction, layer, unused, nullptr);
     // A concurrent insert may have linked to us already, making us reachable from our own search.
     std::erase_if(candidates, [id](const Candidate& c) { return c.id == id; });
+    if (candidates.empty() && deleted_count_.load(std::memory_order_relaxed) > 0) {
+      // Every node the search reached is deleted (e.g. all of them were): new nodes normally don't
+      // link to tombstones, but with no live neighbour this one would be unreachable. Link through
+      // the tombstones instead; they keep routing searches until the index is compacted.
+      candidates = search_layer(scorer, entry_point, params_.ef_construction, layer, unused, nullptr, true);
+      std::erase_if(candidates, [id](const Candidate& c) { return c.id == id; });
+    }
     if (candidates.empty()) continue;
     entry_point = candidates.front().id;
     connect(id, select_neighbors(std::move(candidates), params_.M), layer);
