@@ -1,6 +1,6 @@
 <script lang="ts">
   // The Benchmarks header's graphic: each library's throughput at the same recall, as bars that
-  // race out on arrival, Oryx's lit. Decorative: the same figures are in the stats and charts below.
+  // race out on arrival, Epzero's lit. Decorative: the same figures are in the stats and charts below.
   let { lanes, recall }: { lanes: { name: string; qps: number; lead?: boolean }[]; recall: number } = $props();
   const top = $derived(Math.max(...lanes.map((l) => l.qps)));
 </script>
