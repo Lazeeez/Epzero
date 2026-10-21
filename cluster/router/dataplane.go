@@ -8,8 +8,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	pb "github.com/Lazeeez/Oryx/cluster/gen/oryxv1"
 )
 
 // ShardOf maps a label to its shard: splitmix64 finalizer, so sequential labels spread evenly.
@@ -52,13 +50,18 @@ type SearchResult struct {
 type copyAnswer struct {
 	node  string
 	role  string
-	reply *pb.SearchReply
+	reply *ShardReply
 	err   error
 	took  time.Duration
 }
 
-// Search queries every shard (hedged across its two copies) and merges the top k.
+// Search queries every shard at the router's default consistency and merges the top k.
 func (r *Router) Search(ctx context.Context, query []float32, k, ef int) (*SearchResult, error) {
+	return r.SearchWith(ctx, query, k, ef, r.cfg.Consistency)
+}
+
+// SearchWith queries every shard (with Eventual, hedged across its two copies) and merges the top k.
+func (r *Router) SearchWith(ctx context.Context, query []float32, k, ef int, consistency Consistency) (*SearchResult, error) {
 	if len(query) != r.cfg.Dim {
 		return nil, fmt.Errorf("query has %d dimensions, expected %d", len(query), r.cfg.Dim)
 	}
@@ -74,7 +77,7 @@ func (r *Router) Search(ctx context.Context, query []float32, k, ef int) (*Searc
 		wg.Add(1)
 		go func(i int, s ShardMap) {
 			defer wg.Done()
-			timing, shardHits := r.searchShard(ctx, s, query, k, ef)
+			timing, shardHits := r.searchShard(ctx, s, query, k, ef, consistency)
 			result.Shards[i] = timing
 			hits[i] = shardHits
 		}(i, s)
@@ -99,14 +102,15 @@ func (r *Router) Search(ctx context.Context, query []float32, k, ef int) (*Searc
 	return result, nil
 }
 
-func (r *Router) searchShard(ctx context.Context, s ShardMap, query []float32, k, ef int) (ShardTiming, []Hit) {
+func (r *Router) searchShard(ctx context.Context, s ShardMap, query []float32, k, ef int, consistency Consistency) (ShardTiming, []Hit) {
 	timing := ShardTiming{Shard: s.ID}
 	// Live copies, rotating which goes first to spread load across primary and replica.
 	var copies []string
-	for _, name := range []string{s.Primary, s.Replica} {
-		if r.isUp(name) && (name == s.Primary || r.replicaInSync(name, s.ID)) {
-			copies = append(copies, name)
-		}
+	if r.isUp(s.Primary) {
+		copies = append(copies, s.Primary)
+	}
+	if consistency == Eventual && r.isUp(s.Replica) && r.replicaReadable(s) {
+		copies = append(copies, s.Replica)
 	}
 	if len(copies) == 0 {
 		timing.Error = "no live copy"
@@ -126,7 +130,7 @@ func (r *Router) searchShard(ctx context.Context, s ShardMap, query []float32, k
 			role = "primary"
 		}
 		t := time.Now()
-		reply, err := r.nodes[name].client.Search(ctx, &pb.SearchRequest{Shard: uint32(s.ID), Query: query, K: uint32(k), Ef: uint32(ef)})
+		reply, err := r.nodes[name].client.Search(ctx, s.ID, query, k, ef)
 		answers <- copyAnswer{node: name, role: role, reply: reply, err: err, took: time.Since(t)}
 	}
 	go ask(copies[0])
@@ -175,7 +179,15 @@ func (r *Router) searchShard(ctx context.Context, s ShardMap, query []float32, k
 	return timing, nil
 }
 
-func (r *Router) replicaInSync(name string, shard int) bool {
+// replicaReadable: the replica says it has caught up, and the primary says it is forwarding every
+// write to it. Either alone is not enough: after a lost forward the replica still believes it is
+// in sync while the primary has stopped sending it writes.
+func (r *Router) replicaReadable(s ShardMap) bool {
+	return r.reportsInSync(s.Replica, s.ID) && r.reportsInSync(s.Primary, s.ID)
+}
+
+// reportsInSync is the node's last health-check answer for its copy of the shard.
+func (r *Router) reportsInSync(name string, shard int) bool {
 	n := r.nodes[name]
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -183,7 +195,7 @@ func (r *Router) replicaInSync(name string, shard int) bool {
 		return false
 	}
 	for _, s := range n.status.Shards {
-		if int(s.Shard) == shard {
+		if s.Shard == shard {
 			return s.InSync
 		}
 	}
@@ -201,12 +213,16 @@ func (r *Router) Upsert(ctx context.Context, labels []uint64, vectors []float32)
 	if len(vectors) != len(labels)*r.cfg.Dim {
 		return nil, fmt.Errorf("expected %d vector values, got %d", len(labels)*r.cfg.Dim, len(vectors))
 	}
-	groups := map[int]*pb.UpsertRequest{}
+	type batch struct {
+		Labels  []uint64
+		Vectors []float32
+	}
+	groups := map[int]*batch{}
 	for i, label := range labels {
 		shard := ShardOf(label, r.cfg.Shards)
 		g := groups[shard]
 		if g == nil {
-			g = &pb.UpsertRequest{Shard: uint32(shard)}
+			g = &batch{}
 			groups[shard] = g
 		}
 		g.Labels = append(g.Labels, label)
@@ -218,11 +234,10 @@ func (r *Router) Upsert(ctx context.Context, labels []uint64, vectors []float32)
 	var wg sync.WaitGroup
 	for shard, req := range groups {
 		wg.Add(1)
-		go func(shard int, req *pb.UpsertRequest) {
+		go func(shard int, req *batch) {
 			defer wg.Done()
-			reply, err := r.writeToPrimary(ctx, shard, func(ctx context.Context, client pb.NodeClient, epoch uint64) (*pb.WriteReply, error) {
-				req.Epoch = epoch
-				return client.Upsert(ctx, req)
+			replicated, err := r.writeToPrimary(ctx, shard, func(ctx context.Context, client Node, epoch uint64) (bool, error) {
+				return client.Upsert(ctx, shard, epoch, req.Labels, req.Vectors)
 			})
 			mu.Lock()
 			defer mu.Unlock()
@@ -233,7 +248,7 @@ func (r *Router) Upsert(ctx context.Context, labels []uint64, vectors []float32)
 				return
 			}
 			result.Written += len(req.Labels)
-			result.Replicated = result.Replicated && reply.Replicated
+			result.Replicated = result.Replicated && replicated
 		}(shard, req)
 	}
 	wg.Wait()
@@ -244,19 +259,21 @@ func (r *Router) Upsert(ctx context.Context, labels []uint64, vectors []float32)
 // Remove deletes a label from its shard.
 func (r *Router) Remove(ctx context.Context, label uint64) (*WriteResult, error) {
 	shard := ShardOf(label, r.cfg.Shards)
-	reply, err := r.writeToPrimary(ctx, shard, func(ctx context.Context, client pb.NodeClient, epoch uint64) (*pb.WriteReply, error) {
-		return client.Remove(ctx, &pb.RemoveRequest{Shard: uint32(shard), Epoch: epoch, Label: label})
+	replicated, err := r.writeToPrimary(ctx, shard, func(ctx context.Context, client Node, epoch uint64) (bool, error) {
+		return client.Remove(ctx, shard, epoch, label)
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &WriteResult{Written: 1, Replicated: reply.Replicated}, nil
+	return &WriteResult{Written: 1, Replicated: replicated}, nil
 }
 
-// writeToPrimary sends a write to the shard's current primary, retrying once after a short wait if
-// the shard is mid-failover (the primary refused with a stale epoch or is unreachable).
+// writeToPrimary sends a write to the shard's current primary, retrying after a short wait while
+// the shard is mid-failover: the primary is down, or refused the write (ErrRejected). A write whose
+// outcome is unknown (a timeout) is not retried: it may have been applied, and applying it again
+// later would reorder it after newer writes. Its error goes back to the client instead.
 func (r *Router) writeToPrimary(ctx context.Context, shard int,
-	call func(context.Context, pb.NodeClient, uint64) (*pb.WriteReply, error)) (*pb.WriteReply, error) {
+	call func(context.Context, Node, uint64) (bool, error)) (bool, error) {
 	var err error
 	for attempt := 0; attempt < 3; attempt++ {
 		r.mu.RLock()
@@ -264,18 +281,21 @@ func (r *Router) writeToPrimary(ctx context.Context, shard int,
 		r.mu.RUnlock()
 		if r.isUp(s.Primary) {
 			cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			var reply *pb.WriteReply
-			reply, err = call(cctx, r.nodes[s.Primary].client, s.Epoch)
+			var replicated bool
+			replicated, err = call(cctx, r.nodes[s.Primary].client, s.Epoch)
 			cancel()
 			if err == nil {
-				return reply, nil
+				return replicated, nil
+			}
+			if !errors.Is(err, ErrRejected) {
+				return false, fmt.Errorf("outcome unknown: %w", err)
 			}
 		} else {
 			err = fmt.Errorf("primary %s is down", s.Primary)
 		}
 		time.Sleep(time.Duration(500*(attempt+1)) * time.Millisecond)
 	}
-	return nil, err
+	return false, err
 }
 
 // Crash asks a node to die abruptly (chaos testing).
@@ -286,7 +306,7 @@ func (r *Router) Crash(ctx context.Context, name string) error {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	if _, err := n.client.Crash(cctx, &pb.CrashRequest{Token: r.cfg.Token}); err != nil {
+	if err := n.client.Crash(cctx, r.cfg.Token); err != nil {
 		return err
 	}
 	r.event("crash", "chaos: crashed %s on request", name)
