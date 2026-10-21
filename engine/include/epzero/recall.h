@@ -23,9 +23,9 @@
 #include <thread>
 #include <vector>
 
-#include "oryx/hnsw.h"
+#include "epzero/hnsw.h"
 
-namespace oryx {
+namespace epzero {
 
 struct RecallEstimate {
   std::size_t samples = 0;  // queries re-answered exactly in the current window
@@ -159,4 +159,4 @@ class RecallGuard {
   RecallMonitor monitor_;
 };
 
-}  // namespace oryx
+}  // namespace epzero
