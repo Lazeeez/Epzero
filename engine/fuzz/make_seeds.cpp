@@ -8,11 +8,11 @@
 #include <vector>
 
 #include "common.h"
-#include "oryx/database.h"
-#include "oryx/text.h"
+#include "epzero/database.h"
+#include "epzero/text.h"
 
 namespace fs = std::filesystem;
-using namespace oryx::fuzz;
+using namespace epzero::fuzz;
 
 int main(int argc, char** argv) {
   if (argc != 2) {
@@ -25,7 +25,7 @@ int main(int argc, char** argv) {
   std::vector<float> vectors(40 * kDim);
   for (std::size_t i = 0; i < vectors.size(); ++i) vectors[i] = static_cast<float>((i * 7919) % 101) / 101.0f;
 
-  oryx::HnswIndex index(small_params());
+  epzero::HnswIndex index(small_params());
   for (std::size_t i = 0; i < 40; ++i) index.add(i, vectors.data() + i * kDim);
   index.save((out / "snapshot" / "valid").string());
 
@@ -37,9 +37,9 @@ int main(int argc, char** argv) {
   const fs::path dir = scratch("seed-wal");
   fs::remove_all(dir);
   {
-    oryx::DatabaseOptions options;
+    epzero::DatabaseOptions options;
     options.checkpoint_bytes = 0;
-    auto db = oryx::Database::open(dir.string(), small_params(), options);
+    auto db = epzero::Database::open(dir.string(), small_params(), options);
     for (std::size_t i = 0; i < 12; ++i) db->upsert(i, vectors.data() + i * kDim);
     db->upsert(3, vectors.data() + 20 * kDim);
     db->remove(5);
@@ -47,7 +47,7 @@ int main(int argc, char** argv) {
   fs::copy_file(dir / "wal.log", out / "wal" / "valid", fs::copy_options::overwrite_existing);
   fs::remove_all(dir.parent_path());
 
-  oryx::TextIndex text;
+  epzero::TextIndex text;
   text.add(1, "red car by the river");
   text.add(2, "night city lights, city traffic");
   text.add(7, "café über 42");
