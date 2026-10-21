@@ -50,3 +50,6 @@ web/playwright-report/
 *.tfstate
 *.tfstate.*
 terraform.tfvars
+
+# Wrangler (Cloudflare) local state and caches
+.wrangler/
