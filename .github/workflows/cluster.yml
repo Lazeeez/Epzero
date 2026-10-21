@@ -17,10 +17,10 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ninja-build libgrpc++-dev libprotobuf-dev protobuf-compiler protobuf-compiler-grpc
-      - name: Build oryx-node
+      - name: Build epzero-node
         run: |
-          cmake -S engine -B build -G Ninja -DORYX_BUILD_TESTS=OFF -DORYX_BUILD_BENCH=OFF
-          cmake --build build --target oryx_node
+          cmake -S engine -B build -G Ninja -DEPZERO_BUILD_TESTS=OFF -DEPZERO_BUILD_BENCH=OFF
+          cmake --build build --target epzero_node
       - uses: actions/setup-go@v5
         with:
           go-version-file: cluster/go.mod
@@ -30,7 +30,7 @@ jobs:
         run: |
           test -z "$(gofmt -l .)" || { gofmt -l .; echo "run gofmt -w"; exit 1; }
           go vet ./... && go vet -tags integration ./...
-          GOOS=js GOARCH=wasm go vet ./router ./sim ./cmd/oryx-sim
+          GOOS=js GOARCH=wasm go vet ./router ./sim ./cmd/epzero-sim
       - name: Known vulnerabilities reachable from our code
         working-directory: cluster
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
@@ -40,5 +40,5 @@ jobs:
       - name: Kill a node mid-traffic, fail over, recover, lose nothing
         working-directory: cluster
         env:
-          ORYX_NODE_BIN: ${{ github.workspace }}/build/oryx-node
+          EPZERO_NODE_BIN: ${{ github.workspace }}/build/epzero-node
         run: go test -race -tags integration -count=1 -v ./...
