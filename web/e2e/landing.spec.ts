@@ -5,14 +5,18 @@ const shots = process.env.SCREENSHOT_DIR;
 test("landing page: live hero, and the HNSW explainer runs real searches", async ({ page }) => {
   test.setTimeout(300_000); // builds the 29,825-photo index twice with screenshots on
   const errors: string[] = [];
-  // A photo since deleted from Flickr 404s; the page shows a placeholder, but the browser still logs it.
-  page.on("console", (m) => m.type() === "error" && !m.location().url.includes("staticflickr.com") && errors.push(m.text()));
+  // A photo since deleted from Flickr 404s, and so does the deliberate visit to a page that doesn't
+  // exist (production answers it with a real 404 status); the browser logs both.
+  page.on(
+    "console",
+    (m) => m.type() === "error" && !m.location().url.includes("staticflickr.com") && !m.location().url.includes("no-such-page") && errors.push(m.text()),
+  );
   page.on("pageerror", (error) => errors.push(error.message));
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("./");
   await expect(page.getByRole("heading", { level: 1 })).toContainText("A vector database");
-  await expect(page).toHaveTitle(/Oryx/);
+  await expect(page).toHaveTitle(/Epzero/);
 
   // The engine builds behind the hero and starts answering live queries.
   await expect(page.locator(".telemetry")).toContainText(/Index (ready|built)/, { timeout: 150_000 });
