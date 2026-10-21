@@ -7,7 +7,7 @@
 
 #include "kernels.h"
 
-namespace oryx::kernels {
+namespace epzero::kernels {
 namespace {
 
 inline float hsum(v128_t v) noexcept {
@@ -92,6 +92,6 @@ float ip_wasm(const float* a, const float* b, std::size_t dim) noexcept {
   return 1.0f - dot;
 }
 
-}  // namespace oryx::kernels
+}  // namespace epzero::kernels
 
 #endif
