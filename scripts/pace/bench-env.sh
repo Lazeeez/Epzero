@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Python environment for the library comparisons on PACE (Oryx's Python module, hnswlib, FAISS).
+# Python environment for the library comparisons on PACE (Epzero's Python module, hnswlib, FAISS).
 # Run once on a login node, which has internet access; jobs then work offline:
 #   bash scripts/pace/bench-env.sh
 #
@@ -10,8 +10,8 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 
-"$ORYX_TOOLS/bin/pip" install --quiet uv
-VENV="$ORYX_ROOT/.pace-bench"
+"$EPZERO_TOOLS/bin/pip" install --quiet uv
+VENV="$EPZERO_ROOT/.pace-bench"
 rm -rf "$VENV"
 uv venv --seed --python 3.12 "$VENV"   # --seed: include pip, which the jobs use
 "$VENV/bin/pip" install --quiet numpy faiss-cpu pybind11 setuptools wheel
@@ -20,8 +20,8 @@ uv venv --seed --python 3.12 "$VENV"   # --seed: include pip, which the jobs use
 mkdir -p "$VENV/src"
 "$VENV/bin/pip" download --quiet --no-deps --no-binary hnswlib hnswlib -d "$VENV/src"
 
-# Oryx picks its SIMD kernels at run time, so building it here is fine for every node.
-"$VENV/bin/pip" install --quiet "$ORYX_ROOT/engine"
+# Epzero picks its SIMD kernels at run time, so building it here is fine for every node.
+"$VENV/bin/pip" install --quiet "$EPZERO_ROOT/engine"
 
-"$VENV/bin/python" -c "import sys, numpy, faiss, oryxdb; print('python', sys.version.split()[0], '| numpy', numpy.__version__, '| faiss', faiss.__version__, '| oryxdb', oryxdb.simd_level())"
+"$VENV/bin/python" -c "import sys, numpy, faiss, epzero; print('python', sys.version.split()[0], '| numpy', numpy.__version__, '| faiss', faiss.__version__, '| epzero', epzero.simd_level())"
 ls "$VENV/src"
