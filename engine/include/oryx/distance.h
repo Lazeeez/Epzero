@@ -37,6 +37,11 @@ DistanceFn get_distance_fn(Metric metric) noexcept;
 using Sq8DotFn = float (*)(const float* w, const std::uint8_t* codes, std::size_t dim) noexcept;
 Sq8DotFn get_sq8_dot_fn(SimdLevel level) noexcept;
 
+// RaBitQ kernel: sum over j < 4 of 2^j * popcount(bits & planes[j]), with `planes` the four bit
+// planes of a 4-bit query (`words` 64-bit words each). See src/rabitq.h.
+using RabitqIpFn = std::uint32_t (*)(const std::uint64_t* bits, const std::uint64_t* planes, std::size_t words) noexcept;
+RabitqIpFn get_rabitq_ip_fn(SimdLevel level) noexcept;
+
 // Scales `v` to unit length in place. Zero vectors are left unchanged.
 void normalize(float* v, std::size_t dim) noexcept;
 
