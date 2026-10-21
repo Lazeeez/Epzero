@@ -36,7 +36,9 @@ WebAssembly (SIMD128 + threads), running entirely in your browser:
   as a 3D stack of HNSW layers. The vectors are stored on their principal
   axes, a block of dimensions at a time, so search starts after the first
   2 MB of 16 and **sharpens as the rest streams in**. Search by **description, uploaded photo or webcam**
-  (CLIP text and image encoders run in the browser), step through the search
+  (CLIP text and image encoders run in the browser); descriptions are also matched against the
+  photos' captions (**hybrid search**: BM25 keywords fused with the vectors, so "tagine" finds the
+  photo titled *Tunisian Tagine Malsouka*, which CLIP alone misses). Step through the search
   hop by hop in a debugger, or race it against an exact scan. Every search is
   checked against the exact answer, e.g. *75 µs, 12/12 same results, 45×
   faster*.
