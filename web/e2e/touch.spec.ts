@@ -8,7 +8,8 @@ test.use({ viewport: { width: 412, height: 915 }, hasTouch: true, isMobile: true
 test("touch: tap a star for its photo card, search from it, hide and show the panel", async ({ page }) => {
   test.setTimeout(300_000);
   const errors: string[] = [];
-  page.on("console", (message) => message.type() === "error" && errors.push(message.text()));
+  // A photo since deleted from Flickr 404s; the page shows a placeholder, but the browser still logs it.
+  page.on("console", (m) => m.type() === "error" && !m.location().url.includes("staticflickr.com") && errors.push(m.text()));
   page.on("pageerror", (error) => errors.push(error.message));
 
   await page.goto("try");
