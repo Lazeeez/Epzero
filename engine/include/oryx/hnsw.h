@@ -23,6 +23,8 @@ class VisitedPool;
 enum class Quantization {
   None,  // full-precision float vectors in the graph
   SQ8,   // 8-bit scalar quantization: uint8 codes with per-dimension affine scales (call train() first)
+  RaBitQ,  // 1-bit RaBitQ codes with an unbiased distance estimator (call train() first; keeps the
+           // full vectors to build the graph and re-rank, see src/rabitq.h)
 };
 
 struct HnswParams {
@@ -33,8 +35,8 @@ struct HnswParams {
   std::size_t ef_construction = 200;   // beam width while building
   std::uint64_t seed = 42;             // makes level assignment reproducible
   Quantization quantization = Quantization::None;
-  // SQ8 only: also keep full-precision vectors, used to build a better graph and to re-rank the
-  // final candidates exactly. Without them the index stores ~4x less vector data.
+  // SQ8: also keep full-precision vectors, used to build a better graph and to re-rank the final
+  // candidates exactly. Without them the index stores ~4x less vector data. RaBitQ requires them.
   bool keep_vectors = true;
 };
 
@@ -55,6 +57,8 @@ std::string_view to_string(FilterStrategy strategy) noexcept;
 
 struct SearchStats {
   std::size_t distance_computations = 0;
+  // Of those, how many read a full-precision vector (RaBitQ estimates the rest from its codes).
+  std::size_t full_distance_computations = 0;
   std::size_t nodes_expanded = 0;
   FilterStrategy strategy = FilterStrategy::Auto;  // what a filtered search used
 };
@@ -152,7 +156,9 @@ class HnswIndex {
   // SQ8 only: learns per-dimension ranges from a representative sample. Must be called before
   // the first add(); values outside the sampled range are clamped.
   void train(const float* data, std::size_t n);
-  bool trained() const noexcept { return params_.quantization == Quantization::None || !sq8_scale_.empty(); }
+  bool trained() const noexcept {
+    return params_.quantization == Quantization::None || !sq8_scale_.empty() || !rbq_center_.empty();
+  }
 
   // Inserts a vector of params().dim floats. Throws std::length_error when the index is full
   // and std::invalid_argument when `label` is already present.
@@ -236,10 +242,13 @@ class HnswIndex {
   }
 
   bool sq8() const noexcept { return params_.quantization == Quantization::SQ8; }
+  bool rabitq() const noexcept { return params_.quantization == Quantization::RaBitQ; }
+  bool quantized() const noexcept { return params_.quantization != Quantization::None; }
+  std::size_t rabitq_record_bytes() const noexcept;
   std::byte* record(id_t id) const noexcept { return level0_.get() + id * node_stride_; }
-  // Full-precision vector: inside the layer-0 record (None) or in full_ (SQ8 + keep_vectors).
+  // Full-precision vector: inside the layer-0 record (None) or in full_ (quantized + keep_vectors).
   const float* full_vector(id_t id) const noexcept;
-  bool has_full_vectors() const noexcept { return !sq8() || params_.keep_vectors; }
+  bool has_full_vectors() const noexcept { return !quantized() || params_.keep_vectors; }
   const std::uint8_t* codes_of(id_t id) const noexcept {
     return reinterpret_cast<const std::uint8_t*>(record(id) + sizeof(float));
   }
@@ -286,6 +295,7 @@ class HnswIndex {
   SimdLevel simd_level_;
   DistanceFn dist_;
   Sq8DotFn sq8_dot_;
+  RabitqIpFn rabitq_ip_;
   std::size_t max_links0_;
   double level_mult_;
 
@@ -304,6 +314,11 @@ class HnswIndex {
   std::vector<float> sq8_min_;
   std::vector<float> sq8_scale_;
   std::unique_ptr<float[], AlignedFree> full_;
+
+  // RaBitQ: the centroid, the rotation's random signs, and the padded (power of two) dimension.
+  std::vector<float> rbq_center_;
+  std::vector<std::int8_t> rbq_signs_;
+  std::size_t rbq_padded_ = 0;
 
   // Upper layers are sparse (~1/M of nodes reach layer 1), so they are stored per node.
   std::vector<std::unique_ptr<id_t[]>> upper_links_;
