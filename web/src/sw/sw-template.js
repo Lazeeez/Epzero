@@ -85,20 +85,23 @@ async function cacheFirst(request, cacheName) {
 // browsing thousands of photos can't fill the device, and a retry (?retry=n) goes to the network.
 const IMAGE_LIMIT = 800;
 let imagesStored = 0;
-async function cachedImage(request) {
+// The photo goes to the page as soon as it arrives; storing it and trimming the cache happen
+// afterwards (kept alive by waitUntil), so a page of new results never waits on cache writes.
+async function cachedImage(request, event) {
   const cache = await caches.open(IMAGE_CACHE);
   const retry = new URL(request.url).searchParams.has("retry");
   const hit = !retry && (await cache.match(request, MATCH));
   if (hit) return hit;
   const response = await fetch(request);
-  if (response.ok) {
-    await store(cache, request.url.split("?")[0], response.clone());
-    if (++imagesStored % 50 === 0) {
-      const keys = await cache.keys();
-      await Promise.all(keys.slice(0, Math.max(0, keys.length - IMAGE_LIMIT)).map((key) => cache.delete(key)));
-    }
-  }
+  if (response.ok) event.waitUntil(storeImage(cache, request.url.split("?")[0], response.clone()));
   return response;
+}
+async function storeImage(cache, key, response) {
+  await store(cache, key, response);
+  if (++imagesStored % 50 === 0) {
+    const keys = await cache.keys();
+    await Promise.all(keys.slice(0, Math.max(0, keys.length - IMAGE_LIMIT)).map((key) => cache.delete(key)));
+  }
 }
 
 async function networkFirst(request, cacheName, fallbackToShell) {
@@ -137,6 +140,6 @@ self.addEventListener("fetch", (event) => {
   // Photo thumbnails (Flickr sends CORS headers): keep the ones already seen for offline use. If the
   // cache itself is unusable, the photo still loads straight from the network.
   if (url.hostname.endsWith("staticflickr.com") && request.mode === "cors") {
-    event.respondWith(cachedImage(request).catch(() => fetch(request)));
+    event.respondWith(cachedImage(request, event).catch(() => fetch(request)));
   }
 });
