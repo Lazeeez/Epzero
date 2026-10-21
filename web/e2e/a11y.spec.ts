@@ -25,8 +25,8 @@ for (const theme of ["dark", "light"]) {
     test.setTimeout(400_000);
     await page.addInitScript((t) => {
       try {
-        localStorage.setItem("oryx-theme", t);
-        localStorage.setItem("oryx-view-hint", "1");
+        localStorage.setItem("epzero-theme", t);
+        localStorage.setItem("epzero-view-hint", "1");
       } catch {
         /* ignore */
       }
