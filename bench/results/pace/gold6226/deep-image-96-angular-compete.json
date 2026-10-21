@@ -11,7 +11,7 @@
   "rounds": 3,
   "skipped": {},
   "libraries": {
-    "oryx": {
+    "epzero": {
       "build_seconds": 335.36104449094273,
       "param": "ef",
       "sweep": [
@@ -97,7 +97,7 @@
         }
       ]
     },
-    "oryx-sq8": {
+    "epzero-sq8": {
       "build_seconds": 340.56635367986746,
       "param": "ef",
       "sweep": [
