@@ -55,12 +55,12 @@
   }
 
   // Measure the graph when the panel opens, after every rebuild (a new graph object), and
-  // whenever ef changes.
+  // whenever ef changes, but only on the full vectors (not while they are still streaming in).
   // Debounced: dragging the ef slider shouldn't queue a one-second measurement per tick.
   $effect(() => {
     void ef;
     void engine.graph;
-    if (engine.status !== "ready" || engine.rebuilding) return;
+    if (engine.status !== "ready" || engine.rebuilding || engine.sharpening) return;
     const timer = setTimeout(measure, 350);
     return () => clearTimeout(timer);
   });
@@ -108,7 +108,7 @@
   </div>
 
   <div class="actions">
-    <button class="btn btn-primary" onclick={rebuild} disabled={!changed || engine.rebuilding || engine.status !== "ready"}>
+    <button class="btn btn-primary" onclick={rebuild} disabled={!changed || engine.rebuilding || engine.sharpening || engine.status !== "ready"}>
       {#if engine.rebuilding}
         <i class="spin"></i>Rebuilding… {Math.round(engine.rebuildProgress * 100)}%
       {:else}
@@ -117,6 +117,8 @@
     </button>
     {#if engine.rebuilding}
       <span class="bar"><i style:width="{engine.rebuildProgress * 100}%"></i></span>
+    {:else if engine.sharpening}
+      <span class="note">Rebuilding and measuring start once the full vectors are in ({Math.round(engine.streamed * 100)}%).</span>
     {:else if engine.evaluating}
       <span class="note">Measuring recall on 300 held-out queries…</span>
     {:else if current}
