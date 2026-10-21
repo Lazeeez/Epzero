@@ -11,7 +11,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 VENV="$ORYX_ROOT/.pace-bench"
 [ -x "$VENV/bin/python" ] || { echo "run scripts/pace/bench-env.sh first"; exit 1; }
 
-"$VENV/bin/pip" install --quiet h5py usearch pyvsag "pybind11<3" setuptools wheel
+"$VENV/bin/pip" install --quiet h5py usearch pyvsag pyarrow huggingface_hub "pybind11<3" setuptools wheel
 rm -rf "$VENV/src/pyglass"
 git clone --quiet --depth 1 https://github.com/zilliztech/pyglass.git "$VENV/src/pyglass"
 "$VENV/bin/python" -c "import h5py, usearch, pyvsag; print('h5py', h5py.__version__, '| usearch', usearch.__version__, '| pyvsag ok')"
