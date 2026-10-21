@@ -32,6 +32,12 @@ float sq8_dot_scalar(const float* w, const std::uint8_t* codes, std::size_t dim)
   return dot;
 }
 
+std::int32_t sq8_int_dot_scalar(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept {
+  std::int32_t dot = 0;
+  for (std::size_t i = 0; i < dim; ++i) dot += static_cast<std::int32_t>(w[i]) * codes[i];
+  return dot;
+}
+
 // Portable popcount: one instruction on ARM64 (CNT) and WebAssembly (i64.popcnt); on baseline
 // x86-64 a short bit-twiddling sequence (the AVX2 build uses POPCNT, see distance_avx2.cpp).
 std::uint32_t rabitq_ip_scalar(const std::uint64_t* bits, const std::uint64_t* planes, std::size_t words) noexcept {
