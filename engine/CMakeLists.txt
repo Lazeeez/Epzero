@@ -53,6 +53,7 @@ add_library(oryx_engine
   src/hnsw.cpp
   src/recall.cpp
   src/database.cpp
+  src/text.cpp
   src/brute_force.cpp
   src/dataset.cpp
 )
@@ -67,6 +68,20 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
   target_sources(oryx_engine PRIVATE src/distance_avx2.cpp src/distance_avx512.cpp)
   set_source_files_properties(src/distance_avx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma;-mpopcnt")
   set_source_files_properties(src/distance_avx512.cpp PROPERTIES COMPILE_OPTIONS "-mavx512f")
+  # VNNI integer kernels, where the compiler knows the instructions (GCC 11+, Clang 12+ for AVX-VNNI).
+  include(CheckCXXCompilerFlag)
+  check_cxx_compiler_flag("-mavxvnni" ORYX_COMPILER_AVXVNNI)
+  check_cxx_compiler_flag("-mavx512vnni" ORYX_COMPILER_AVX512VNNI)
+  if(ORYX_COMPILER_AVXVNNI)
+    target_sources(oryx_engine PRIVATE src/distance_avxvnni.cpp)
+    set_source_files_properties(src/distance_avxvnni.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mavxvnni")
+    set_property(SOURCE src/distance.cpp APPEND PROPERTY COMPILE_DEFINITIONS ORYX_HAVE_AVXVNNI)
+  endif()
+  if(ORYX_COMPILER_AVX512VNNI)
+    target_sources(oryx_engine PRIVATE src/distance_avx512vnni.cpp)
+    set_source_files_properties(src/distance_avx512vnni.cpp PROPERTIES COMPILE_OPTIONS "-mavx512f;-mavx512bw;-mavx512vnni")
+    set_property(SOURCE src/distance.cpp APPEND PROPERTY COMPILE_DEFINITIONS ORYX_HAVE_AVX512VNNI)
+  endif()
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
   target_sources(oryx_engine PRIVATE src/distance_neon.cpp)
 elseif(EMSCRIPTEN)
@@ -86,7 +101,7 @@ if(ORYX_BUILD_TESTS)
   FetchContent_MakeAvailable(googletest)
 
   enable_testing()
-  add_executable(oryx_tests tests/distance_test.cpp tests/hnsw_test.cpp tests/recall_test.cpp tests/dataset_test.cpp tests/database_test.cpp)
+  add_executable(oryx_tests tests/distance_test.cpp tests/hnsw_test.cpp tests/recall_test.cpp tests/dataset_test.cpp tests/database_test.cpp tests/text_test.cpp)
   target_link_libraries(oryx_tests PRIVATE oryx_engine GTest::gtest_main)
   if(EMSCRIPTEN)
     # Runs under Node (CMAKE_CROSSCOMPILING_EMULATOR); workers are pre-spawned for the
@@ -108,10 +123,12 @@ if(ORYX_BUILD_BENCH)
   target_link_libraries(bench_churn PRIVATE oryx_engine)
   add_executable(bench_guard bench/bench_guard.cpp)
   target_link_libraries(bench_guard PRIVATE oryx_engine)
+  add_executable(bench_adaptive bench/bench_adaptive.cpp)
+  target_link_libraries(bench_adaptive PRIVATE oryx_engine)
 endif()
 
 if(ORYX_BUILD_FUZZ)
-  foreach(target snapshot graph wal)
+  foreach(target snapshot graph wal text)
     add_executable(fuzz_${target} fuzz/fuzz_${target}.cpp)
     target_link_libraries(fuzz_${target} PRIVATE oryx_engine)
     target_link_options(fuzz_${target} PRIVATE -fsanitize=fuzzer)
