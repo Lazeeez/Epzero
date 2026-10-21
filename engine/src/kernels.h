@@ -14,6 +14,8 @@ namespace oryx::kernels {
 float l2_scalar(const float* a, const float* b, std::size_t dim) noexcept;
 float ip_scalar(const float* a, const float* b, std::size_t dim) noexcept;
 float sq8_dot_scalar(const float* w, const std::uint8_t* codes, std::size_t dim) noexcept;
+// Integer SQ8 kernels return sum_i w[i] * codes[i], with |w[i]| <= kSq8IntWeightMax.
+std::int32_t sq8_int_dot_scalar(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept;
 std::uint32_t rabitq_ip_scalar(const std::uint64_t* bits, const std::uint64_t* planes, std::size_t words) noexcept;
 
 #if defined(__x86_64__) || defined(_M_X64)
@@ -24,6 +26,9 @@ std::uint32_t rabitq_ip_popcnt(const std::uint64_t* bits, const std::uint64_t* p
 float l2_avx512(const float* a, const float* b, std::size_t dim) noexcept;
 float ip_avx512(const float* a, const float* b, std::size_t dim) noexcept;
 float sq8_dot_avx512(const float* w, const std::uint8_t* codes, std::size_t dim) noexcept;
+std::int32_t sq8_int_dot_avx2(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept;
+std::int32_t sq8_int_dot_avxvnni(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept;
+std::int32_t sq8_int_dot_avx512vnni(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept;
 #endif
 
 #if defined(__aarch64__)
