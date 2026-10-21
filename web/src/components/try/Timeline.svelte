@@ -142,7 +142,7 @@
     display: grid;
     gap: 10px;
     padding: 12px 14px;
-    background: var(--glass);
+    background: var(--glass-fill);
     container-type: inline-size; /* the dock's width varies with the window and the panel */
   }
   .controls {
