@@ -11,6 +11,7 @@
 #include "oryx/hnsw.h"
 #include "oryx/parallel.h"
 #include "oryx/recall.h"
+#include "oryx/text.h"
 
 namespace py = pybind11;
 using FloatArray = py::array_t<float, py::array::c_style | py::array::forcecast>;
@@ -146,13 +147,31 @@ class Index {
   }
 
   py::tuple search(const FloatArray& queries, std::size_t k, std::size_t ef, std::size_t rerank, std::size_t threads,
-                   const py::object& filter, const std::string& strategy) const {
+                   const py::object& filter, const std::string& strategy, std::size_t patience) const {
     const oryx::FilterStrategy chosen = parse_strategy(strategy);
     oryx::SearchFilter compiled;
     const oryx::SearchFilter* active = resolve_filter(filter, compiled);
     return batch_search(queries, index_->params().dim, k, threads, [&](const float* q, std::size_t kk) {
-      return index_->search(q, kk, {.ef = ef, .rerank = rerank, .filter = active, .strategy = chosen});
+      return index_->search(q, kk, {.ef = ef, .patience = patience, .rerank = rerank, .filter = active, .strategy = chosen});
     });
+  }
+
+  // Prefetch settings: depth None means every neighbor up front (the default).
+  py::tuple prefetch() const {
+    const auto [depth, lines] = index_->prefetch_settings();
+    return py::make_tuple(depth == std::numeric_limits<std::size_t>::max() ? py::object(py::none()) : py::int_(depth), lines);
+  }
+  void set_prefetch(const py::object& depth, std::size_t lines) {
+    index_->set_prefetch(depth.is_none() ? std::numeric_limits<std::size_t>::max() : depth.cast<std::size_t>(), lines);
+  }
+  py::tuple tune_prefetch(const FloatArray& queries, std::size_t k, std::size_t ef) {
+    std::size_t n;
+    const float* rows = rows_of(queries, index_->params().dim, n);
+    {
+      py::gil_scoped_release release;
+      index_->tune_prefetch(rows, n, k, ef);
+    }
+    return prefetch();
   }
 
   // Exact answers by a full scan, the ground truth recall is measured against.
@@ -256,10 +275,11 @@ py::dict estimate_to_dict(const oryx::RecallEstimate& e) {
 class Guard {
  public:
   Guard(const Index& index, double target, std::size_t initial_ef, std::size_t min_ef, std::size_t max_ef,
-        std::size_t min_samples, double margin, double sample_rate, std::size_t window, std::size_t reference_ef)
+        std::size_t min_samples, double margin, double sample_rate, std::size_t window, std::size_t reference_ef,
+        bool per_query)
       : index_(index),
         guard_(index.raw(), {.target = target, .initial_ef = initial_ef, .min_ef = min_ef, .max_ef = max_ef,
-                             .min_samples = min_samples, .margin = margin,
+                             .min_samples = min_samples, .margin = margin, .per_query = per_query,
                              .monitor = {.sample_rate = sample_rate, .window = window, .reference_ef = reference_ef}}) {}
 
   py::tuple search(const FloatArray& queries, std::size_t k, std::size_t threads, const py::object& filter) {
@@ -295,6 +315,44 @@ class Guard {
  private:
   const Index& index_;
   oryx::RecallGuard guard_;
+};
+
+// Ranked results as (labels, scores) arrays, scores larger-is-better (the negated distances).
+py::tuple ranked(const std::vector<oryx::SearchResult>& results) {
+  py::array_t<std::int64_t> labels(static_cast<py::ssize_t>(results.size()));
+  py::array_t<float> scores(static_cast<py::ssize_t>(results.size()));
+  for (std::size_t i = 0; i < results.size(); ++i) {
+    labels.mutable_data()[i] = static_cast<std::int64_t>(results[i].label);
+    scores.mutable_data()[i] = -results[i].distance;
+  }
+  return py::make_tuple(labels, scores);
+}
+
+class TextIndex {
+ public:
+  TextIndex(float k1, float b) : index_({.k1 = k1, .b = b}) {}
+  explicit TextIndex(oryx::TextIndex index) : index_(std::move(index)) {}
+
+  void add(const py::object& labels, const std::vector<std::string>& texts) {
+    const auto ids = labels_of(labels, texts.size(), 0);
+    py::gil_scoped_release release;
+    for (std::size_t i = 0; i < texts.size(); ++i) index_.add(ids[i], texts[i]);
+  }
+  bool remove(std::uint64_t label) { return index_.remove(label); }
+  py::tuple search(const std::string& query, std::size_t k) const {
+    std::vector<oryx::SearchResult> results;
+    {
+      py::gil_scoped_release release;
+      results = index_.search(query, k);
+    }
+    return ranked(results);
+  }
+  void save(const std::string& path) const { index_.save(path); }
+  static TextIndex load(const std::string& path) { return TextIndex(oryx::TextIndex::load(path)); }
+  const oryx::TextIndex& raw() const noexcept { return index_; }
+
+ private:
+  oryx::TextIndex index_;
 };
 
 class Database {
@@ -398,9 +456,18 @@ PYBIND11_MODULE(_core, m) {
       .def("remove", &Index::remove, py::arg("label"), "Tombstone a label; returns False if it is absent.")
       .def("search", &Index::search, py::arg("queries"), py::arg("k") = 10, py::arg("ef") = 64,
            py::arg("rerank") = 0, py::arg("threads") = 1, py::arg("filter") = py::none(), py::arg("strategy") = "auto",
+           py::arg("patience") = 0,
            "Returns (labels, distances), each of shape (n, k). With `filter` (an oryxdb.Filter or a list of\n"
            "allowed labels), only those labels are returned; `strategy` forces 'exact', 'inline' or\n"
-           "'two-hop' instead of choosing by selectivity.")
+           "'two-hop' instead of choosing by selectivity. With `patience`, each unfiltered query stops once\n"
+           "its best k have gone that many steps unchanged (`ef` then caps the beam): easy queries finish\n"
+           "early, hard ones search further.")
+      .def_property_readonly("prefetch", &Index::prefetch, "(depth, lines): how far ahead the search prefetches.")
+      .def("set_prefetch", &Index::set_prefetch, py::arg("depth") = py::none(), py::arg("lines") = 1,
+           "Prefetch `lines` cache lines of `depth` neighbors ahead (None: every neighbor up front).")
+      .def("tune_prefetch", &Index::tune_prefetch, py::arg("queries"), py::arg("k") = 10, py::arg("ef") = 64,
+           "Times searches of `queries` (a few hundred rows, e.g. sampled from the data) at a grid of\n"
+           "prefetch settings and keeps the fastest if it beats the default by 3%. Returns the setting.")
       .def("filter", &Index::make_filter, py::arg("labels"),
            "Compiles the allowed labels into an oryxdb.Filter, reusable across searches.")
       .def("exact_search", &Index::exact_search, py::arg("queries"), py::arg("k") = 10, py::arg("threads") = 1,
@@ -429,16 +496,70 @@ PYBIND11_MODULE(_core, m) {
                     "Searches an Index at the smallest beam width that keeps live, measured recall above a\n"
                     "target. A sample of queries is re-answered exactly in the background.")
       .def(py::init<const Index&, double, std::size_t, std::size_t, std::size_t, std::size_t, double, double, std::size_t,
-                    std::size_t>(),
+                    std::size_t, bool>(),
            py::arg("index"), py::arg("target") = 0.95, py::arg("initial_ef") = 64, py::arg("min_ef") = 16,
            py::arg("max_ef") = 2048, py::arg("min_samples") = 200, py::arg("margin") = 0.01,
            py::arg("sample_rate") = 0.01, py::arg("window") = 1000, py::arg("reference_ef") = 0,
+           py::arg("per_query") = false,
            py::keep_alive<1, 2>())  // the guard holds the index
       .def("search", &Guard::search, py::arg("queries"), py::arg("k") = 10, py::arg("threads") = 1,
            py::arg("filter") = py::none(), "Returns (labels, distances), like Index.search.")
       .def("report", &Guard::report,
            "Per segment: its beam width, how often it moved, and the recall estimate with its interval.")
       .def("drain", &Guard::drain, "Waits for the queued exact checks to finish.");
+
+  py::class_<TextIndex>(m, "TextIndex",
+                        "Keyword search (Okapi BM25) over short texts, keyed by the same labels as an Index:\n"
+                        "the keyword half of hybrid_search().")
+      .def(py::init<float, float>(), py::arg("k1") = 1.2f, py::arg("b") = 0.75f)
+      .def("add", &TextIndex::add, py::arg("labels"), py::arg("texts"),
+           "Index `texts` under `labels` (None: 0..n-1), replacing any text a label had.")
+      .def("remove", &TextIndex::remove, py::arg("label"), "Forget a label; returns False if it is absent.")
+      .def("search", &TextIndex::search, py::arg("query"), py::arg("k") = 10,
+           "Returns (labels, scores), best first, by BM25 score. Texts sharing no word with the query are omitted.")
+      .def("save", &TextIndex::save, py::arg("path"))
+      .def_static("load", &TextIndex::load, py::arg("path"))
+      .def_static("tokenize", &oryx::TextIndex::tokenize, py::arg("text"), "The words a text is indexed by.")
+      .def("__len__", [](const TextIndex& self) { return self.raw().size(); })
+      .def("__contains__", [](const TextIndex& self, std::uint64_t label) { return self.raw().contains(label); });
+
+  m.def(
+      "hybrid_search",
+      [](const Index& index, const TextIndex& text, const FloatArray& vector, const std::string& query, std::size_t k,
+         std::size_t ef, std::size_t candidates, double rrf_k, double vector_weight, double text_weight) {
+        std::size_t n;
+        const float* row = rows_of(vector, index.raw().params().dim, n);
+        if (n != 1) throw std::invalid_argument("hybrid_search takes one query vector");
+        std::vector<oryx::SearchResult> results;
+        {
+          py::gil_scoped_release release;
+          results = oryx::hybrid_search(index.raw(), text.raw(), row, query, k,
+                                        {.ef = ef, .candidates = candidates, .rrf_k = rrf_k,
+                                         .vector_weight = vector_weight, .text_weight = text_weight});
+        }
+        return ranked(results);
+      },
+      py::arg("index"), py::arg("text_index"), py::arg("vector"), py::arg("text"), py::arg("k") = 10, py::arg("ef") = 64,
+      py::arg("candidates") = 50, py::arg("rrf_k") = 60.0, py::arg("vector_weight") = 1.0, py::arg("text_weight") = 1.0,
+      "The k best labels for a query given as a vector and as text: a vector search and a keyword search,\n"
+      "each contributing `candidates` results, merged by reciprocal rank fusion. Returns (labels, scores).");
+  m.def(
+      "fuse_rankings",
+      [](const std::vector<std::vector<std::int64_t>>& rankings, std::size_t k, double rrf_k,
+         const std::vector<double>& weights) {
+        std::vector<std::vector<oryx::SearchResult>> lists;
+        for (const auto& ranking : rankings) {
+          auto& list = lists.emplace_back();
+          for (const auto label : ranking) {
+            if (label < 0) throw std::invalid_argument("labels must be non-negative");
+            list.push_back({static_cast<std::uint64_t>(label), 0.0f});
+          }
+        }
+        return ranked(oryx::fuse_rankings(lists, k, rrf_k, weights));
+      },
+      py::arg("rankings"), py::arg("k") = 10, py::arg("rrf_k") = 60.0, py::arg("weights") = std::vector<double>{},
+      "Reciprocal rank fusion of ranked label lists (each best first), e.g. from another search engine.\n"
+      "Returns (labels, scores) of the k best.");
 
   py::class_<Database>(m, "Database", "A durable collection: HNSW index + write-ahead log with crash recovery.")
       .def_static("open", &Database::open, py::arg("path"), py::arg("dim"), py::arg("metric") = "l2",
