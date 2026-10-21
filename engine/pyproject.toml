@@ -3,19 +3,55 @@ requires = ["scikit-build-core>=0.10", "pybind11>=2.13"]
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "oryx"
-version = "0.1.0"
-description = "HNSW vector search engine with SIMD kernels, built from scratch in C++20"
-requires-python = ">=3.9"
+name = "oryxdb"
+version = "0.2.0"
+description = "An HNSW vector database built from scratch in C++20: SIMD search, filtered search, recall monitoring, crash-safe storage"
+readme = "python/README.md"
+requires-python = ">=3.10"
 license = { text = "MIT" }
+authors = [{ name = "Lajat" }]
+keywords = ["vector database", "hnsw", "ann", "nearest neighbor", "embeddings", "rag", "langchain"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: C++",
+  "Programming Language :: Python :: 3",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS",
+  "Topic :: Database",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = ["numpy"]
+
+[project.optional-dependencies]
+langchain = ["langchain-core>=0.3"]
+test = ["pytest", "pytest-asyncio", "langchain-core>=0.3", "langchain-tests>=0.3"]
+
+[project.urls]
+Homepage = "https://lazeeez.github.io/Oryx/"
+Source = "https://github.com/Lazeeez/Oryx"
 
 [tool.scikit-build]
 build-dir = "build/{wheel_tag}"
 cmake.build-type = "Release"
-wheel.packages = []
+wheel.packages = ["python/oryxdb"]
 
 [tool.scikit-build.cmake.define]
 ORYX_BUILD_TESTS = "OFF"
 ORYX_BUILD_BENCH = "OFF"
 ORYX_BUILD_PYTHON = "ON"
+
+[tool.cibuildwheel]
+build = "cp310-* cp311-* cp312-* cp313-*"
+skip = "*-musllinux_* *_i686"
+test-extras = ["test"]
+test-command = "pytest -q {project}/python/tests"
+
+[tool.cibuildwheel.linux]
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
