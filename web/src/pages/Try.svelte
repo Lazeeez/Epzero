@@ -227,7 +227,7 @@
       <p class="eyebrow">Playground</p>
       <h1>Search {engine.count ? engine.count.toLocaleString() : "30,000"} photos, locally.</h1>
       <p class="lede">
-        Oryx's C++ engine runs in this tab as WebAssembly. Search by description, photo or camera, then step through exactly how
+        Epzero's C++ engine runs in this tab as WebAssembly. Search by description, photo or camera, then step through exactly how
         the graph found the answer.
       </p>
     </header>
@@ -400,7 +400,7 @@
     flex-direction: column;
     gap: 16px;
     padding: 20px;
-    background: var(--glass-fill);
+    background: var(--overlay-fill);
     overflow-y: auto;
     scrollbar-width: thin;
   }
@@ -424,7 +424,7 @@
     align-items: center;
     gap: 16px;
     padding: 10px 12px 10px 16px;
-    background: var(--glass-fill);
+    background: var(--overlay-fill);
   }
   .ef {
     display: flex;
@@ -597,7 +597,7 @@
     display: grid;
     gap: 12px;
     padding: 20px;
-    background: var(--glass-fill);
+    background: var(--overlay-fill);
     transform: translate(-50%, -50%);
   }
   .no-3d {
