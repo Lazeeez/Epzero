@@ -11,7 +11,7 @@
 # (untracked; copy them back with scp)
 #
 #   sbatch scripts/pace/adaptive.sbatch
-#SBATCH --job-name=oryx-adaptive
+#SBATCH --job-name=epzero-adaptive
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --constraint=gold6226
@@ -21,10 +21,10 @@
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
 source scripts/pace/env.sh
-VENV="$ORYX_ROOT/.pace-bench"
+VENV="$EPZERO_ROOT/.pace-bench"
 [ -f data/sift/sift_base.fvecs ] || { echo "download first: scripts/download_sift1m.sh"; exit 1; }
 [ -f data/ann/glove-100-angular.hdf5 ] || { echo "download first: scripts/download_ann_dataset.sh glove-100-angular"; exit 1; }
-cmake --build "$ORYX_BUILD" --target bench_adaptive bench_guard -j "$(nproc)"
+cmake --build "$EPZERO_BUILD" --target bench_adaptive bench_guard -j "$(nproc)"
 [ -f data/ann/glove_base.fvecs ] || "$VENV/bin/python" scripts/hdf5_to_vecs.py data/ann/glove-100-angular.hdf5 data/ann/glove
 
 OUT=pace-results/gold6226
@@ -33,16 +33,16 @@ SIFT=(--base data/sift/sift_base.fvecs --query data/sift/sift_query.fvecs)
 GLOVE=(--base data/ann/glove_base.fvecs --query data/ann/glove_query.fvecs --metric cosine)
 
 echo "== patience against a fixed beam"
-numactl --cpunodebind=0 --membind=0 "$ORYX_BUILD/bench_adaptive" "${SIFT[@]}" --truth data/sift/sift_groundtruth.ivecs \
-  --name sift1m --index data/indexes/sift1m-M16-efc200.oryx --threads "$(nproc)" --rounds 3 \
+numactl --cpunodebind=0 --membind=0 "$EPZERO_BUILD/bench_adaptive" "${SIFT[@]}" --truth data/sift/sift_groundtruth.ivecs \
+  --name sift1m --index data/indexes/sift1m-M16-efc200.epzero --threads "$(nproc)" --rounds 3 \
   --efs 16,24,32,48,64,96,128,192,256 --patience 8,12,16,24,32,48,64 --caps 48,96,192 --json "$OUT/sift1m-adaptive.json"
-numactl --cpunodebind=0 --membind=0 "$ORYX_BUILD/bench_adaptive" "${GLOVE[@]}" --truth data/ann/glove_groundtruth.ivecs \
-  --name glove-100-angular --index data/indexes/glove-M16-efc200.oryx --threads "$(nproc)" --rounds 3 \
+numactl --cpunodebind=0 --membind=0 "$EPZERO_BUILD/bench_adaptive" "${GLOVE[@]}" --truth data/ann/glove_groundtruth.ivecs \
+  --name glove-100-angular --index data/indexes/glove-M16-efc200.epzero --threads "$(nproc)" --rounds 3 \
   --efs 32,48,64,96,128,192,256,384,512,768,1024,1536 --patience 16,32,64,96,128,192,256,384,512 --caps 384,768,1536 \
   --json "$OUT/glove-adaptive.json"
 
 echo "== recall under drift, with the per-query guard"
-numactl --interleave=all "$ORYX_BUILD/bench_guard" "${SIFT[@]}" --queries 10000 --batch 2500 --passes 6 --target 0.95 \
+numactl --interleave=all "$EPZERO_BUILD/bench_guard" "${SIFT[@]}" --queries 10000 --batch 2500 --passes 6 --target 0.95 \
   --sample-rate 0.02 --threads "$(nproc)" --json "$OUT/sift1m-guard-perquery.json"
-numactl --interleave=all "$ORYX_BUILD/bench_guard" "${GLOVE[@]}" --queries 10000 --batch 2500 --passes 6 --target 0.90 \
+numactl --interleave=all "$EPZERO_BUILD/bench_guard" "${GLOVE[@]}" --queries 10000 --batch 2500 --passes 6 --target 0.90 \
   --sample-rate 0.02 --threads "$(nproc)" --json "$OUT/glove-guard-perquery.json"
