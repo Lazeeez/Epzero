@@ -218,7 +218,8 @@ per clock cycle the two machines are within about 10%.
 Profiling showed search is memory-latency bound, so the optimizations target
 the memory system. The [performance log](docs/performance.md) covers each
 change, including the ones that were measured, didn't help and were removed
-(graph reordering, early abandoning, LTO/PGO).
+(graph reordering, early abandoning, LTO/PGO, and RaBitQ in memory). The
+story, for a general audience: [Vector search is a memory problem](docs/blog/vector-search-is-a-memory-problem.md).
 
 **Distance kernels.** Nanoseconds per call, L1-resident data:
 
@@ -503,7 +504,10 @@ dedicated-server runs are in [`scripts/pace/`](scripts/pace/).
 7. ✅ Deletes, write-ahead log, crash recovery; 8-bit scalar quantization
 8. ✅ Cluster: Go router, sharded C++ nodes, replication, failover testing in CI (cloud deployment on hold); deterministic fault simulation with linearizability checking, and the router in the browser
 9. ✅ Filtered search; recall monitoring, the recall guard and the miss explainer; fuzzing
-10. Competitive benchmarks on more datasets (GIST1M, GloVe-100, text embeddings, DEEP10M) against Glass, VSAG, USearch and tuned FAISS
+10. ✅ `pip install oryxdb` (wheels for Linux and macOS) and a LangChain vector store that passes LangChain's conformance suite
+11. ✅ Several routers sharing the shard map through etcd, with leader election and fenced writes
+12. ✅ RaBitQ quantization (correct and tested; not faster in memory, see the performance log)
+13. Competitive benchmarks on more datasets (GIST1M, GloVe-100, OpenAI text embeddings, DEEP10M) against Glass, VSAG, USearch and tuned FAISS: harness and PACE jobs ready (`bench/compete.py`), server runs pending; then an ann-benchmarks submission (`ann-benchmarks/`)
 
 ## License
 
