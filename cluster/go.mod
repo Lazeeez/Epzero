@@ -1,4 +1,4 @@
-module github.com/Lazeeez/Oryx/cluster
+module github.com/Lazeeez/Epzero/cluster
 
 go 1.27.3
 
