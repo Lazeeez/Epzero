@@ -7,7 +7,7 @@
 # Result: pace-results/gold6226/sift1m-churn.json (untracked; scp back)
 #
 #   sbatch scripts/pace/churn.sbatch
-#SBATCH --job-name=oryx-churn
+#SBATCH --job-name=epzero-churn
 #SBATCH --nodes=1
 #SBATCH --exclusive
 #SBATCH --constraint=gold6226
@@ -18,11 +18,11 @@ set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
 source scripts/pace/env.sh
 [ -f data/sift/sift_base.fvecs ] || { echo "download first: scripts/download_sift1m.sh"; exit 1; }
-cmake --build "$ORYX_BUILD" --target bench_churn -j "$(nproc)"
+cmake --build "$EPZERO_BUILD" --target bench_churn -j "$(nproc)"
 
 OUT=pace-results/gold6226
 mkdir -p "$OUT"
-numactl --cpunodebind=0 --membind=0 "$ORYX_BUILD/bench_churn" \
+numactl --cpunodebind=0 --membind=0 "$EPZERO_BUILD/bench_churn" \
   --base data/sift/sift_base.fvecs --query data/sift/sift_query.fvecs --gt data/sift/sift_groundtruth.ivecs \
   --queries 10000 --threads 12 --readers 8 --writers 2 --seconds 30 --cycles 5 --churn 0.1 --ef 80 \
   --json "$OUT/sift1m-churn.json"
