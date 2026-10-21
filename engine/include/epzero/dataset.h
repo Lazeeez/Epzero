@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace oryx {
+namespace epzero {
 
 struct Dataset {
   std::size_t n = 0;
@@ -31,4 +31,4 @@ struct SyntheticData {
 SyntheticData make_clustered(std::size_t num_base, std::size_t num_queries, std::size_t dim, std::size_t clusters,
                              std::uint64_t seed);
 
-}  // namespace oryx
+}  // namespace epzero
