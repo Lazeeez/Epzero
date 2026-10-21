@@ -1,8 +1,8 @@
 //go:build js && wasm
 
-// Command oryx-sim runs an Oryx cluster in the browser: the real router (package router) against
+// Command epzero-sim runs an Epzero cluster in the browser: the real router (package router) against
 // simulated data nodes on a simulated network (package sim). The site's cluster page loads it in a
-// Web Worker and drives it through the functions it installs on globalThis.oryxSim:
+// Web Worker and drives it through the functions it installs on globalThis.epzeroSim:
 //
 //	start(options JSON)  builds the cluster, loads the dataset and starts the workload
 //	fault(command JSON)  kills, restarts, partitions, slows or heals
@@ -11,7 +11,7 @@
 //	snapshot() JSON      nodes, shard map, links, events and per-second stats
 //	check() JSON         Porcupine linearizability check of the recorded history
 //
-//	GOOS=js GOARCH=wasm go build -ldflags="-s -w" -o oryx-sim.wasm ./cmd/oryx-sim
+//	GOOS=js GOARCH=wasm go build -ldflags="-s -w" -o epzero-sim.wasm ./cmd/epzero-sim
 package main
 
 import (
@@ -21,8 +21,8 @@ import (
 	"syscall/js"
 	"time"
 
-	"github.com/Lazeeez/Oryx/cluster/router"
-	"github.com/Lazeeez/Oryx/cluster/sim"
+	"github.com/Lazeeez/Epzero/cluster/router"
+	"github.com/Lazeeez/Epzero/cluster/sim"
 )
 
 type options struct {
@@ -114,7 +114,7 @@ func main() {
 			return string(out), nil
 		})
 	}))
-	js.Global().Set("oryxSim", api)
+	js.Global().Set("epzeroSim", api)
 	select {}
 }
 
