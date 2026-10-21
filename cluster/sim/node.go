@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Lazeeez/Oryx/cluster/router"
+	"github.com/Lazeeez/Epzero/cluster/router"
 )
 
-// Node is a simulated oryx-node. Its shard copies replicate the way the real node's do
+// Node is a simulated epzero-node. Its shard copies replicate the way the real node's do
 // (engine/server/node_main.cpp): the primary forwards each write to an in-sync replica before
 // acknowledging; a replica that falls behind pulls what it missed (Fetch) and is in sync again;
 // an ex-primary rejoining as a replica starts over from a snapshot. Assignments and data survive
