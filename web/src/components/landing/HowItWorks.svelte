@@ -189,8 +189,8 @@
       <p class="eyebrow">How it works</p>
       <h2 id="how-title" class="section-title">Finding the needle without searching the haystack.</h2>
       <p class="section-lede">
-        Oryx implements HNSW, the graph index behind most production vector databases. Scroll to build one, then watch a real
-        search run through it. This isn't an animation of the algorithm: it's the Oryx engine, in WebAssembly, indexing
+        Epzero implements HNSW, the graph index behind most production vector databases. Scroll to build one, then watch a real
+        search run through it. This isn't an animation of the algorithm: it's the Epzero engine, in WebAssembly, indexing
         {count} points and recording every decision it makes.
       </p>
     </header>
@@ -218,7 +218,7 @@
             hop to whichever neighbour is closer to the query, and repeat.
           </p>
           <p>
-            Oryx picks links with the paper's diversity heuristic: a neighbour is skipped if an already-linked one is closer to
+            Epzero picks links with the paper's diversity heuristic: a neighbour is skipped if an already-linked one is closer to
             it, which keeps bridges between clusters so greedy routing doesn't get stuck.
           </p>
         </article>
@@ -246,13 +246,16 @@
             the same point.
           </p>
           <p>A few long hops cover most of the distance, touching only a few points.</p>
+          <p class="name-note">
+            That path is where the name comes from: <strong>e</strong>ntry <strong>p</strong>oint to layer <strong>zero</strong>.
+          </p>
         </article>
 
         <article class="step" class:active={active === 4} bind:this={stepEls[4]}>
           <span class="index num">05</span>
           <h3>{steps[4].title}</h3>
           <p>
-            On the dense bottom layer, greedy isn't enough. Oryx keeps a beam of the <code>ef</code> best candidates found so
+            On the dense bottom layer, greedy isn't enough. Epzero keeps a beam of the <code>ef</code> best candidates found so
             far, expands the closest unexpanded one, and stops when nothing left can beat the beam.
           </p>
           <p>
@@ -379,6 +382,15 @@
     margin: 0 0 12px;
     color: var(--text-2);
     line-height: 1.7;
+  }
+  /* Where "Epzero" comes from, under the step that shows it. */
+  .step p.name-note {
+    padding-left: 12px;
+    border-left: 2px solid var(--result);
+    font-size: 14px;
+  }
+  .name-note strong {
+    color: var(--text);
   }
   .layers {
     display: grid;
@@ -550,7 +562,7 @@
       padding: 20px;
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      background: var(--glass-fill);
+      background: var(--overlay-fill);
     }
   }
 </style>
