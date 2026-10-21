@@ -82,7 +82,7 @@
     <p class="eyebrow">Cluster</p>
     <h1><span class="gradient-text">Break the cluster.</span><br />Watch it keep its answers.</h1>
     <p class="lede">
-      The Oryx router runs here, the same Go code that fronts the real cluster, compiled to WebAssembly. Its data nodes and the network
+      The Epzero router runs here, the same Go code that fronts the real cluster, compiled to WebAssembly. Its data nodes and the network
       between them are simulated in memory, and they replicate like the real C++ nodes. Kill a node, cut it off or slow it down:
       searches keep returning exact answers, and a linearizability checker audits every read and write.
     </p>
@@ -213,7 +213,7 @@
           package <code>cluster/router</code>, unchanged, talking to nodes through an interface.
         </li>
         <li>
-          <b>The nodes mirror <code>oryx-node</code>.</b> Primaries forward each write to an in-sync replica before acknowledging it; a
+          <b>The nodes mirror <code>epzero-node</code>.</b> Primaries forward each write to an in-sync replica before acknowledging it; a
           lagging replica fetches what it missed; a returning ex-primary starts over from a snapshot.
         </li>
         <li>
