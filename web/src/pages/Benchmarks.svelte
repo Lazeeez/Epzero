@@ -13,6 +13,9 @@
     operating,
     speedup,
   } from "../lib/bench";
+  import HeroRace from "../components/bench/HeroRace.svelte";
+  import { countUp } from "../lib/count-up";
+  import { spotlight } from "../lib/spotlight";
   import DriftChart from "../components/bench/DriftChart.svelte";
   import Lab from "../components/bench/Lab.svelte";
   import Optimizations from "../components/bench/Optimizations.svelte";
@@ -66,6 +69,16 @@
 
 <div class="bench">
   <header class="head container">
+    <div class="hero-art">
+      <HeroRace
+        recall={operating.recall}
+        lanes={[
+          { name: "Oryx", qps: operating.qps, lead: true },
+          { name: "FAISS", qps: operating.qps / vsFaiss },
+          { name: "hnswlib", qps: operating.qps / vsHnswlib },
+        ].sort((a, b) => b.qps - a.qps)}
+      />
+    </div>
     <p class="eyebrow">Benchmarks</p>
     <h1><span class="gradient-text">Faster than the libraries</span><br />it's measured against.</h1>
     <p class="section-lede">
@@ -74,15 +87,15 @@
       is queried from one process on one thread, in {compare.rounds} interleaved rounds, on a dedicated server node ({MACHINE}).
     </p>
     <dl class="stats">
-      <div><dt>vs hnswlib</dt><dd class="num">{vsHnswlib.toFixed(2)}×</dd><dd class="note">QPS at equal recall ({operating.recall.toFixed(3)})</dd></div>
-      <div><dt>vs FAISS HNSW</dt><dd class="num">{vsFaiss.toFixed(2)}×</dd><dd class="note">QPS at equal recall ({operating.recall.toFixed(3)})</dd></div>
-      <div><dt>SQ8 + re-rank</dt><dd class="num">+48%</dd><dd class="note">QPS, identical recall</dd></div>
-      <div><dt>Graph build</dt><dd class="num">{libs.oryx.build_seconds.toFixed(1)} s</dd><dd class="note">on {compare.build_threads} threads</dd></div>
+      <div use:spotlight><dt>vs hnswlib</dt><dd class="num" use:countUp>{vsHnswlib.toFixed(2)}×</dd><dd class="note">QPS at equal recall ({operating.recall.toFixed(3)})</dd></div>
+      <div use:spotlight><dt>vs FAISS HNSW</dt><dd class="num" use:countUp>{vsFaiss.toFixed(2)}×</dd><dd class="note">QPS at equal recall ({operating.recall.toFixed(3)})</dd></div>
+      <div use:spotlight><dt>SQ8 + re-rank</dt><dd class="num" use:countUp>+48%</dd><dd class="note">QPS, identical recall</dd></div>
+      <div use:spotlight><dt>Graph build</dt><dd class="num" use:countUp>{libs.oryx.build_seconds.toFixed(1)} s</dd><dd class="note">on {compare.build_threads} threads</dd></div>
     </dl>
   </header>
 
   <section class="container block" aria-labelledby="curve-title">
-    <div class="card panel" use:reveal>
+    <div class="card panel" use:reveal use:spotlight>
       <div class="panel-head">
         <div>
           <h2 id="curve-title">Recall vs. throughput</h2>
@@ -128,23 +141,23 @@
       guard measures recall on a {(drift.sample_rate * 100).toFixed(0)}% sample of queries and moves the beam width to hold the target.
     </p>
     <dl class="stats drift" use:reveal>
-      <div>
+      <div use:spotlight>
         <dt>Phases at target</dt>
-        <dd class="num">{driftSummary[0].adapted} of {driftSummary[0].phases}</dd>
+        <dd class="num" use:countUp>{driftSummary[0].adapted} of {driftSummary[0].phases}</dd>
         <dd class="note">guard, once adapted · tuned-once: {driftSummary[1].adapted} of {driftSummary[1].phases}</dd>
       </div>
-      <div>
+      <div use:spotlight>
         <dt>Cost vs over-provisioning</dt>
-        <dd class="num">−{((1 - driftSummary[0].cost / driftSummary[2].cost) * 100).toFixed(0)}%</dd>
+        <dd class="num" use:countUp>−{((1 - driftSummary[0].cost / driftSummary[2].cost) * 100).toFixed(0)}%</dd>
         <dd class="note">distances per query, whole stream</dd>
       </div>
-      <div>
+      <div use:spotlight>
         <dt>Guard's own estimate</dt>
-        <dd class="num">±{driftEstimates.error.toFixed(3)}</dd>
+        <dd class="num" use:countUp>±{driftEstimates.error.toFixed(3)}</dd>
         <dd class="note">mean error · truth inside its interval {driftEstimates.covered}/{driftEstimates.total}</dd>
       </div>
     </dl>
-    <div class="card panel" use:reveal>
+    <div class="card panel" use:reveal use:spotlight>
       <div class="panel-head">
         <h2>Recall per batch, by policy</h2>
         <p>Hover a batch to compare the policies; the shaded band is the interval the guard measured for itself.</p>
@@ -177,7 +190,7 @@
       past the excluded ones wins when most pass, and the two-hop walk wins in between. It falls apart below about 1.5%, never
       reaching the target. The engine's automatic choice follows this table.
     </p>
-    <div class="card panel" use:reveal>
+    <div class="card panel" use:reveal use:spotlight>
       <div class="table-wrap">
         <table class="filter-table">
           <caption class="visually-hidden">Queries per second at recall {FILTER_RECALL}, by filter selectivity and strategy</caption>
@@ -214,21 +227,21 @@
       cycles of deleting and re-inserting 10% of its vectors.
     </p>
     <dl class="stats drift" use:reveal>
-      <div>
+      <div use:spotlight>
         <dt>Throughput under writes</dt>
-        <dd class="num">{pct(busy.search_qps / quiet.search_qps)}</dd>
+        <dd class="num" use:countUp>{pct(busy.search_qps / quiet.search_qps)}</dd>
         <dd class="note">
           of read-only, with {Math.round(busy.writes_per_s).toLocaleString()} writes/s · recall {quiet.recall.toFixed(3)} → {busy.recall.toFixed(3)}
         </dd>
       </div>
-      <div>
+      <div use:spotlight>
         <dt>p99 latency under writes</dt>
-        <dd class="num">{Math.round(busy.p99_us)} µs</dd>
+        <dd class="num" use:countUp>{Math.round(busy.p99_us)} µs</dd>
         <dd class="note">from {Math.round(quiet.p99_us)} µs read-only · p99.9 {Math.round(busy.p999_us)} µs</dd>
       </div>
-      <div>
+      <div use:spotlight>
         <dt>After 5 churn cycles</dt>
-        <dd class="num">−{((cycles[0].recall - worn.recall) * 100).toFixed(1)} pt</dd>
+        <dd class="num" use:countUp>−{((cycles[0].recall - worn.recall) * 100).toFixed(1)} pt</dd>
         <dd class="note">
           recall, and −{pct(1 - worn.qps / cycles[0].qps)} speed, with {pct(worn.tombstone_share)} tombstones · a {churn.compaction_seconds.toFixed(0)} s
           compaction restores {compacted.recall.toFixed(3)}
@@ -238,7 +251,7 @@
   </section>
 
   <section class="container block two" aria-label="Where the speed comes from">
-    <div class="card panel" use:reveal>
+    <div class="card panel" use:reveal use:spotlight>
       <h2>Where the 31% came from</h2>
       <p class="sub">
         Profiling showed search is bound by memory latency (~63 ns per distance), not arithmetic. So each change targets memory.
@@ -266,7 +279,7 @@
   </section>
 
   <section class="container block" aria-labelledby="sq8-title">
-    <div class="card panel" use:reveal>
+    <div class="card panel" use:reveal use:spotlight>
       <h2 id="sq8-title">8-bit scalar quantization</h2>
       <p class="sub">
         Codes are scored with an asymmetric kernel (the query stays in float), then the beam is re-ranked with full-precision vectors
@@ -281,7 +294,7 @@
     <p class="caption lead" use:reveal>A change was kept only if the interleaved A/B showed a gain beyond ~3% noise. These didn't.</p>
     <div class="removed">
       {#each removed as r, i (r.idea)}
-        <article class="card" use:reveal={i * 0.06}>
+        <article class="card" use:reveal={i * 0.06} use:spotlight>
           <header><strong>{r.idea}</strong><span class="num">{r.result}</span></header>
           <p>{r.why}</p>
         </article>
@@ -309,6 +322,20 @@
 <style>
   .bench {
     padding: calc(var(--nav-h) + 72px) 0 40px;
+  }
+  .head {
+    position: relative;
+  }
+  .hero-art {
+    position: absolute;
+    top: 64px;
+    right: 0;
+    width: 340px;
+  }
+  @media (max-width: 1240px) {
+    .hero-art {
+      display: none;
+    }
   }
   .head h1 {
     font-size: clamp(38px, 6vw, 72px);
