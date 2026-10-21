@@ -22,3 +22,18 @@ export async function cachedFetch(url: string, { fresh = false } = {}): Promise<
   if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
   return response;
 }
+
+/** Drops cached files under `base` that `keep` no longer names, such as an older vector format. */
+export async function pruneCache(base: string, keep: string[]): Promise<void> {
+  try {
+    const root = new URL(base, location.href).href;
+    const wanted = new Set(keep.map((file) => new URL(file, root).href));
+    const cache = await caches.open(DATA_CACHE);
+    for (const request of await cache.keys()) {
+      const url = request.url.split("?")[0];
+      if (url.startsWith(root) && !wanted.has(url)) await cache.delete(request);
+    }
+  } catch {
+    // No Cache API, or it failed: nothing to tidy.
+  }
+}
