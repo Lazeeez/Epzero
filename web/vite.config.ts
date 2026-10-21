@@ -14,7 +14,7 @@ const isolation = {
 
 // The site is a single-page app with client-side routes. Give every route its own index.html so a
 // deep link (e.g. /Oryx/try) loads with a 200 on a static host, and keep a 404.html fallback.
-const ROUTES = ["try", "play", "benchmarks"];
+const ROUTES = ["try", "play", "cluster", "benchmarks"];
 function staticRoutes(): Plugin {
   let outDir = "dist";
   return {
