@@ -1,13 +1,13 @@
-// oryx-router: the Oryx cluster's coordinator and public HTTP API.
+// epzero-router: the Epzero cluster's coordinator and public HTTP API.
 //
-//	oryx-router -listen :8080 -nodes node1=10.42.1.11:7000,node2=10.42.1.12:7000,node3=10.42.1.13:7000 \
-//	            -dim 512 -token-file /etc/oryx/token -state /var/lib/oryx/router.json \
+//	epzero-router -listen :8080 -nodes node1=10.42.1.11:7000,node2=10.42.1.12:7000,node3=10.42.1.13:7000 \
+//	            -dim 512 -token-file /etc/epzero/token -state /var/lib/epzero/router.json \
 //	            -origins https://lazeeez.github.io
 //
 // Several routers (for availability, behind one load balancer) share the shard map through etcd
 // instead of -state; one of them is elected to health-check the nodes and fail shards over:
 //
-//	oryx-router ... -etcd 10.42.0.5:2379,10.42.0.6:2379,10.42.0.7:2379 -cluster prod -id router-a
+//	epzero-router ... -etcd 10.42.0.5:2379,10.42.0.6:2379,10.42.0.7:2379 -cluster prod -id router-a
 package main
 
 import (
@@ -21,7 +21,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Lazeeez/Oryx/cluster/router"
+	"github.com/Lazeeez/Epzero/cluster/router"
 )
 
 func main() {
@@ -34,7 +34,7 @@ func main() {
 	origins := flag.String("origins", "", "comma-separated CORS origins allowed to call the API")
 	hedge := flag.Duration("hedge", 40*time.Millisecond, "query the other copy of a shard if the first is this slow")
 	etcd := flag.String("etcd", "", "comma-separated etcd endpoints: share the shard map with other routers (replaces -state)")
-	cluster := flag.String("cluster", "oryx", "with -etcd: the cluster's name (its keys are under /oryx/<name>/)")
+	cluster := flag.String("cluster", "epzero", "with -etcd: the cluster's name (its keys are under /epzero/<name>/)")
 	id := flag.String("id", "", "with -etcd: this router's name in the leader election (default: the host name)")
 	lease := flag.Int("lease", 5, "with -etcd: seconds a silent leader keeps the lead before another router takes over")
 	flag.Parse()
