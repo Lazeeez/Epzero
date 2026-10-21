@@ -1,4 +1,4 @@
-#include "oryx/text.h"
+#include "epzero/text.h"
 
 #include <gtest/gtest.h>
 
@@ -8,9 +8,9 @@
 #include <fstream>
 #include <random>
 
-#include "oryx/dataset.h"
+#include "epzero/dataset.h"
 
-namespace oryx {
+namespace epzero {
 namespace {
 
 std::vector<std::uint64_t> labels_of(const std::vector<SearchResult>& results) {
@@ -84,7 +84,7 @@ TEST(TextIndex, SaveLoadRoundTrip) {
     index.add(i * 3, text);
   }
   index.remove(9);
-  const auto path = (std::filesystem::temp_directory_path() / "oryx_text_test.idx").string();
+  const auto path = (std::filesystem::temp_directory_path() / "epzero_text_test.idx").string();
   index.save(path);
   const TextIndex loaded = TextIndex::load(path);
   EXPECT_EQ(loaded.size(), index.size());
@@ -140,4 +140,4 @@ TEST(Hybrid, KeywordMatchesRescueWhatTheVectorMisses) {
 }
 
 }  // namespace
-}  // namespace oryx
+}  // namespace epzero
