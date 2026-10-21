@@ -1,9 +1,9 @@
 // The site-wide engine: dataset, the WebAssembly index (in a worker) and search. One instance for
 // the whole app, so the graph is built once and survives navigation between pages.
-import { cachedFetch } from "../cached-fetch";
+import { cachedFetch, pruneCache } from "../cached-fetch";
 import { isolationSettled } from "../isolation";
 import { UNSUPPORTED_BROWSER, wasmSimdSupported } from "../support";
-import type { Evaluation, Explanation, FilterInfo, FromWorker, GraphInfo, Neighborhood, Query, Request, Trace } from "./protocol";
+import { stageEnds, type Evaluation, type Explanation, type FilterInfo, type FromWorker, type GraphInfo, type Neighborhood, type Query, type Request, type Trace } from "./protocol";
 
 /** Photo metadata, column-oriented (format 2, written by pipeline/build_dataset.py). */
 export interface Meta {
@@ -26,8 +26,17 @@ interface Manifest {
   count: number;
   dim: number;
   quantization: { recallAt10VsFloat: number };
-  files: { graph?: string; meta?: string };
+  files: { vectors: string; layout: string; graph?: string; meta?: string };
   graph?: { M: number; efConstruction: number };
+  /** The vector file's stages (pipeline/progressive_vectors.py): searchable at each dimension count. */
+  vectors: { stages: VectorStage[] };
+}
+
+export interface VectorStage {
+  dims: number;
+  /** Recall@10 of an exact search at this many dimensions against the float vectors, for photo
+   * queries (text queries need more of the dimensions; see pipeline/progressive_vectors.py). */
+  recallAt10VsFloat: number;
 }
 
 export type EngineStatus = "idle" | "loading" | "building" | "ready" | "error";
@@ -65,6 +74,11 @@ class Engine {
   meta = $state.raw<Meta | null>(null);
   layout = $state.raw<Float32Array | null>(null);
   quantizationRecall = $state(0);
+  /** Dimensions searches use now: fewer than `dim` while the rest of the vectors stream in. */
+  dims = $state(0);
+  /** The stages the vectors arrive in, and the share of their bytes downloaded so far. */
+  stages = $state.raw<VectorStage[]>([]);
+  streamed = $state(0);
   /** Nodes inserted so far during the build (drives the build animation). */
   built = $state(0);
   last = $state.raw<SearchOutcome | null>(null);
@@ -103,10 +117,13 @@ class Engine {
     this.error = "";
     this.progress = 0;
     this.built = 0;
+    this.dims = 0;
+    this.streamed = 0;
     return this.start();
   }
 
   private graphFile: string | undefined;
+  private vectorsFile = "";
   private graphParams = { M: 16, efConstruction: 128 };
 
   private async load() {
@@ -127,6 +144,11 @@ class Engine {
       this.dim = manifest.dim;
       this.quantizationRecall = manifest.quantization.recallAt10VsFloat;
       this.graphFile = manifest.files.graph;
+      this.vectorsFile = manifest.files.vectors;
+      this.stages = manifest.vectors.stages;
+      // Returning visitors' caches may still hold files this manifest replaced (e.g. 15 MB of
+      // vectors in the previous format).
+      void pruneCache(DATA, ["manifest.json", ...Object.values(manifest.files)]);
       if (manifest.graph) this.graphParams = { M: manifest.graph.M, efConstruction: manifest.graph.efConstruction };
       side = Promise.all([
         cachedFetch(`${DATA}${manifest.files.meta ?? "meta.json"}`)
@@ -152,9 +174,13 @@ class Engine {
         switch (message.type) {
           case "progress":
             if (message.stage === "download") {
-              this.stage = `Downloading ${(message.total / 1e6).toFixed(0)} MB of CLIP vectors`;
-              // With a prebuilt graph the download is nearly all the wait; otherwise the build is.
-              this.progress = (this.graphFile ? 0.95 : 0.35) * (message.done / message.total);
+              this.streamed = message.done / message.total;
+              if (this.status === "ready") break;
+              // With a prebuilt graph, search starts once the first block of dimensions is in;
+              // without one, the graph is built from the whole file.
+              const needed = this.graphFile ? stageEnds(this.count, this.dim, this.stages.map((s) => s.dims))[0] : message.total;
+              this.stage = `Downloading ${(needed / 1e6).toFixed(1)} MB of CLIP vectors`;
+              this.progress = (this.graphFile ? 0.95 : 0.35) * Math.min(1, message.done / needed);
             } else if (this.rebuilding) {
               this.rebuildProgress = message.done / message.total;
             } else {
@@ -169,6 +195,8 @@ class Engine {
             // Captions and thumbnails need the metadata: go ready once it has arrived too.
             side.then(() => {
               this.graph = graph;
+              this.dims ||= this.graphFile ? this.stages[0].dims : this.dim;
+              if (!graph.prebuilt) this.dims = this.dim;
               this.buildMs = graph.buildMs;
               this.params = { M: graph.M, efConstruction: graph.efConstruction };
               this.built = this.count;
@@ -183,6 +211,9 @@ class Engine {
             });
             break;
           }
+          case "precision":
+            this.dims = message.dims;
+            break;
           case "reply": {
             const waiter = this.replies.get(message.seq);
             this.replies.delete(message.seq);
@@ -223,7 +254,16 @@ class Engine {
         this.fail(event.message || "The engine worker failed to start.");
         resolve();
       };
-      this.worker.postMessage({ type: "load", base: DATA, count: this.count, dim: this.dim, graph: this.graphFile, ...this.graphParams });
+      this.worker.postMessage({
+        type: "load",
+        base: DATA,
+        vectors: this.vectorsFile,
+        stages: this.stages.map((s) => s.dims),
+        count: this.count,
+        dim: this.dim,
+        graph: this.graphFile,
+        ...this.graphParams,
+      });
     });
   }
 
@@ -283,9 +323,19 @@ class Engine {
     }
   }
 
+  /** Searches use only some of the vectors' dimensions while the rest download. */
+  get sharpening(): boolean {
+    return this.status === "ready" && this.dims < this.dim;
+  }
+
+  /** Recall@10 an exact search reaches at the current dimension count (vs. float vectors). */
+  get stageRecall(): number {
+    return this.stages.find((s) => s.dims === this.dims)?.recallAt10VsFloat ?? this.quantizationRecall;
+  }
+
   /** Rebuilds the whole index with new graph parameters, on every core. */
   rebuild(M: number, efConstruction: number): Promise<void> {
-    if (!this.worker || this.status !== "ready" || this.rebuilding) return Promise.resolve();
+    if (!this.worker || this.status !== "ready" || this.rebuilding || this.sharpening) return Promise.resolve();
     this.rebuilding = true;
     this.rebuildProgress = 0;
     this.error = "";
