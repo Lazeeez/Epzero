@@ -1,5 +1,5 @@
 #cloud-config
-# Base setup for every Oryx node. Services are installed later by deploy/deploy.sh.
+# Base setup for every Epzero node. Services are installed later by deploy/deploy.sh.
 package_update: true
 package_upgrade: true
 packages:
@@ -9,15 +9,15 @@ packages:
 
 users:
   - default
-  - name: oryx
+  - name: epzero
     system: true
     shell: /usr/sbin/nologin
-    home: /var/lib/oryx
+    home: /var/lib/epzero
 
 write_files:
   # Oracle's Ubuntu images reject everything but SSH in the host firewall; open HTTP(S) for the
   # router's TLS endpoint and all traffic from inside the VCN.
-  - path: /usr/local/sbin/oryx-firewall
+  - path: /usr/local/sbin/epzero-firewall
     permissions: "0755"
     content: |
       #!/bin/sh
@@ -29,7 +29,7 @@ write_files:
       netfilter-persistent save
 
 runcmd:
-  - [/usr/local/sbin/oryx-firewall]
-  - [mkdir, -p, /var/lib/oryx/data, /opt/oryx]
-  - [chown, -R, "oryx:oryx", /var/lib/oryx]
+  - [/usr/local/sbin/epzero-firewall]
+  - [mkdir, -p, /var/lib/epzero/data, /opt/epzero]
+  - [chown, -R, "epzero:epzero", /var/lib/epzero]
   - [timedatectl, set-timezone, UTC]
