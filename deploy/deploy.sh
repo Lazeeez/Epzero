@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Deploys (or upgrades) Oryx onto the nodes created by deploy/oracle (terraform apply):
-#   - builds oryx-node natively on every node from the committed source (ARM64, NEON kernels)
+# Deploys (or upgrades) Epzero onto the nodes created by deploy/oracle (terraform apply):
+#   - builds epzero-node natively on every node from the committed source (ARM64, NEON kernels)
 #   - cross-compiles the Go router for linux/arm64 and runs it on node 1 behind Caddy (HTTPS)
 #   - installs systemd units that restart crashed processes (they recover from their WAL)
 #   - restarts nodes one at a time so the cluster stays available during upgrades
 #
 #   deploy/deploy.sh            # deploy HEAD
-#   ORYX_ORIGINS=https://example.com deploy/deploy.sh
+#   EPZERO_ORIGINS=https://example.com deploy/deploy.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TF_DIR="$ROOT/deploy/oracle"
-KEY="${ORYX_SSH_KEY:-$HOME/.ssh/oryx_oci}"
-TOKEN_FILE="${ORYX_TOKEN_FILE:-$HOME/.oryx/token}"
-ORIGINS="${ORYX_ORIGINS:-https://lazeeez.github.io,http://localhost:5173,http://localhost:4173}"
+KEY="${EPZERO_SSH_KEY:-$HOME/.ssh/epzero_oci}"
+TOKEN_FILE="${EPZERO_TOKEN_FILE:-$HOME/.epzero/token}"
+ORIGINS="${EPZERO_ORIGINS:-https://lazeeez.github.io,http://localhost:5173,http://localhost:4173}"
 SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -o ServerAliveInterval=15)
 
 json() { terraform -chdir="$TF_DIR" output -json "$1" | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)))'; }
@@ -34,12 +34,12 @@ fi
 
 echo "== packaging source $(git -C "$ROOT" rev-parse --short HEAD)"
 SRC=$(mktemp -d)
-git -C "$ROOT" archive --format=tar.gz -o "$SRC/oryx-src.tar.gz" HEAD engine proto deploy/systemd
-(cd "$ROOT/cluster" && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "$SRC/oryx-router" ./cmd/oryx-router)
+git -C "$ROOT" archive --format=tar.gz -o "$SRC/epzero-src.tar.gz" HEAD engine proto deploy/systemd
+(cd "$ROOT/cluster" && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "$SRC/epzero-router" ./cmd/epzero-router)
 
 build_node() {
   local i=$1 ip=${PUBLIC[$1]}
-  to "$ip" "$SRC/oryx-src.tar.gz" "$TOKEN_FILE"
+  to "$ip" "$SRC/epzero-src.tar.gz" "$TOKEN_FILE"
   on "$ip" sudo bash -s -- "node$((i + 1))" "${PRIVATE[$i]}" <<'REMOTE'
 set -euo pipefail
 name=$1 private_ip=$2
@@ -49,43 +49,43 @@ if ! command -v cmake >/dev/null || ! dpkg -s libgrpc++-dev >/dev/null 2>&1; the
   apt-get install -y -qq build-essential cmake ninja-build pkg-config libgrpc++-dev libprotobuf-dev \
     protobuf-compiler protobuf-compiler-grpc > /dev/null
 fi
-rm -rf /opt/oryx/src && mkdir -p /opt/oryx/src /opt/oryx/bin /etc/oryx
-tar -xzf /tmp/oryx-src.tar.gz -C /opt/oryx/src
-cmake -S /opt/oryx/src/engine -B /opt/oryx/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DORYX_BUILD_TESTS=OFF -DORYX_BUILD_BENCH=OFF > /dev/null
-cmake --build /opt/oryx/build --target oryx_node > /dev/null
-install -m 0755 /opt/oryx/build/oryx-node /opt/oryx/bin/oryx-node.new
-install -m 0640 -o root -g oryx /tmp/token /etc/oryx/token
-printf 'ORYX_NAME=%s\nORYX_ADVERTISE=%s:7000\n' "$name" "$private_ip" > /etc/oryx/node.env
-install -m 0644 /opt/oryx/src/deploy/systemd/oryx-node.service /etc/systemd/system/oryx-node.service
-rm -f /tmp/token /tmp/oryx-src.tar.gz
-echo "$name: oryx-node built on $(uname -m)"
+rm -rf /opt/epzero/src && mkdir -p /opt/epzero/src /opt/epzero/bin /etc/epzero
+tar -xzf /tmp/epzero-src.tar.gz -C /opt/epzero/src
+cmake -S /opt/epzero/src/engine -B /opt/epzero/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DEPZERO_BUILD_TESTS=OFF -DEPZERO_BUILD_BENCH=OFF > /dev/null
+cmake --build /opt/epzero/build --target epzero_node > /dev/null
+install -m 0755 /opt/epzero/build/epzero-node /opt/epzero/bin/epzero-node.new
+install -m 0640 -o root -g epzero /tmp/token /etc/epzero/token
+printf 'EPZERO_NAME=%s\nEPZERO_ADVERTISE=%s:7000\n' "$name" "$private_ip" > /etc/epzero/node.env
+install -m 0644 /opt/epzero/src/deploy/systemd/epzero-node.service /etc/systemd/system/epzero-node.service
+rm -f /tmp/token /tmp/epzero-src.tar.gz
+echo "$name: epzero-node built on $(uname -m)"
 REMOTE
 }
 
-echo "== building oryx-node on ${#PUBLIC[@]} nodes (in parallel)"
+echo "== building epzero-node on ${#PUBLIC[@]} nodes (in parallel)"
 pids=()
 for i in "${!PUBLIC[@]}"; do build_node "$i" & pids+=($!); done
 for pid in "${pids[@]}"; do wait "$pid"; done
 
 echo "== rolling restart (one node at a time)"
 for i in "${!PUBLIC[@]}"; do
-  on "${PUBLIC[$i]}" sudo bash -c 'mv /opt/oryx/bin/oryx-node.new /opt/oryx/bin/oryx-node && systemctl daemon-reload &&
-    systemctl enable --quiet oryx-node && systemctl restart oryx-node && sleep 2 && systemctl is-active oryx-node'
+  on "${PUBLIC[$i]}" sudo bash -c 'mv /opt/epzero/bin/epzero-node.new /opt/epzero/bin/epzero-node && systemctl daemon-reload &&
+    systemctl enable --quiet epzero-node && systemctl restart epzero-node && sleep 2 && systemctl is-active epzero-node'
   sleep 6  # let the router notice and let replicas catch up before touching the next node
 done
 
 echo "== router + HTTPS on node1 ($HOST)"
 NODES=$(for i in "${!PRIVATE[@]}"; do printf 'node%d=%s:7000,' $((i + 1)) "${PRIVATE[$i]}"; done)
-to "${PUBLIC[0]}" "$SRC/oryx-router" "$ROOT/deploy/systemd/oryx-router.service"
+to "${PUBLIC[0]}" "$SRC/epzero-router" "$ROOT/deploy/systemd/epzero-router.service"
 on "${PUBLIC[0]}" sudo bash -s -- "${NODES%,}" "$ORIGINS" "$HOST" <<'REMOTE'
 set -euo pipefail
 nodes=$1 origins=$2 host=$3
 export DEBIAN_FRONTEND=noninteractive
 command -v caddy >/dev/null || { apt-get update -qq && apt-get install -y -qq caddy > /dev/null; }
-install -m 0755 /tmp/oryx-router /opt/oryx/bin/oryx-router
-install -m 0644 /tmp/oryx-router.service /etc/systemd/system/oryx-router.service
-printf 'ORYX_NODES=%s\nORYX_ORIGINS=%s\n' "$nodes" "$origins" > /etc/oryx/router.env
+install -m 0755 /tmp/epzero-router /opt/epzero/bin/epzero-router
+install -m 0644 /tmp/epzero-router.service /etc/systemd/system/epzero-router.service
+printf 'EPZERO_NODES=%s\nEPZERO_ORIGINS=%s\n' "$nodes" "$origins" > /etc/epzero/router.env
 cat > /etc/caddy/Caddyfile <<EOF
 $host {
 	encode zstd gzip
@@ -93,10 +93,10 @@ $host {
 }
 EOF
 systemctl daemon-reload
-systemctl enable --quiet oryx-router caddy
-systemctl restart oryx-router
+systemctl enable --quiet epzero-router caddy
+systemctl restart epzero-router
 systemctl reload caddy || systemctl restart caddy
-rm -f /tmp/oryx-router /tmp/oryx-router.service
+rm -f /tmp/epzero-router /tmp/epzero-router.service
 REMOTE
 rm -rf "$SRC"
 
