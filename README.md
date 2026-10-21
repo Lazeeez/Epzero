@@ -29,8 +29,10 @@ WebAssembly (SIMD128 + threads), running entirely in your browser:
   scroll-driven explainer builds a small HNSW index (the real engine, in
   WebAssembly) and replays a search layer by layer. Click to search it yourself.
 - **[Playground](https://lazeeez.github.io/Oryx/try).** 29,825 Open Images
-  photos embedded with CLIP, loaded from a prebuilt graph in ~0.1 s (first
-  results in about 2 s on a first visit) and shown as a 3D stack of HNSW layers. Search by **description, uploaded photo or webcam**
+  photos embedded with CLIP, loaded from a prebuilt graph in ~0.1 s and shown
+  as a 3D stack of HNSW layers. The vectors are stored on their principal
+  axes, a block of dimensions at a time, so search starts after the first
+  2 MB of 16 and **sharpens as the rest streams in**. Search by **description, uploaded photo or webcam**
   (CLIP text and image encoders run in the browser), step through the search
   hop by hop in a debugger, or race it against an exact scan. Every search is
   checked against the exact answer, e.g. *75 µs, 12/12 same results, 45×
@@ -46,6 +48,11 @@ WebAssembly (SIMD128 + threads), running entirely in your browser:
 - **[Play](https://lazeeez.github.io/Oryx/play).** *Out-navigate Oryx*: hop
   from photo to photo along the real base-layer links to reach a target,
   then see the route Oryx's search took through its express layers.
+- **[Cluster](https://lazeeez.github.io/Oryx/cluster).** The cluster's Go
+  router, compiled to WebAssembly, runs against four simulated nodes. Kill,
+  isolate or slow a node and watch the router fail over while searches keep
+  their exact answers, then switch between strong and eventual reads and
+  check the live history for linearizability with Porcupine.
 - **[Benchmarks](https://lazeeez.github.io/Oryx/benchmarks).** Interactive
   SIFT1M charts against hnswlib and FAISS, the optimization log, SQ8 results,
   and a lab that benchmarks the engine on your own device.
@@ -104,12 +111,15 @@ navigator HUD lean on that idea.
 - **Crash safety proven by fault injection:** the write-ahead log survives a
   torn write at every byte offset, mid-log corruption and random `kill -9`s.
 - **A replicated cluster** whose failover is tested on every push with real
-  processes, a primary killed mid-traffic and zero lost writes.
+  processes, a primary killed mid-traffic and zero lost writes, and whose
+  `strong` reads are **checked linearizable** under crashes, partitions and
+  lossy links by a deterministic simulation and Porcupine. That simulation
+  found two replication bugs, both fixed ([details](docs/consistency.md)).
 - **The whole engine in the browser:** 29,825 photos searched by text, photo or
   webcam on the visitor's own CPU, with every query checked against an exact
   scan.
 - **A production-grade site:** Lighthouse scores 100 for accessibility, best
-  practices and SEO on all four pages, with a layout-shift score of 0.01 or
+  practices and SEO on all five pages, with a layout-shift score of 0.02 or
   less; it works offline and is tested in Chromium, Firefox and WebKit on every
   push.
 
@@ -333,7 +343,7 @@ cd web && npm install && npm run dev  # http://localhost:5173/Oryx/
 npx playwright test                   # every end-to-end suite (see below)
 ```
 
-The end-to-end suites run on every push: all four pages in Chromium (desktop
+The end-to-end suites run on every push: all five pages in Chromium (desktop
 and touch phone, both themes), the core journeys in Firefox and WebKit, an
 automated WCAG 2.1 AA audit (axe-core), the webcam path and every camera error,
 offline use, a browser without WebGL, one without WebAssembly SIMD, and a
@@ -383,8 +393,12 @@ each with its own write-ahead log) and a Go router in front of them.
 
 - **Sharding and replication.** Each shard has a primary and a backup on
   different nodes. Writes go to the primary, which forwards them synchronously
-  to the backup before acknowledging; epochs act as fencing tokens so a
-  demoted primary can't accept writes.
+  to an in-sync backup before acknowledging (the reply says if it couldn't:
+  `replicated: false`); epochs act as fencing tokens so a demoted primary
+  can't accept writes.
+- **Read consistency.** `strong` reads only primaries and is linearizable;
+  `eventual` also reads in-sync backups, hedged, for lower tail latency.
+  [What each guarantees, and how it is tested →](docs/consistency.md)
 - **Failover and recovery.** The router health-checks every node, promotes the
   backup when a primary stops answering, and catches a returning node up from
   its peer (log records, or a snapshot when it's too far behind).
@@ -401,7 +415,12 @@ cd cluster && ORYX_NODE_BIN=../build/oryx-node go test -race -tags integration .
 ```
 
 CI runs that test on every push: three real nodes, a primary killed mid-traffic,
-failover, recovery, and a check that no acknowledged write was lost. It also
+failover, recovery, and a check that no acknowledged write was lost. It also runs
+`cluster/sim`: the same router against simulated nodes on a virtual clock
+(`testing/synctest`), with crashes, partitions and lossy links, and checks the
+read/write history with [Porcupine](https://github.com/anishathalye/porcupine).
+The site's cluster page is that simulation, compiled to WebAssembly
+(`scripts/build_sim_wasm.sh`). It also
 checks formatting and scans for known vulnerabilities reachable from the code.
 `deploy/` has the Terraform (Oracle Cloud Always Free, Ampere A1), systemd
 units and a rolling-restart deploy script; credentials stay outside the
@@ -447,7 +466,7 @@ dedicated-server runs are in [`scripts/pace/`](scripts/pace/).
 5. ✅ 3D explorer: layered graph, animated search replay, exact-scan comparison
 6. ✅ In-browser text-to-image search (CLIP text encoder on ONNX Runtime Web, self-hosted)
 7. ✅ Deletes, write-ahead log, crash recovery; 8-bit scalar quantization
-8. ✅ Cluster: Go router, sharded C++ nodes, replication, failover testing in CI (cloud deployment on hold)
+8. ✅ Cluster: Go router, sharded C++ nodes, replication, failover testing in CI (cloud deployment on hold); deterministic fault simulation with linearizability checking, and the router in the browser
 9. ✅ Filtered search; recall monitoring, the recall guard and the miss explainer; fuzzing
 10. Competitive benchmarks on more datasets (GIST1M, GloVe-100, text embeddings, DEEP10M) against Glass, VSAG, USearch and tuned FAISS
 
