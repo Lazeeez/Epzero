@@ -1,4 +1,4 @@
-"""Head-to-head benchmark of Oryx, hnswlib and FAISS (IndexHNSWFlat) on SIFT1M.
+"""Head-to-head benchmark of Epzero, hnswlib and FAISS (IndexHNSWFlat) on SIFT1M.
 
 Fairness rules:
   * identical graph parameters (M, efConstruction) and build thread count;
@@ -33,12 +33,12 @@ def recall_at_k(found, truth, k):
     return hits / (len(found) * k)
 
 
-class Oryx:
-    name = "oryx"
+class Epzero:
+    name = "epzero"
 
     def __init__(self, dim, args):
-        import oryxdb as oryx
-        self.mod, self.dim, self.args = oryx, dim, args
+        import epzero as epzero
+        self.mod, self.dim, self.args = epzero, dim, args
 
     def build(self, base):
         self.index = self.mod.Index(self.dim, "l2", len(base), self.args.M, self.args.efc)
@@ -95,7 +95,7 @@ class Faiss:
         return self.index.search(q, k)[1]
 
 
-LIBRARIES = {cls.name: cls for cls in (Oryx, Hnswlib, Faiss)}
+LIBRARIES = {cls.name: cls for cls in (Epzero, Hnswlib, Faiss)}
 
 
 def main():
@@ -104,7 +104,7 @@ def main():
     parser.add_argument("--out", required=True)
     parser.add_argument("--cache", help="directory for built indexes")
     parser.add_argument("--rebuild", default="", help="comma-separated libraries to rebuild even if cached")
-    parser.add_argument("--libs", default="oryx,hnswlib,faiss")
+    parser.add_argument("--libs", default="epzero,hnswlib,faiss")
     parser.add_argument("--M", type=int, default=16)
     parser.add_argument("--efc", type=int, default=200)
     parser.add_argument("--k", type=int, default=10)
