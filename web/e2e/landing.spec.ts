@@ -78,7 +78,7 @@ test("landing page: live hero, and the HNSW explainer runs real searches", async
   // Navigating by the nav bar is client-side (the engine survives).
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Benchmarks" }).click();
   await expect(page).toHaveURL(/\/benchmarks$/);
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("Faster than the libraries");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Faster than hnswlib and FAISS");
 
   if (shots) {
     await page.goto("./");
