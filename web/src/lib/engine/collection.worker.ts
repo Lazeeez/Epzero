@@ -1,4 +1,4 @@
-// Owns the Oryx engine for the site: streams the int8 CLIP vectors and the prebuilt HNSW graph
+// Owns the Epzero engine for the site: streams the int8 CLIP vectors and the prebuilt HNSW graph
 // (or builds the graph on every core when there isn't one, and on request), and answers searches
 // with full traversal traces. Nothing here touches the DOM.
 import { cachedFetch } from "../cached-fetch";
@@ -30,7 +30,7 @@ const post = (message: FromWorker, transfer: Transferable[] = []) =>
 
 const variant: "mt" | "st" = self.crossOriginIsolated ? "mt" : "st";
 const threads = variant === "mt" ? Math.min(navigator.hardwareConcurrency || 4, 16) : 1;
-const engine = import(/* @vite-ignore */ `${import.meta.env.BASE_URL}wasm/${variant}/oryx.js`).then(
+const engine = import(/* @vite-ignore */ `${import.meta.env.BASE_URL}wasm/${variant}/epzero.js`).then(
   (module) => module.default() as Promise<{ Collection: new () => Collection; Keywords: new () => Keywords }>,
 );
 let collection: Collection | null = null;
