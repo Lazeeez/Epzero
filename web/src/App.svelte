@@ -49,19 +49,19 @@
   });
 
   const titles = {
-    home: "Oryx · A vector database, running in your browser",
-    try: "Try it · Oryx",
-    play: "Out-navigate Oryx · Oryx",
-    cluster: "Cluster · Oryx",
-    benchmarks: "Benchmarks · Oryx",
-    notfound: "Page not found · Oryx",
+    home: "Epzero · A vector database, running in your browser",
+    try: "Try it · Epzero",
+    play: "Out-navigate Epzero · Epzero",
+    cluster: "Cluster · Epzero",
+    benchmarks: "Benchmarks · Epzero",
+    notfound: "Page not found · Epzero",
   };
   // Per-page title and canonical URL (search engines index each page on its own address; a
   // not-found page points back to the home page).
   $effect(() => {
     document.title = titles[router.route];
     const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
-    if (canonical) canonical.href = new URL(router.href(router.route === "notfound" ? "home" : router.route), "https://lazeeez.github.io").href;
+    if (canonical) canonical.href = new URL(router.href(router.route === "notfound" ? "home" : router.route), "https://epzero.dev").href;
   });
 </script>
 
