@@ -1,7 +1,7 @@
-"""Oryx against the fastest graph-based ANN libraries, on the ann-benchmarks datasets.
+"""Epzero against the fastest graph-based ANN libraries, on the ann-benchmarks datasets.
 
 Libraries (each optional: one that fails to import is skipped and the run says so):
-  oryx, oryx-sq8   this repository (full precision; 8-bit codes + exact re-rank)
+  epzero, epzero-sq8   this repository (full precision; 8-bit codes + exact re-rank)
   hnswlib          the reference HNSW implementation
   faiss-hnsw       FAISS IndexHNSWFlat
   faiss-ivfpq      FAISS tuned for speed: IVF + 4-bit PQ fast-scan + exact re-rank (IVF{4 sqrt n},PQ{d/2}x4fs,RFlat)
@@ -64,15 +64,15 @@ class Library:
         self.dim, self.args = dim, args
 
 
-class Oryx(Library):
-    name = "oryx"
+class Epzero(Library):
+    name = "epzero"
     quantization = "none"
 
     def __init__(self, dim, args):
         super().__init__(dim, args)
-        import oryxdb
+        import epzero
 
-        self.mod = oryxdb
+        self.mod = epzero
 
     def build(self, base):
         self.index = self.mod.Index(self.dim, "l2", len(base), self.args.M, self.args.efc, quantization=self.quantization)
@@ -99,8 +99,8 @@ class Oryx(Library):
         return self.index.search(q, k=k, ef=ef, threads=1)[0]
 
 
-class OryxSq8(Oryx):
-    name = "oryx-sq8"
+class EpzeroSq8(Epzero):
+    name = "epzero-sq8"
     quantization = "sq8"
 
 
@@ -263,7 +263,7 @@ class Glass(Library):
         self._searcher(base)
 
     def _searcher(self, base):
-        # SQ8U codes for the walk, refined with the full vectors (as VSAG and oryx-sq8 do).
+        # SQ8U codes for the walk, refined with the full vectors (as VSAG and epzero-sq8 do).
         self.searcher = self.mod.Searcher(self.graph, base, "L2", "SQ8U", "FP32")
         self.searcher.optimize(1)
 
@@ -276,7 +276,7 @@ class Glass(Library):
         return np.asarray(ids).reshape(len(q), k)
 
 
-LIBRARIES = {cls.name: cls for cls in (Oryx, OryxSq8, Hnswlib, FaissHnsw, FaissIvfPq, USearch, Vsag, Glass)}
+LIBRARIES = {cls.name: cls for cls in (Epzero, EpzeroSq8, Hnswlib, FaissHnsw, FaissIvfPq, USearch, Vsag, Glass)}
 
 
 def main():
