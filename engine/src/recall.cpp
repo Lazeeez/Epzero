@@ -1,9 +1,9 @@
-#include "oryx/recall.h"
+#include "epzero/recall.h"
 
 #include <algorithm>
 #include <cmath>
 
-namespace oryx {
+namespace epzero {
 
 RecallMonitor::RecallMonitor(const HnswIndex& index, Options options)
     : index_(index),
@@ -189,4 +189,4 @@ std::vector<RecallGuard::Segment> RecallGuard::report() const {
   return out;
 }
 
-}  // namespace oryx
+}  // namespace epzero
