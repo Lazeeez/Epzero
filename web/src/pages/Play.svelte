@@ -8,7 +8,7 @@
   import { router } from "../lib/router.svelte";
 
   const MAX_HOPS = 25;
-  const BEST_KEY = "oryx-navigator-best";
+  const BEST_KEY = "epzero-navigator-best";
 
   type Phase = "intro" | "loading" | "playing" | "won" | "lost";
   let phase = $state<Phase>("intro");
@@ -23,7 +23,7 @@
   let hints = $state(0);
   let hinted = $state<number | null>(null);
   let highlight = $state<number | null>(null);
-  let oryx = $state.raw<Trace | null>(null);
+  let epzero = $state.raw<Trace | null>(null);
   let seen = $state(0);
   let error = $state("");
   let best = $state<number | null>(readBest());
@@ -31,16 +31,16 @@
 
   const hops = $derived(path.length - 1);
   const current = $derived(path[path.length - 1]);
-  // Oryx's route, counted like yours: greedy moves on the express (upper) layers, then the photos
+  // Epzero's route, counted like yours: greedy moves on the express (upper) layers, then the photos
   // its beam search expanded on the base layer. (Its "accepted" events also include candidates
   // merely admitted to the beam, which aren't moves.)
-  const oryxRoute = $derived.by(() => {
-    if (!oryx) return { express: 0, expanded: 0 };
+  const epzeroRoute = $derived.by(() => {
+    if (!epzero) return { express: 0, expanded: 0 };
     let express = 0;
     const expanded = new Set<number>();
-    for (let i = 0; i < oryx.to.length; i++) {
-      if (oryx.layer[i] > 0) express += oryx.accepted[i];
-      else expanded.add(oryx.from[i]);
+    for (let i = 0; i < epzero.to.length; i++) {
+      if (epzero.layer[i] > 0) express += epzero.accepted[i];
+      else expanded.add(epzero.from[i]);
     }
     return { express, expanded: expanded.size };
   });
@@ -65,7 +65,7 @@
     phase = "loading";
     try {
       const t = engine.randomId();
-      // The target's true neighbourhood (exact scan) is the goal; Oryx's own search is the benchmark.
+      // The target's true neighbourhood (exact scan) is the goal; Epzero's own search is the benchmark.
       const outcome = await engine.search({ kind: "id", id: t }, 64, 10);
       // Start far away: the least similar of a few random photos.
       let start = engine.randomId();
@@ -80,8 +80,8 @@
       }
       target = t;
       goals = new Set(outcome.trace.exact);
-      oryx = null;
-      pendingOryx = outcome.trace;
+      epzero = null;
+      pendingEpzero = outcome.trace;
       path = [start];
       similarity = startSim;
       startSimilarity = startSim;
@@ -97,7 +97,7 @@
       phase = "intro";
     }
   }
-  let pendingOryx: Trace | null = null;
+  let pendingEpzero: Trace | null = null;
 
   async function loadNeighbors(id: number) {
     const hood = await engine.neighbors(id, target);
@@ -143,7 +143,7 @@
 
   function finish(won: boolean) {
     phase = won ? "won" : "lost";
-    oryx = pendingOryx;
+    epzero = pendingEpzero;
     if (won && (best === null || hops < best)) {
       best = hops;
       try {
@@ -161,10 +161,10 @@
 <div class="play container">
   <header class="head">
     <p class="eyebrow">Navigator challenge</p>
-    <h1><span class="gradient-text">Can you out-navigate</span> Oryx?</h1>
+    <h1><span class="gradient-text">Can you out-navigate</span> Epzero?</h1>
     <p class="lede">
       You're dropped on a random photo among {engine.count ? engine.count.toLocaleString() : "29,825"}. Reach the target by hopping
-      between neighbouring photos: the same links Oryx's search walks. Oryx gets express lanes; you get a star chart.
+      between neighbouring photos: the same links Epzero's search walks. Epzero gets express lanes; you get a star chart.
     </p>
   </header>
 
@@ -203,11 +203,11 @@
           <p>{engine.caption(target)}</p>
         </div>
         <div class="chart card">
-          <StarChart {target} {goals} {path} neighbors={neighbors.map((n) => n.id)} {highlight} {oryx} />
+          <StarChart {target} {goals} {path} neighbors={neighbors.map((n) => n.id)} {highlight} {epzero} />
           <ul class="legend">
             <li><i class="dot you"></i>Your route</li>
             <li><i class="dot goal"></i>Target and its neighbours</li>
-            {#if oryx}<li><i class="dot oryx"></i>Oryx's route</li>{/if}
+            {#if epzero}<li><i class="dot epzero"></i>Epzero's route</li>{/if}
           </ul>
         </div>
       </section>
@@ -236,7 +236,7 @@
           <div class="toolbar">
             <span class="hint-text">Choose the next photo</span>
             <button class="btn btn-ghost" onclick={back} disabled={path.length < 2}>Back</button>
-            <button class="btn btn-ghost" onclick={hint}>Ask Oryx{hints ? ` (${hints})` : ""}</button>
+            <button class="btn btn-ghost" onclick={hint}>Ask Epzero{hints ? ` (${hints})` : ""}</button>
             <button class="btn btn-ghost" onclick={() => finish(false)}>Give up</button>
           </div>
           {#if !neighbors.length}<p class="warn">This photo has no links left to follow. Go back or give up.</p>{/if}
@@ -269,16 +269,16 @@
               </dl>
               <span class="vs" aria-hidden="true">vs</span>
               <dl>
-                <dt>Oryx</dt>
-                <dd>{oryxRoute.express} + {oryxRoute.expanded}</dd>
+                <dt>Epzero</dt>
+                <dd>{epzeroRoute.express} + {epzeroRoute.expanded}</dd>
                 <dd class="note">
-                  express hops + base-layer expansions · {oryx?.distanceComputations.toLocaleString()} photos compared in
-                  {oryx ? time(oryx.micros) : "–"}
+                  express hops + base-layer expansions · {epzero?.distanceComputations.toLocaleString()} photos compared in
+                  {epzero ? time(epzero.micros) : "–"}
                 </dd>
               </dl>
             </div>
             <p>
-              Oryx starts on its sparse top layer, where one hop crosses the whole map, and only drops to the dense layer you were
+              Epzero starts on its sparse top layer, where one hop crosses the whole map, and only drops to the dense layer you were
               walking once it's close. There it widens into a beam search to make sure nothing nearer was missed. The blue lines on
               the chart are its route.
             </p>
@@ -446,7 +446,7 @@
   .dot.goal {
     background: var(--good);
   }
-  .dot.oryx {
+  .dot.epzero {
     background: var(--accent);
   }
   .status {
