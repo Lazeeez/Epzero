@@ -12,6 +12,7 @@ interface Collection {
   levels(): Uint8Array;
   edges(layer: number): Uint32Array;
   search(query: Float32Array, k: number, ef: number): Trace;
+  hybridSearch(query: Float32Array, keywords: Keywords, words: string, k: number, ef: number): Trace;
   searchById(id: number, k: number, ef: number): Trace;
   evaluate(samples: number, k: number, ef: number, threads: number): Omit<Evaluation, "ef">;
   setFilter(ids: Uint32Array | null): FilterInfo;
@@ -20,15 +21,30 @@ interface Collection {
   info(): { maxLevel: number; memoryBytes: number };
 }
 
+interface Keywords {
+  set(texts: string): number;
+}
+
 const post = (message: FromWorker, transfer: Transferable[] = []) =>
   (self as unknown as Worker).postMessage(message, transfer);
 
 const variant: "mt" | "st" = self.crossOriginIsolated ? "mt" : "st";
 const threads = variant === "mt" ? Math.min(navigator.hardwareConcurrency || 4, 16) : 1;
 const engine = import(/* @vite-ignore */ `${import.meta.env.BASE_URL}wasm/${variant}/oryx.js`).then(
-  (module) => module.default() as Promise<{ Collection: new () => Collection }>,
+  (module) => module.default() as Promise<{ Collection: new () => Collection; Keywords: new () => Keywords }>,
 );
 let collection: Collection | null = null;
+// The captions' keyword index (BM25), built once from the "keywords" message.
+let keywords: Keywords | null = null;
+
+// Words too common to mean anything as keywords. Fusion goes by rank, so even a weak match would
+// otherwise pull a photo into the results.
+const COMMON = new Set(
+  "a an and are as at be by for from has have in is it its of on or that the this to was were with photo photos picture image".split(" "),
+);
+function keywordsOf(text: string): string {
+  return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length > 1 && !COMMON.has(w)).join(" ");
+}
 // The int8 codes and per-dimension scales, kept to answer vector and similarity requests in JS.
 // They are the photos' coordinates on the dataset's principal axes, and only the leading `dim` of
 // the `fullDim` axes until the rest have downloaded (see load).
@@ -279,13 +295,20 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
     } else if (message.type === "request") {
       const { value, transfer } = answer(message.request);
       post({ type: "reply", seq: message.seq, value }, transfer);
+    } else if (message.type === "keywords") {
+      const module = await engine;
+      keywords ??= new module.Keywords();
+      keywords.set(message.texts);
     } else if (message.type === "search") {
       if (!collection) throw new Error("the index is not built yet");
       const { query } = message;
-      const trace =
-        query.kind === "id"
-          ? collection.searchById(query.id, message.k, message.ef)
-          : collection.search(rotate(query.vector), message.k, message.ef);
+      const words = message.hybrid && query.kind === "vector" && keywords ? keywordsOf(query.text) : "";
+      let trace: Trace;
+      if (query.kind === "id") trace = collection.searchById(query.id, message.k, message.ef);
+      else if (words) {
+        trace = collection.hybridSearch(rotate(query.vector), keywords!, words, message.k, message.ef);
+        trace.hybrid!.words = words;
+      } else trace = collection.search(rotate(query.vector), message.k, message.ef);
       post({ type: "result", seq: message.seq, query, trace });
     }
   } catch (error) {
