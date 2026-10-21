@@ -1,4 +1,4 @@
-// The landing page's teaching index: a few hundred 2-D points in the real Oryx engine (the
+// The landing page's teaching index: a few hundred 2-D points in the real Epzero engine (the
 // single-threaded WebAssembly build, loaded on the main thread; it builds in a few milliseconds).
 import type { Trace } from "../engine/protocol";
 
@@ -23,7 +23,7 @@ export interface ToyGraph {
 let module: Promise<{ Toy: new () => ToyIndex }> | null = null;
 
 function engine() {
-  module ??= import(/* @vite-ignore */ `${import.meta.env.BASE_URL}wasm/st/oryx.js`).then((m) => m.default());
+  module ??= import(/* @vite-ignore */ `${import.meta.env.BASE_URL}wasm/st/epzero.js`).then((m) => m.default());
   return module;
 }
 
