@@ -8,7 +8,7 @@
   const vsHnswlib = speedup("hnswlib");
   const vsFaiss = speedup("faiss");
   const libraries = [
-    { name: "Oryx", value: vsHnswlib, accent: true },
+    { name: "Epzero", value: vsHnswlib, accent: true },
     { name: "FAISS", value: vsHnswlib / vsFaiss },
     { name: "hnswlib", value: 1 },
   ];
