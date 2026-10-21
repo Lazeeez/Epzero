@@ -1,4 +1,4 @@
-#include "oryx/database.h"
+#include "epzero/database.h"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -12,9 +12,9 @@
 #include <functional>
 #include <stdexcept>
 
-#include "oryx/parallel.h"
+#include "epzero/parallel.h"
 
-namespace oryx {
+namespace epzero {
 namespace {
 
 namespace fs = std::filesystem;
@@ -138,7 +138,7 @@ std::size_t parse_log(const std::vector<std::uint8_t>& bytes, std::size_t dim,
 }
 
 fs::path snapshot_path(const fs::path& dir, std::uint64_t lsn) {
-  return dir / ("snapshot-" + std::to_string(lsn) + ".oryx");
+  return dir / ("snapshot-" + std::to_string(lsn) + ".epzero");
 }
 
 void remove_other_snapshots(const fs::path& dir, const fs::path& keep) {
@@ -448,4 +448,4 @@ std::size_t Database::size() const {
   return index_->live_count();
 }
 
-}  // namespace oryx
+}  // namespace epzero
