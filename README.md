@@ -427,6 +427,10 @@ each with its own write-ahead log) and a Go router in front of them.
   to an in-sync backup before acknowledging (the reply says if it couldn't:
   `replicated: false`); epochs act as fencing tokens so a demoted primary
   can't accept writes.
+- **Many routers, one leader.** With `-etcd`, routers share the shard map through etcd: all
+  of them serve traffic, and an elected leader fails shards over, with every map change a
+  compare-and-swap fenced by its election key. Without etcd a single router keeps the map in
+  a local file.
 - **Read consistency.** `strong` reads only primaries and is linearizable;
   `eventual` also reads in-sync backups, hedged, for lower tail latency.
   [What each guarantees, and how it is tested →](docs/consistency.md)
