@@ -151,7 +151,10 @@ std::vector<SearchResult> RecallGuard::search(const float* query, std::size_t k,
                                               SearchStats* stats) {
   const std::string segment = segment_of(filter);
   const std::size_t ef = state(segment).ef.load(std::memory_order_relaxed);
-  auto results = index_.search(query, k, {.ef = ef, .stats = stats, .filter = filter});
+  // Patience at a third of the cap: the best trade-off measured on GloVe-100 (the cap then only
+  // stops the hardest queries).
+  const std::size_t patience = options_.per_query && filter == nullptr ? std::max<std::size_t>(1, ef / 3) : 0;
+  auto results = index_.search(query, k, {.ef = ef, .patience = patience, .stats = stats, .filter = filter});
   monitor_.observe(query, k, results, filter, segment);
   return results;
 }
