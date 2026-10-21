@@ -4,12 +4,14 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <random>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "oryx/distance.h"
@@ -103,8 +105,13 @@ struct SearchTrace {
 
 struct SearchOptions {
   std::size_t ef = 64;              // beam width on layer 0; clamped to at least k
+  // Per-query effort: stop once the best k haven't changed for this many node expansions in a
+  // row (0 = off). An easy query settles quickly and stops early; a hard one keeps improving and
+  // searches on, up to `ef`, which then only caps the beam. Unfiltered searches only.
+  std::size_t patience = 0;
   // SQ8 with kept vectors: how many of the best approximate candidates to re-score exactly
-  // (0 = all ef of them). Ignored otherwise.
+  // (0 = 3 x k: on SIFT1M, GloVe-100 and GIST1M, re-scoring all ef of them gave the same recall to
+  // within 0.0002, at up to ef full-vector reads per query). Ignored otherwise.
   std::size_t rerank = 0;
   SearchStats* stats = nullptr;     // optional
   SearchTrace* trace = nullptr;     // optional; costs nothing when null
@@ -221,6 +228,19 @@ class HnswIndex {
   std::vector<std::uint64_t> neighbors_of(std::uint64_t label, int layer) const;
   std::size_t memory_bytes() const noexcept;
 
+  // Memory prefetching in the search loop: keep `depth` of a node's unvisited neighbors prefetched
+  // ahead of the one being scored, `lines` cache lines of each. The default (every neighbor, one
+  // line) was the best measured on SIFT1M; tune_prefetch() measures the best for this machine and
+  // data. Not thread-safe against concurrent searches; set it before serving.
+  void set_prefetch(std::size_t depth, std::size_t lines) noexcept;
+  std::pair<std::size_t, std::size_t> prefetch_settings() const noexcept { return {prefetch_depth_, prefetch_lines_}; }
+  // Times searches of `queries` (n rows; a few hundred, e.g. sampled from the data) at a grid of
+  // prefetch settings and keeps the fastest, if it beats the default by at least 3% (smaller
+  // differences are noise). Machine-specific, so not saved with the index: tune after loading.
+  // Measured: +17% on GloVe-100 at full precision, nothing on GIST1M with SQ8. Returns the setting.
+  std::pair<std::size_t, std::size_t> tune_prefetch(const float* queries, std::size_t n, std::size_t k = 10,
+                                                    std::size_t ef = 64);
+
  private:
   using id_t = std::uint32_t;
   struct Candidate {
@@ -272,8 +292,10 @@ class HnswIndex {
                       SearchTrace* trace) const;
   // Beam search on one layer. Tombstoned nodes are routed through but not returned, unless
   // `keep_deleted` (an insert that found no live neighbour links through them instead).
+  // With `patience`, it also stops once the best `k` have gone that many expansions unchanged.
   std::vector<Candidate> search_layer(const Scorer& scorer, id_t entry, std::size_t ef, int layer,
-                                      SearchStats& stats, SearchTrace* trace, bool keep_deleted = false) const;
+                                      SearchStats& stats, SearchTrace* trace, bool keep_deleted = false,
+                                      std::size_t k = 0, std::size_t patience = 0) const;
   // Layer-0 beam search that only returns nodes the filter allows (Inline or TwoHop).
   std::vector<Candidate> search_layer_filtered(const Scorer& scorer, id_t entry, std::size_t ef,
                                                const SearchFilter& filter, bool two_hop, SearchStats& stats,
@@ -295,6 +317,8 @@ class HnswIndex {
   SimdLevel simd_level_;
   DistanceFn dist_;
   Sq8DotFn sq8_dot_;
+  // SQ8 in integers (int8 per-query weights), where the CPU has a kernel faster than the float one.
+  Sq8IntDotFn sq8_int_dot_;
   RabitqIpFn rabitq_ip_;
   std::size_t max_links0_;
   double level_mult_;
@@ -339,6 +363,9 @@ class HnswIndex {
   std::mt19937_64 rng_;
 
   std::unique_ptr<detail::VisitedPool> visited_pool_;
+
+  std::size_t prefetch_depth_ = std::numeric_limits<std::size_t>::max();  // everything up front
+  std::size_t prefetch_lines_ = 1;
 };
 
 }  // namespace oryx
