@@ -9,7 +9,7 @@
   "build_threads": 12,
   "rounds": 7,
   "libraries": {
-    "oryx": {
+    "epzero": {
       "build_seconds": 42.940577319,
       "sweep": [
         {
