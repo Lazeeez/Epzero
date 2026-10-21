@@ -65,7 +65,7 @@ set_target_properties(oryx_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # runs on any CPU of the architecture and picks the best kernel at runtime.
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
   target_sources(oryx_engine PRIVATE src/distance_avx2.cpp src/distance_avx512.cpp)
-  set_source_files_properties(src/distance_avx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma")
+  set_source_files_properties(src/distance_avx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma;-mpopcnt")
   set_source_files_properties(src/distance_avx512.cpp PROPERTIES COMPILE_OPTIONS "-mavx512f")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
   target_sources(oryx_engine PRIVATE src/distance_neon.cpp)
