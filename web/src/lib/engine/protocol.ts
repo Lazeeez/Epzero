@@ -90,10 +90,29 @@ export interface Neighborhood {
   similarities: Float32Array;
 }
 
+/**
+ * Where each stage of the progressive vector file (pipeline/progressive_vectors.py) ends, in bytes:
+ * the file holds blocks of dimensions, each block's scales (float32), rotation rows (float16) and
+ * the photos' codes (int8), so stage s is searchable once ends[s] bytes have arrived.
+ */
+export function stageEnds(count: number, dim: number, stages: number[]): number[] {
+  let end = 0;
+  let lo = 0;
+  return stages.map((dims) => {
+    const w = dims - lo;
+    end += 4 * w + 2 * w * dim + count * w;
+    lo = dims;
+    return end;
+  });
+}
+
 export type ToWorker =
   | {
       type: "load";
       base: string;
+      /** The progressive vector file, and the dimension counts it can be searched at. */
+      vectors: string;
+      stages: number[];
       count: number;
       dim: number;
       M: number;
@@ -108,6 +127,8 @@ export type ToWorker =
 export type FromWorker =
   | { type: "progress"; stage: "download" | "build"; done: number; total: number }
   | { type: "built"; graph: GraphInfo }
+  /** More of the vectors arrived: searches now use this many dimensions (of `dim`). */
+  | { type: "precision"; dims: number }
   | { type: "result"; seq: number; query: Query; trace: Trace }
   | { type: "reply"; seq: number; value: unknown }
   | { type: "error"; seq?: number; message: string };
