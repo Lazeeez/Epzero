@@ -1,7 +1,14 @@
 <script lang="ts">
   import { engine } from "../lib/engine/engine.svelte";
 
-  let { id, size = "n", alt = "" }: { id: number; size?: "q" | "n" | "z"; alt?: string } = $props();
+  // eager: a photo that's on screen the moment it appears (top results, the preview) is fetched
+  // right away at high priority instead of waiting for lazy loading's layout pass.
+  let {
+    id,
+    size = "n",
+    alt = "",
+    eager = false,
+  }: { id: number; size?: "q" | "n" | "z"; alt?: string; eager?: boolean } = $props();
   let loaded = $state(false);
   let failed = $state(false);
   let attempt = $state(0);
@@ -31,7 +38,7 @@
 
 <!-- Flickr thumbnails, fetched with CORS (required under cross-origin isolation) and faded in. -->
 <span class="thumb" class:loaded class:failed title={failed ? "This photo couldn't be loaded" : undefined}>
-  <img {src} {alt} crossorigin="anonymous" referrerpolicy="no-referrer" loading="lazy" decoding="async" onload={() => (loaded = true)} {onerror} />
+  <img {src} {alt} crossorigin="anonymous" referrerpolicy="no-referrer" loading={eager ? "eager" : "lazy"} fetchpriority={eager ? "high" : "auto"} decoding="async" onload={() => (loaded = true)} {onerror} />
   {#if failed}
     <svg class="missing" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M4 6h16v12H4zM4 15l4-4 4 4 3-3 5 5M3 3l18 18" />
