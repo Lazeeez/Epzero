@@ -1,5 +1,7 @@
 <script lang="ts">
+  import Constellation from "../components/play/Constellation.svelte";
   import StarChart from "../components/play/StarChart.svelte";
+  import { spotlight } from "../lib/spotlight";
   import Thumb from "../components/Thumb.svelte";
   import { engine } from "../lib/engine/engine.svelte";
   import type { Trace } from "../lib/engine/protocol";
@@ -167,7 +169,8 @@
   </header>
 
   {#if phase === "intro" || phase === "loading"}
-    <div class="intro card">
+    <div class="intro-row">
+    <div class="intro card" use:spotlight>
       <ol>
         <li><b>Pick a neighbour</b> that looks more like the target. Each photo links to up to 32 others.</li>
         <li><b>Watch the chart:</b> nearby stars are similar photos. Hover a neighbour to see where it leads.</li>
@@ -188,6 +191,8 @@
         {/if}
       </div>
       {#if error}<p class="warn" role="alert">{error}</p>{/if}
+    </div>
+      <div class="intro-art"><Constellation /></div>
     </div>
   {:else}
     <div class="game">
@@ -303,11 +308,27 @@
     color: var(--text-2);
     font-size: 16.5px;
   }
+  .intro-row {
+    display: grid;
+    grid-template-columns: minmax(0, 720px) minmax(0, 1fr);
+    gap: clamp(24px, 5vw, 72px);
+    align-items: center;
+    margin-top: 36px;
+  }
+  .intro-art {
+    max-width: 440px;
+  }
+  @media (max-width: 1000px) {
+    .intro-row {
+      grid-template-columns: 1fr;
+    }
+    .intro-art {
+      display: none;
+    }
+  }
   .intro {
     display: grid;
     gap: 20px;
-    max-width: 720px;
-    margin-top: 36px;
     padding: 26px;
   }
   .intro ol {
