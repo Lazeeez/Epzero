@@ -105,6 +105,56 @@ the like-for-like comparison is on equal pages, and there Oryx's design is worth
 depending on the CPU. Laptop data:
 [`bench/results/sift1m-compare.json`](../bench/results/sift1m-compare.json).
 
+### Against the field: four more datasets
+
+SIFT1M is one dataset with 128 dimensions. [`bench/compete.py`](../bench/compete.py) runs seven
+libraries on four more ann-benchmarks datasets on the same server node. The rules match the SIFT1M
+comparison: the same graph degree (M = 16, i.e. 32 links on the base layer) and build beam (200),
+every index built on all 24 cores and then searched from one process on one thread pinned to one
+socket, the median of three interleaved rounds. Each library's QPS is interpolated (log-linear)
+to the same recall@10.
+
+| Library | GIST1M, 960-D (recall 0.95) | GloVe-100 (recall 0.90) | DBpedia OpenAI, 1,536-D (recall 0.95) | DEEP10M, 10M × 96-D (recall 0.95) |
+|---|---|---|---|---|
+| Oryx | 351 | 1,311 | 1,419 | 3,824 |
+| Oryx SQ8 | 481 | 1,373 | 2,170 | 4,101 |
+| hnswlib | 356 | 1,133 | 1,438 | 3,710 |
+| FAISS HNSW | 336 | 1,160 | 1,617 | 3,407 |
+| FAISS IVF-PQ | never reaches | never reaches | 1,620 | never reaches |
+| USearch | 260 | 734 | 993 | 2,052 |
+| VSAG | 414 | 1,050 | 1,798 | 3,113 |
+| Glass | **709** | **2,867** | **3,604** | **6,344** |
+
+- **Glass is the fastest on every dataset**, 1.5–2.1× Oryx SQ8. Like Oryx SQ8 and VSAG it walks
+  the graph on 8-bit codes and re-ranks with the full vectors, and it measures the best prefetch
+  distance for the machine before searching (its `optimize` step). It is the one to learn from:
+  tuned prefetch depth and a batch search loop are the next levers worth trying here.
+- **Oryx SQ8 is second on all four.**
+- **Uncompressed, Oryx is level with hnswlib** on the high-dimensional sets (GIST 351 vs 356,
+  DBpedia 1,419 vs 1,438) and ahead on the low-dimensional ones (DEEP10M +3%, GloVe +16%). With
+  960 or 1,536 dimensions, each distance is a long, bandwidth-bound scan, and the memory work
+  around it (prefetching, the visited set) is a small share of the time. On DBpedia, FAISS HNSW
+  (+14%) and VSAG are ahead of uncompressed Oryx.
+- **GloVe is compared at recall 0.90**: at M = 16 no library but VSAG reaches 0.95 by `ef` = 800
+  (the others top out at 0.942–0.946). Tuned FAISS IVF-PQ reaches 0.95 only on DBpedia.
+- **Build is not Oryx's strength here.** On SIFT1M it built fastest; on these sets hnswlib builds
+  5–30% faster (GIST 167 s vs 213 s, DBpedia 220 s vs 288 s, DEEP10M 315 s vs 335 s).
+
+| Build, 24 threads | GIST1M | GloVe-100 | DBpedia OpenAI | DEEP10M |
+|---|---|---|---|---|
+| Oryx | 213 s | 42 s | 288 s | 335 s |
+| hnswlib | 167 s | 45 s | 220 s | 315 s |
+| FAISS HNSW | 219 s | 45 s | 335 s | 384 s |
+| USearch | 178 s | 51 s | 220 s | 422 s |
+| VSAG | 159 s | 73 s | 251 s | 468 s |
+| Glass | 223 s | 38 s | 299 s | 462 s |
+
+Caveats: VSAG is searched one query per Python call (about 1–2 µs of overhead each, small next to
+its 250 µs–3 ms queries). Glass's saved graph lost recall when loaded back, so it is rebuilt for
+the search run; its build time is from the build run. The DBpedia dataset is generated the way
+ann-benchmarks does it ([`scripts/make_dbpedia.py`](../scripts/make_dbpedia.py)): 990,000 base
+vectors, 10,000 queries, exact neighbours. Raw data: `bench/results/pace/gold6226/*-compete.json`.
+
 ### Thread scaling
 
 Search throughput on the same server node, SIFT1M, ef = 80 (recall 0.974), median of three runs
@@ -249,6 +299,9 @@ Measured on the Try page (local server, 12-thread laptop):
 1. **Graph-parameter tuning** (M, efConstruction) for the best
    recall-vs-distance-computations trade-off.
 2. **Vectors on SSD** (a DiskANN-style layout), where RaBitQ's skipped reads would pay off.
+3. **What Glass does better** ([against the field](#against-the-field-four-more-datasets)):
+   measure the prefetch depth per machine instead of fixing it, and search a batch of queries in
+   one loop so their memory stalls overlap.
 
 ## Reproduce
 
