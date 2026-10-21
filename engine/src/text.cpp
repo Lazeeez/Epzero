@@ -1,4 +1,4 @@
-#include "oryx/text.h"
+#include "epzero/text.h"
 
 #include <algorithm>
 #include <cmath>
@@ -8,11 +8,12 @@
 #include <stdexcept>
 #include <unordered_set>
 
-namespace oryx {
+namespace epzero {
 
 namespace {
 
-constexpr char kMagic[8] = {'O', 'R', 'Y', 'X', 'T', 'X', 'T', '1'};
+constexpr char kMagic[8] = {'E', 'P', 'Z', 'R', 'T', 'X', 'T', '1'};
+constexpr char kLegacyMagic[8] = {'O', 'R', 'Y', 'X', 'T', 'X', 'T', '1'};  // from before the rename
 
 bool word_byte(unsigned char c) noexcept {
   return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c >= 0x80;
@@ -221,8 +222,9 @@ TextIndex TextIndex::load(const std::string& path) {
   std::ifstream in(path, std::ios::binary);
   if (!in) throw std::runtime_error("cannot open " + path);
   char magic[sizeof(kMagic)];
-  if (!in.read(magic, sizeof(magic)) || std::memcmp(magic, kMagic, sizeof(kMagic)) != 0) {
-    throw std::runtime_error(path + " is not an Oryx text index");
+  if (!in.read(magic, sizeof(magic)) ||
+      (std::memcmp(magic, kMagic, sizeof(kMagic)) != 0 && std::memcmp(magic, kLegacyMagic, sizeof(kMagic)) != 0)) {
+    throw std::runtime_error(path + " is not an Epzero text index");
   }
   Options options;
   options.k1 = get<float>(in);
@@ -298,4 +300,4 @@ std::vector<SearchResult> hybrid_search(const HnswIndex& vectors, const TextInde
                        k, options.rrf_k, {options.vector_weight, options.text_weight});
 }
 
-}  // namespace oryx
+}  // namespace epzero
