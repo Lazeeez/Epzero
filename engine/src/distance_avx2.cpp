@@ -94,6 +94,31 @@ std::uint32_t rabitq_ip_popcnt(const std::uint64_t* bits, const std::uint64_t* p
   return sum;
 }
 
+// 64 codes per iteration: maddubs multiplies uint8 codes by int8 weights and adds adjacent pairs
+// into int16 (at most 2 x 255 x 63, so no saturation), madd widens the pairs into int32 sums.
+std::int32_t sq8_int_dot_avx2(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept {
+  const __m256i ones = _mm256_set1_epi16(1);
+  __m256i acc0 = _mm256_setzero_si256();
+  __m256i acc1 = _mm256_setzero_si256();
+  std::size_t i = 0;
+  const auto load = [](const void* p) { return _mm256_loadu_si256(static_cast<const __m256i*>(p)); };
+  for (; i + 64 <= dim; i += 64) {
+    acc0 = _mm256_add_epi32(acc0, _mm256_madd_epi16(_mm256_maddubs_epi16(load(codes + i), load(w + i)), ones));
+    acc1 = _mm256_add_epi32(acc1, _mm256_madd_epi16(_mm256_maddubs_epi16(load(codes + i + 32), load(w + i + 32)), ones));
+  }
+  if (i + 32 <= dim) {
+    acc0 = _mm256_add_epi32(acc0, _mm256_madd_epi16(_mm256_maddubs_epi16(load(codes + i), load(w + i)), ones));
+    i += 32;
+  }
+  const __m256i sum = _mm256_add_epi32(acc0, acc1);
+  __m128i s = _mm_add_epi32(_mm256_castsi256_si128(sum), _mm256_extracti128_si256(sum, 1));
+  s = _mm_add_epi32(s, _mm_shuffle_epi32(s, _MM_SHUFFLE(1, 0, 3, 2)));
+  s = _mm_add_epi32(s, _mm_shuffle_epi32(s, _MM_SHUFFLE(2, 3, 0, 1)));
+  std::int32_t dot = _mm_cvtsi128_si32(s);
+  for (; i < dim; ++i) dot += static_cast<std::int32_t>(w[i]) * codes[i];
+  return dot;
+}
+
 }  // namespace oryx::kernels
 
 #endif
