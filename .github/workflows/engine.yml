@@ -114,7 +114,7 @@ jobs:
         env:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
-          for target in snapshot graph wal; do
+          for target in snapshot graph wal text; do
             build/fuzz_$target corpus/$target -max_total_time=60 -max_len=4096 -timeout=10 -artifact_prefix=fuzz-$target-
           done
       - uses: actions/upload-artifact@v4
