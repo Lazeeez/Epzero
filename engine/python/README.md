@@ -9,7 +9,10 @@ An HNSW vector database written from scratch in C++20, with Python bindings.
   two-hop walk (the idea behind ACORN), chosen per query by a cost model.
 - **Recall you can see:** `RecallGuard` measures recall on a sample of live queries with a
   confidence interval and moves the search effort to hold a target; `explain()` says why any given
-  item was not returned.
+  item was not returned. With `per_query=True` each query also stops as soon as its answer settles,
+  so easy queries cost less and hard ones search further.
+- **Hybrid search:** `TextIndex` (BM25 keyword search) and `hybrid_search()`, which merges it
+  with vector search by reciprocal rank fusion.
 - **Durable:** `Database` adds a write-ahead log with crash recovery and checkpoints.
 - **8-bit quantization** with exact re-ranking.
 - **A LangChain vector store** in `oryxdb.langchain`.
@@ -35,13 +38,22 @@ labels, distances = index.search(vectors[:5], k=10, ef=64)
 allowed = index.filter(np.arange(0, 100_000, 50))
 labels, distances = index.search(vectors[:5], k=10, filter=allowed)
 
-# Hold recall at 0.95 as the workload drifts, checking 1% of queries.
-guard = oryxdb.RecallGuard(index, target=0.95, sample_rate=0.01, reference_ef=1024)
+# Hold recall at 0.95 as the workload drifts, checking 1% of queries; per_query=True lets each
+# query stop once its answer settles (cheaper for the same recall).
+guard = oryxdb.RecallGuard(index, target=0.95, sample_rate=0.01, reference_ef=1024, per_query=True)
 labels, distances = guard.search(vectors[:5], k=10)
 print(guard.report())
 
+# Optional: measure the best memory-prefetch setting for this machine and data (not saved).
+index.tune_prefetch(vectors[:500])
+
 index.save("vectors.oryx")
 index = oryxdb.Index.load("vectors.oryx")
+
+# Hybrid: keyword search on the same labels, merged with the vector search.
+text = oryxdb.TextIndex()
+text.add(None, documents)                            # labels 0..n-1, matching the index
+labels, scores = oryxdb.hybrid_search(index, text, query_vector, "error E-1042 at checkout", k=10)
 ```
 
 ## LangChain
@@ -53,6 +65,7 @@ from oryxdb.langchain import OryxVectorStore
 store = OryxVectorStore.from_texts(texts, OpenAIEmbeddings(), metadatas=metadatas)
 store.similarity_search("how do I reset my password?", k=4, filter={"source": "faq"})
 store.max_marginal_relevance_search("pricing", k=4, fetch_k=20)
+store.hybrid_search("error E-1042 at checkout", k=4)   # keywords + vectors
 retriever = store.as_retriever(search_kwargs={"k": 8})
 
 store.save_local("./store")
