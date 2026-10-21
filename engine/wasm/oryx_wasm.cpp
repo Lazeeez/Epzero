@@ -19,6 +19,7 @@
 #include "oryx/dataset.h"
 #include "oryx/hnsw.h"
 #include "oryx/parallel.h"
+#include "oryx/text.h"
 
 using emscripten::val;
 using Clock = std::chrono::steady_clock;
@@ -246,6 +247,28 @@ val edges_of(const oryx::HnswIndex& index, std::size_t n, int layer) {
 // pipeline/build_dataset.py), indexed with cosine distance. Labels are row numbers. The
 // dequantized, normalized vectors are kept so every search can also be checked against an exact
 // scan, which the page shows next to the HNSW result.
+// Keyword search over the photos' captions (BM25), the keyword half of hybrid search. Kept apart
+// from Collection, which is reloaded each time more of the vectors arrive.
+class Keywords {
+ public:
+  // One caption per photo, newline-separated, line i belonging to photo i.
+  std::size_t set(const std::string& texts) {
+    index_ = oryx::TextIndex();
+    std::size_t label = 0, start = 0;
+    while (start <= texts.size()) {
+      const std::size_t end = std::min(texts.find('\n', start), texts.size());
+      if (end > start) index_.add(label, std::string_view(texts).substr(start, end - start));
+      ++label;
+      start = end + 1;
+    }
+    return index_.size();
+  }
+  const oryx::TextIndex& index() const noexcept { return index_; }
+
+ private:
+  oryx::TextIndex index_;
+};
+
 class Collection {
  public:
   void load(const val& int8_vectors, const val& scales, std::size_t dim) {
@@ -339,6 +362,53 @@ class Collection {
   val explain_by_id(std::size_t id, std::size_t k, std::size_t label, std::size_t ef) const {
     if (id >= n_) throw std::out_of_range("id out of range");
     return explained(vector(id), k, label, ef);
+  }
+
+  // Hybrid search: the traced vector search, as search() returns it (its walk, timing and exact
+  // comparison stay those of the vector search), plus `hybrid`: the vector candidates and the
+  // keyword matches for `words` merged by reciprocal rank fusion, with where each result came from.
+  val hybrid_search(const val& query, const Keywords& keywords, const std::string& words, std::size_t k, std::size_t ef) const {
+    const auto q = emscripten::convertJSArrayToNumberVector<float>(query);
+    if (q.size() != dim_) throw std::invalid_argument("query has the wrong dimension");
+    val out = traced(q.data(), k, ef);
+
+    const auto start = Clock::now();
+    const std::size_t candidates = std::max<std::size_t>(k, 30);
+    const oryx::SearchFilter* filter = filter_ ? &*filter_ : nullptr;
+    const auto by_vector = index_->search(q.data(), candidates, {.ef = std::max(ef, candidates), .filter = filter});
+    // Keyword matches honor the same filter (and only photos already in the index).
+    std::vector<oryx::SearchResult> by_words;
+    for (const auto& r : keywords.index().search(words, filter ? 4 * candidates : candidates)) {
+      if (r.label >= built_) continue;
+      if (filter && !std::binary_search(allowed_.begin(), allowed_.end(), static_cast<std::uint32_t>(r.label))) continue;
+      by_words.push_back(r);
+      if (by_words.size() == candidates) break;
+    }
+    const auto fused = oryx::fuse_rankings({by_vector, by_words}, k);
+    const double micros = std::chrono::duration<double, std::micro>(Clock::now() - start).count();
+
+    static const oryx::DistanceFn dist = oryx::get_distance_fn(oryx::Metric::Cosine);
+    const auto in = [](const std::vector<oryx::SearchResult>& list, std::uint64_t label) {
+      return std::any_of(list.begin(), list.end(), [&](const oryx::SearchResult& r) { return r.label == label; });
+    };
+    std::vector<std::uint32_t> labels;
+    std::vector<float> distances;
+    std::vector<std::uint8_t> from_words, from_vector;
+    for (const auto& r : fused) {
+      labels.push_back(static_cast<std::uint32_t>(r.label));
+      distances.push_back(dist(q.data(), vector(r.label), dim_));  // the photo's own cosine distance
+      from_words.push_back(in(by_words, r.label) ? 1 : 0);
+      from_vector.push_back(in(by_vector, r.label) ? 1 : 0);
+    }
+    val hybrid = val::object();
+    hybrid.set("results", copy_to_js("Uint32Array", labels));
+    hybrid.set("distances", copy_to_js("Float32Array", distances));
+    hybrid.set("fromWords", copy_to_js("Uint8Array", from_words));
+    hybrid.set("fromVector", copy_to_js("Uint8Array", from_vector));
+    hybrid.set("matches", by_words.size());
+    hybrid.set("micros", micros);
+    out.set("hybrid", hybrid);
+    return out;
   }
 
   // "More like this": search with a stored photo's own vector.
@@ -541,6 +611,7 @@ class Toy {
 }  // namespace
 
 EMSCRIPTEN_BINDINGS(oryx) {
+  emscripten::class_<Keywords>("Keywords").constructor<>().function("set", &Keywords::set);
   emscripten::class_<Toy>("Toy")
       .constructor<>()
       .function("build", &Toy::build)
@@ -557,6 +628,7 @@ EMSCRIPTEN_BINDINGS(oryx) {
       .function("levels", &Collection::levels)
       .function("edges", &Collection::edges)
       .function("search", &Collection::search)
+      .function("hybridSearch", &Collection::hybrid_search)
       .function("searchById", &Collection::search_by_id)
       .function("setFilter", &Collection::set_filter)
       .function("explain", &Collection::explain)
