@@ -40,9 +40,9 @@
 
 <header class="nav" class:scrolled class:overlay={router.route === "try"}>
   <div class="inner">
-    <a class="brand" href={router.href("home")} aria-label="Oryx, home">
+    <a class="brand" href={router.href("home")} aria-label="Epzero, home">
       <Logo size={24} />
-      <span>Oryx</span>
+      <span>Epzero</span>
     </a>
     <nav aria-label="Main" bind:this={links}>
       <span class="pill" class:on={pill.on} style:transform="translateX({pill.x}px)" style:width="{pill.w}px" aria-hidden="true"></span>
