@@ -6,6 +6,10 @@
 
   const query = $derived(outcome.query);
   const exact = $derived(new Set(outcome.trace.exact));
+  // Hybrid search shows the fused ranking; otherwise the vector search's own results.
+  const hybrid = $derived(outcome.trace.hybrid);
+  const shown = $derived(hybrid ? hybrid.results : outcome.trace.results);
+  const distances = $derived(hybrid ? hybrid.distances : outcome.trace.resultDistances);
 </script>
 
 <div class="results">
@@ -22,7 +26,7 @@
     <span class="hint">Click one to search for similar photos</span>
   </div>
   <ol>
-    {#each Array.from(outcome.trace.results) as id, rank (id)}
+    {#each Array.from(shown) as id, rank (id)}
       <li style:animation-delay="{rank * 28}ms">
         <button
           class="result"
@@ -31,8 +35,11 @@
         >
           <Thumb {id} size="n" alt={engine.caption(id)} eager={rank < 12} />
           <span class="rank num">{query.kind === "id" && query.id === id ? "query" : `#${rank + 1}`}</span>
-          <span class="score num" title="Cosine similarity">{(1 - outcome.trace.resultDistances[rank]).toFixed(2)}</span>
-          {#if !exact.has(id)}<span class="approx" title="Not in the exact top-{outcome.trace.results.length}">≈</span>{/if}
+          <span class="score num" title="Cosine similarity">{(1 - distances[rank]).toFixed(2)}</span>
+          {#if hybrid?.fromWords[rank]}
+            <span class="words" title={hybrid.fromVector[rank] ? "Its caption matches the words, and its image the meaning" : "Found by its caption's words; the image alone ranked lower"}>Aa</span>
+          {/if}
+          {#if !exact.has(id) && (!hybrid || hybrid.fromVector[rank])}<span class="approx" title="Not in the exact top-{shown.length}">≈</span>{/if}
           <span class="caption">
             <span>{engine.caption(id)}</span>
             <span class="by">© {engine.author(id)}</span>
@@ -114,7 +121,8 @@
   }
   .rank,
   .score,
-  .approx {
+  .approx,
+  .words {
     position: absolute;
     top: 6px;
     padding: 1px 7px;
@@ -128,6 +136,13 @@
   }
   .score {
     right: 6px;
+  }
+  /* Matched by its caption's words (hybrid search). */
+  .words {
+    left: 6px;
+    top: 28px;
+    background: color-mix(in srgb, var(--accent) 78%, black);
+    font-family: var(--font);
   }
   .approx {
     right: 6px;
