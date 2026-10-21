@@ -20,7 +20,7 @@ test("benchmarks page: interactive charts, and the lab runs on this device", asy
   await field.getByRole("radio", { name: "DEEP10M" }).click();
   await expect(field.getByRole("radio", { name: "DEEP10M" })).toHaveAttribute("aria-checked", "true");
   await expect(field.locator(".meta")).toContainText("9,990,000");
-  await expect(field.locator(".row.oryx")).toHaveCount(2);
+  await expect(field.locator(".row.epzero")).toHaveCount(2);
 
   // Hovering a point compares the libraries at the same ef.
   const chart = page.getByRole("img", { name: /Recall versus queries per second on SIFT1M/ });
@@ -33,7 +33,7 @@ test("benchmarks page: interactive charts, and the lab runs on this device", asy
     }
   }
   await expect(page.locator(".tooltip")).toContainText("ef =");
-  await expect(page.locator(".tooltip .ratio")).toContainText("Oryx");
+  await expect(page.locator(".tooltip .ratio")).toContainText("Epzero");
   if (shots) await page.screenshot({ path: `${shots}/bench-chart.png` });
 
   // Quantization tabs.
