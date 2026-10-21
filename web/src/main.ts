@@ -11,8 +11,8 @@ import { restoreTheme } from "./lib/theme";
 // longer exists. Reload once to pick up the new build instead of breaking.
 addEventListener("vite:preloadError", (event) => {
   try {
-    if (sessionStorage.getItem("oryx-chunk-reload")) return;
-    sessionStorage.setItem("oryx-chunk-reload", "1");
+    if (sessionStorage.getItem("epzero-chunk-reload")) return;
+    sessionStorage.setItem("epzero-chunk-reload", "1");
   } catch {
     return;
   }
