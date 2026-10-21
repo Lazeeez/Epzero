@@ -1,0 +1,21 @@
+[Unit]
+Description=Epzero router (cluster coordinator and HTTP API)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=epzero
+Group=epzero
+EnvironmentFile=/etc/epzero/router.env
+ExecStart=/opt/epzero/bin/epzero-router -listen 127.0.0.1:8080 -nodes ${EPZERO_NODES} -dim 512 \
+    -token-file /etc/epzero/token -state /var/lib/epzero/router.json -origins ${EPZERO_ORIGINS}
+Restart=always
+RestartSec=3
+ProtectSystem=strict
+ReadWritePaths=/var/lib/epzero
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
