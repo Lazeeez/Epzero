@@ -69,7 +69,7 @@
     <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Running live in this tab</p>
     <h1 id="hero-title"><span class="gradient-text">A vector database,</span><br />built from scratch.</h1>
     <p class="lede">
-      Oryx is an HNSW search engine I wrote in C++20: hand-tuned SIMD, lock-free reads, 8-bit quantization, a crash-safe
+      Epzero is an HNSW search engine I wrote in C++20: hand-tuned SIMD, lock-free reads, 8-bit quantization, a crash-safe
       write-ahead log and replication. Behind this text, it's indexing <strong>{(engine.count || 29825).toLocaleString()} photos</strong>
       on your CPU, compiled to WebAssembly.
     </p>
@@ -240,7 +240,7 @@
     bottom: 96px;
     width: 330px;
     padding: 14px;
-    background: var(--glass-fill);
+    background: var(--overlay-fill);
     animation: live-in 0.6s var(--ease);
   }
   .live header {
