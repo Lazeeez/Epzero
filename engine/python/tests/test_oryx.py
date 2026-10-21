@@ -131,6 +131,24 @@ def test_sq8_matches_float_recall(data):
     assert np.mean([len(set(l) & set(t)) / 10 for l, t in zip(labels, truth)]) >= 0.95
 
 
+def test_rabitq_matches_float_recall(data, tmp_path):
+    base, queries = data
+    index = oryx.Index(dim=24, max_elements=len(base), quantization="rabitq")
+    with pytest.raises(Exception, match="trained"):
+        index.add(base[:1])
+    index.train(base)
+    index.add(base, threads=4)
+    labels, distances = index.search(queries, k=10, ef=100)
+    truth = exact_knn(base, queries, 10)
+    assert np.mean([len(set(l) & set(t)) / 10 for l, t in zip(labels, truth)]) >= 0.95
+    assert np.all(np.diff(distances, axis=1) >= 0)  # exact distances, in order
+    index.save(str(tmp_path / "rabitq.oryx"))
+    again = oryx.Index.load(str(tmp_path / "rabitq.oryx"))
+    assert np.array_equal(again.search(queries, k=10, ef=100)[0], labels)
+    with pytest.raises(Exception, match="full vectors"):
+        oryx.Index(dim=24, quantization="rabitq", keep_vectors=False)
+
+
 def test_remove_and_compact(data):
     base, queries = data
     index = oryx.Index(dim=24, max_elements=len(base))
