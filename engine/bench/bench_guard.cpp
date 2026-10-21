@@ -9,8 +9,12 @@
 //   fixed-tuned   the smallest ef that meets the target on the steady phase (the usual practice)
 //   fixed-worst   the smallest ef that meets the target in every phase (over-provisioned)
 //   guard         RecallGuard: ef per segment, steered by sampled exact checks
+//   guard-per-query  the same, with per-query effort (RecallGuard::Options::per_query): each
+//                 unfiltered query stops once its answer settles, under a cap the guard steers
 // For every batch: true recall@k (against exact ground truth), distance computations per query,
-// the ef in use, and the guard's own estimate with its confidence interval.
+// the share of queries answered badly (recall@k below 0.5), the time per query (one search thread;
+// the guard's exact checks run on their own thread), the ef in use, and the guard's own estimate
+// with its confidence interval.
 //
 //   bench_guard --synthetic --n 200000
 //   bench_guard --base sift_base.fvecs --query sift_query.fvecs --json guard.json
@@ -39,11 +43,13 @@ namespace {
 struct Options {
   std::string base, query, json;
   bool synthetic = false;
+  Metric metric = Metric::L2;
   std::size_t n = 0, num_queries = 8'000, dim = 128, k = 10, threads = 0;
   std::size_t M = 16, ef_construction = 200;
   double target = 0.95, noise = 0.0, sample_rate = 0.05, filter_share = 0.05;
   std::size_t reference_ef = 0;  // 0: exact checks
   std::size_t batch = 500, passes = 4;
+  std::string policies = "fixed-tuned,fixed-worst,guard,guard-per-query";
 };
 
 Options parse(int argc, char** argv) {
@@ -58,6 +64,7 @@ Options parse(int argc, char** argv) {
     else if (arg == "--base") o.base = value();
     else if (arg == "--query") o.query = value();
     else if (arg == "--json") o.json = value();
+    else if (arg == "--metric") o.metric = value() == "cosine" ? Metric::Cosine : Metric::L2;
     else if (arg == "--n") o.n = std::stoul(value());
     else if (arg == "--queries") o.num_queries = std::stoul(value());
     else if (arg == "--dim") o.dim = std::stoul(value());
@@ -72,6 +79,7 @@ Options parse(int argc, char** argv) {
     else if (arg == "--reference-ef") o.reference_ef = std::stoul(value());
     else if (arg == "--batch") o.batch = std::stoul(value());
     else if (arg == "--passes") o.passes = std::stoul(value());
+    else if (arg == "--policies") o.policies = value();
     else throw std::invalid_argument("unknown argument " + arg);
   }
   if (!o.synthetic && (o.base.empty() || o.query.empty())) throw std::invalid_argument("pass --synthetic or --base/--query");
@@ -90,7 +98,7 @@ struct Phase {
 struct Batch {
   std::string policy, phase;
   std::size_t pass, ef;
-  double recall, distances, est_recall = -1, est_lower = -1, est_upper = -1;
+  double recall, distances, bad, us_per_query, est_recall = -1, est_lower = -1, est_upper = -1;
 };
 
 double recall_of(const std::vector<SearchResult>& got, const std::vector<std::uint32_t>& truth) {
@@ -117,7 +125,7 @@ int main(int argc, char** argv) try {
   const std::size_t dim = base.dim, B = opt.batch;
   if (queries.n < 4 * B) throw std::invalid_argument("need at least 4 x --batch queries");
 
-  HnswIndex index({.dim = dim, .metric = Metric::L2, .max_elements = base.n * 2, .M = opt.M,
+  HnswIndex index({.dim = dim, .metric = opt.metric, .max_elements = base.n * 2, .M = opt.M,
                    .ef_construction = opt.ef_construction});
   parallel_for(0, base.n, opt.threads, [&](std::size_t i) { index.add(i, base.row(i)); });
 
@@ -155,6 +163,7 @@ int main(int argc, char** argv) try {
     std::string name;
     std::size_t ef;  // fixed policies
     bool guarded;
+    bool per_query = false;
   };
   std::vector<Batch> rows;
 
@@ -207,13 +216,14 @@ int main(int argc, char** argv) try {
   std::printf("noise %.2f; fixed-tuned ef %zu, fixed-worst ef %zu\n", noise, tuned, worst);
 
   for (const Policy& policy : {Policy{"fixed-tuned", tuned, false}, Policy{"fixed-worst", worst, false},
-                               Policy{"guard", 0, true}}) {
+                               Policy{"guard", 0, true}, Policy{"guard-per-query", 0, true, true}}) {
+    if (("," + opt.policies + ",").find("," + policy.name + ",") == std::string::npos) continue;
     // A fresh index for each policy, so all three see the same graph in every phase.
-    HnswIndex fresh({.dim = dim, .metric = Metric::L2, .max_elements = base.n * 2, .M = opt.M,
+    HnswIndex fresh({.dim = dim, .metric = opt.metric, .max_elements = base.n * 2, .M = opt.M,
                      .ef_construction = opt.ef_construction});
     parallel_for(0, base.n, opt.threads, [&](std::size_t i) { fresh.add(i, base.row(i)); });
     RecallGuard guard(fresh, {.target = opt.target, .initial_ef = tuned, .min_ef = 16, .max_ef = 2048,
-                              .min_samples = 100, .margin = 0.01,
+                              .min_samples = 100, .margin = 0.01, .per_query = policy.per_query,
                               .monitor = {.sample_rate = opt.sample_rate, .window = 400, .queue = 256,
                                           .reference_ef = opt.reference_ef}});
     for (std::size_t p = 0; p < 4; ++p) {
@@ -230,21 +240,25 @@ int main(int argc, char** argv) try {
       const SearchFilter f = fresh.make_filter(allowed.data(), allowed.size());
       const SearchFilter* active = ph.filtered ? &f : nullptr;
       for (std::size_t pass = 0; pass < opt.passes; ++pass) {
-        double rsum = 0, dsum = 0;
+        double rsum = 0, dsum = 0, bad = 0, seconds = 0;
         std::size_t ef_used = policy.ef;
         for (std::size_t q = 0; q < B; ++q) {
           const float* query = ph.queries.data() + q * dim;
           SearchStats stats;
           std::vector<SearchResult> got;
+          const auto start = std::chrono::steady_clock::now();
           if (policy.guarded) {
             got = guard.search(query, opt.k, active, &stats);
           } else {
             got = fresh.search(query, opt.k, {.ef = policy.ef, .stats = &stats, .filter = active});
           }
-          rsum += recall_of(got, ph.truth[q]);
+          seconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+          const double r = recall_of(got, ph.truth[q]);
+          rsum += r;
+          bad += r < 0.5;
           dsum += static_cast<double>(stats.distance_computations);
         }
-        Batch row{policy.name, ph.name, pass, ef_used, rsum / B, dsum / B};
+        Batch row{policy.name, ph.name, pass, ef_used, rsum / B, dsum / B, bad / B, 1e6 * seconds / B};
         if (policy.guarded) {
           guard.monitor().drain();
           const std::string segment = RecallGuard::segment_of(active);
@@ -256,8 +270,8 @@ int main(int argc, char** argv) try {
             row.est_upper = s.estimate.upper;
           }
         }
-        std::printf("%-12s %-9s pass %zu  ef %5zu  recall %.4f  dist/query %7.0f", row.policy.c_str(), row.phase.c_str(),
-                    pass, row.ef, row.recall, row.distances);
+        std::printf("%-16s %-9s pass %zu  ef %5zu  recall %.4f  dist/query %7.0f  bad %5.2f%%  %6.0f us", row.policy.c_str(),
+                    row.phase.c_str(), pass, row.ef, row.recall, row.distances, 100 * row.bad, row.us_per_query);
         if (row.est_recall >= 0) std::printf("  estimate %.3f [%.3f, %.3f]", row.est_recall, row.est_lower, row.est_upper);
         std::printf("\n");
         rows.push_back(row);
@@ -274,7 +288,8 @@ int main(int argc, char** argv) try {
     for (std::size_t i = 0; i < rows.size(); ++i) {
       const Batch& r = rows[i];
       out << "    {\"policy\": \"" << r.policy << "\", \"phase\": \"" << r.phase << "\", \"pass\": " << r.pass
-          << ", \"ef\": " << r.ef << ", \"recall\": " << r.recall << ", \"distances\": " << r.distances;
+          << ", \"ef\": " << r.ef << ", \"recall\": " << r.recall << ", \"distances\": " << r.distances << ", \"bad\": " << r.bad
+          << ", \"us_per_query\": " << r.us_per_query;
       if (r.est_recall >= 0) {
         out << ", \"estimate\": " << r.est_recall << ", \"lower\": " << r.est_lower << ", \"upper\": " << r.est_upper;
       }
