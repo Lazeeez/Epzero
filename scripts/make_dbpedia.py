@@ -20,13 +20,16 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "a
 RAW = os.path.join(ROOT, "dbpedia-openai-raw")
 OUT = os.path.join(ROOT, "dbpedia-openai-1000k-angular.hdf5")
 QUERIES = 10_000
+EXPECTED = 1_000_000  # rows in the full dataset
 
 
 def download():
     from huggingface_hub import snapshot_download
 
+    # One file at a time: parallel downloads use enough memory for a login node to kill them.
+    # Rerunning resumes, skipping files already complete.
     snapshot_download("KShivendu/dbpedia-entities-openai-1M", repo_type="dataset", local_dir=RAW,
-                      allow_patterns=["*.parquet"])
+                      allow_patterns=["*.parquet"], max_workers=1)
     print("downloaded:", len(glob.glob(os.path.join(RAW, "**", "*.parquet"), recursive=True)), "parquet files")
 
 
@@ -42,6 +45,9 @@ def build():
         column = pq.read_table(f, columns=["openai"]).column("openai")
         parts.append(np.asarray(column.to_pylist(), dtype=np.float32))
     data = np.concatenate(parts)
+    if len(data) < EXPECTED:
+        sys.exit(f"only {len(data):,} of {EXPECTED:,} vectors in {len(files)} files: the download is incomplete; "
+                 "rerun `python scripts/make_dbpedia.py download`")
     data /= np.linalg.norm(data, axis=1, keepdims=True)
     rng = np.random.default_rng(42)
     order = rng.permutation(len(data))
