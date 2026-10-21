@@ -6,6 +6,9 @@ hand-written SIMD kernels, lock-free concurrent search and memory-system
 tuning. On SIFT1M, on a dedicated server where every library gets huge pages,
 it serves **1.13× the queries per second of hnswlib and 1.17× FAISS at the same
 recall**, builds the graph fastest, and scales to 10× on a 12-core socket.
+Against seven libraries on four more datasets (up to 10M vectors and 1,536
+dimensions), its 8-bit mode is second only to Glass on every one
+([results](docs/performance.md#against-the-field-four-more-datasets)).
 
 **It also makes recall visible and keeps it on target.** Every approximate
 index trades accuracy for speed, and in production nobody measures the
@@ -188,6 +191,10 @@ and its memory. Runs agree within 0.5%. Job scripts: [`scripts/pace/`](scripts/p
 
 - **Against other libraries:** 1.12–1.14× hnswlib's and 1.16–1.24× FAISS's QPS
   at equal recall, from recall 0.80 to 0.995 (chart below).
+- **Against the field:** on GIST1M, GloVe-100, DBpedia OpenAI embeddings and
+  DEEP10M, Oryx SQ8 is second of eight on every dataset, behind Glass
+  (1.5–2.1× faster) and ahead of VSAG, FAISS, hnswlib and USearch
+  ([table](docs/performance.md#against-the-field-four-more-datasets)).
 - **Build:** 1M vectors in 22.7 s on 24 threads. The index takes 765 MiB.
 - **Threads:** 59,636 QPS on 12 threads of one socket (10.0×) and 83,746 on all
   24 (14.0×), at recall 0.974. Crossing sockets costs about 19%, which per-socket
@@ -507,7 +514,7 @@ dedicated-server runs are in [`scripts/pace/`](scripts/pace/).
 10. ✅ `pip install oryxdb` (wheels for Linux and macOS) and a LangChain vector store that passes LangChain's conformance suite
 11. ✅ Several routers sharing the shard map through etcd, with leader election and fenced writes
 12. ✅ RaBitQ quantization (correct and tested; not faster in memory, see the performance log)
-13. Competitive benchmarks on more datasets (GIST1M, GloVe-100, OpenAI text embeddings, DEEP10M) against Glass, VSAG, USearch and tuned FAISS: harness and PACE jobs ready (`bench/compete.py`), server runs pending; then an ann-benchmarks submission (`ann-benchmarks/`)
+13. ✅ Competitive benchmarks on GIST1M, GloVe-100, OpenAI text embeddings and DEEP10M against Glass, VSAG, USearch, hnswlib and tuned FAISS (`bench/compete.py`); next, an ann-benchmarks submission (`ann-benchmarks/`)
 
 ## License
 
