@@ -5,7 +5,7 @@
 
   const layers = $derived(engine.graph ? engine.graph.maxLevel + 1 : 0);
   const coarse = matchMedia("(pointer: coarse)").matches;
-  const HINT_KEY = "oryx-view-hint";
+  const HINT_KEY = "epzero-view-hint";
 
   let hint = $state(false);
   let shortcutsOpen = $state(false);
@@ -117,7 +117,7 @@
     display: grid;
     gap: 2px;
     padding: 5px;
-    background: var(--glass-fill);
+    background: var(--overlay-fill);
   }
   button {
     display: grid;
@@ -192,7 +192,7 @@
     max-width: min(640px, calc(100vw - 32px));
     height: auto;
     padding: 10px 16px;
-    background: var(--glass-fill);
+    background: var(--overlay-fill);
     color: var(--text-2);
     font-size: 13px;
     transform: translateX(-50%);
@@ -206,6 +206,14 @@
     from {
       opacity: 0;
       transform: translate(-50%, -6px);
+    }
+  }
+  /* Beside the search panel (400px wide, 24px from the left): centred in the space it leaves, so
+     the hint never covers the panel's title on laptop-sized screens. */
+  @media (min-width: 901px) {
+    .hint {
+      left: calc(50% + 212px);
+      max-width: min(640px, calc(100vw - 472px));
     }
   }
   /* Phones and portrait tablets: a horizontal strip just above the search panel, so it never
