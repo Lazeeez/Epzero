@@ -20,11 +20,11 @@
 #include <thread>
 #include <vector>
 
-#include "oryx/dataset.h"
-#include "oryx/hnsw.h"
-#include "oryx/parallel.h"
+#include "epzero/dataset.h"
+#include "epzero/hnsw.h"
+#include "epzero/parallel.h"
 
-using namespace oryx;
+using namespace epzero;
 
 namespace {
 
