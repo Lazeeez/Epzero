@@ -9,13 +9,12 @@ package router
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -31,7 +30,7 @@ type Config struct {
 	Shards         int
 	Dim            int
 	Token          string        // required for writes and chaos; also passed to nodes' Crash
-	StatePath      string        // where the shard map is persisted ("" = memory only)
+	StatePath      string        // with no Store: the file the shard map is kept in ("" = memory only)
 	HedgeAfter     time.Duration // send a query to the other copy if the first is this slow
 	HealthInterval time.Duration
 	DownAfter      int // consecutive failed health checks before a node is declared down
@@ -41,6 +40,11 @@ type Config struct {
 	Dial func(NodeConfig) (Node, error)
 	// Consistency is the default for searches that don't choose one (default Eventual).
 	Consistency Consistency
+	// Store holds the shard map; nil means a FileStore at StatePath (a single router). With an
+	// EtcdStore several routers share the map and elect one leader to change it.
+	Store StateStore
+	// ID names this router (in leader elections and events); default "router".
+	ID string
 }
 
 // Consistency says which copies of a shard a search may read.
@@ -94,8 +98,13 @@ type Router struct {
 	nodes map[string]*node
 	names []string
 
-	mu     sync.RWMutex // guards shards
-	shards []ShardMap
+	mu      sync.RWMutex // guards shards and version
+	shards  []ShardMap
+	version int64 // the store's version of shards
+
+	store   StateStore
+	leading atomic.Bool
+	joined  sync.Once // the election and the watch, joined by Bootstrap or Run
 
 	eventsMu sync.Mutex
 	events   []Event
@@ -133,7 +142,13 @@ func New(cfg Config) (*Router, error) {
 	if cfg.Dial == nil {
 		cfg.Dial = defaultDial
 	}
-	r := &Router{cfg: cfg, log: cfg.Logger, nodes: map[string]*node{}, metrics: newMetrics()}
+	if cfg.Store == nil {
+		cfg.Store = NewFileStore(cfg.StatePath)
+	}
+	if cfg.ID == "" {
+		cfg.ID = "router"
+	}
+	r := &Router{cfg: cfg, log: cfg.Logger, nodes: map[string]*node{}, metrics: newMetrics(), store: cfg.Store}
 	for _, nc := range cfg.Nodes {
 		client, err := cfg.Dial(nc)
 		if err != nil {
@@ -142,7 +157,9 @@ func New(cfg Config) (*Router, error) {
 		r.nodes[nc.Name] = &node{cfg: nc, client: client}
 		r.names = append(r.names, nc.Name)
 	}
-	if err := r.loadState(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := r.loadState(ctx); err != nil {
 		return nil, err
 	}
 	return r, nil
@@ -159,64 +176,46 @@ func (r *Router) initialPlacement() []ShardMap {
 	return shards
 }
 
-func (r *Router) loadState() error {
-	if r.cfg.StatePath == "" {
-		r.shards = r.initialPlacement()
+// loadState reads the shard map from the store, creating the initial placement if there is none.
+// Several routers starting together may race to create it; the losers read the winner's.
+func (r *Router) loadState(ctx context.Context) error {
+	for attempt := 0; attempt < 5; attempt++ {
+		shards, version, err := r.store.Load(ctx)
+		if err != nil {
+			return err
+		}
+		if shards != nil {
+			if len(shards) != r.cfg.Shards {
+				return fmt.Errorf("the stored shard map has %d shards, config says %d", len(shards), r.cfg.Shards)
+			}
+			r.shards, r.version = shards, version
+			return nil
+		}
+		initial := r.initialPlacement()
+		version, err = r.store.Save(ctx, initial, 0)
+		if errors.Is(err, ErrConflict) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		r.shards, r.version = initial, version
 		return nil
 	}
-	data, err := os.ReadFile(r.cfg.StatePath)
-	if os.IsNotExist(err) {
-		r.shards = r.initialPlacement()
-		return r.saveStateLocked()
-	}
-	if err != nil {
-		return err
-	}
-	var saved struct {
-		Shards []ShardMap `json:"shards"`
-	}
-	if err := json.Unmarshal(data, &saved); err != nil {
-		return fmt.Errorf("%s: %w", r.cfg.StatePath, err)
-	}
-	if len(saved.Shards) != r.cfg.Shards {
-		return fmt.Errorf("%s has %d shards, config says %d", r.cfg.StatePath, len(saved.Shards), r.cfg.Shards)
-	}
-	r.shards = saved.Shards
-	return nil
+	return errors.New("could not create the shard map: it kept changing")
 }
 
-// saveStateLocked persists the shard map atomically (write + fsync + rename). Caller holds r.mu
-// or is single-threaded.
-func (r *Router) saveStateLocked() error {
-	if r.cfg.StatePath == "" {
-		return nil
+// applyMap installs a shard map from the store if it is newer than the one in use.
+func (r *Router) applyMap(shards []ShardMap, version int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if version > r.version && len(shards) == r.cfg.Shards {
+		r.shards, r.version = shards, version
 	}
-	data, _ := json.MarshalIndent(struct {
-		Shards []ShardMap `json:"shards"`
-	}{r.shards}, "", "  ")
-	tmp := r.cfg.StatePath + ".tmp"
-	f, err := os.Create(tmp)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	f.Close()
-	if err := os.Rename(tmp, r.cfg.StatePath); err != nil {
-		return err
-	}
-	if dir, err := os.Open(filepath.Dir(r.cfg.StatePath)); err == nil {
-		dir.Sync()
-		dir.Close()
-	}
-	return nil
 }
+
+// Leading reports whether this router is the leader, the one that changes the shard map.
+func (r *Router) Leading() bool { return r.leading.Load() }
 
 func (r *Router) event(kind, format string, args ...any) {
 	e := Event{Time: time.Now(), Kind: kind, Message: fmt.Sprintf(format, args...)}
@@ -231,6 +230,7 @@ func (r *Router) event(kind, format string, args ...any) {
 
 // Run health-checks the nodes until ctx is cancelled.
 func (r *Router) Run(ctx context.Context) {
+	r.join(ctx)
 	ticker := time.NewTicker(r.cfg.HealthInterval)
 	defer ticker.Stop()
 	for {
@@ -308,6 +308,9 @@ func (r *Router) check(ctx context.Context, n *node) {
 // lost: the primary marks the replica out of sync, but the replica never hears of it, so it would
 // neither fetch what it missed nor stop answering reads. Assigning it again makes it catch up.
 func (r *Router) repairReplicas(ctx context.Context, name string, status *NodeStatus) {
+	if !r.leading.Load() {
+		return
+	}
 	for _, st := range status.Shards {
 		if st.Role != RolePrimary || st.InSync {
 			continue
@@ -333,32 +336,62 @@ func (r *Router) isUp(name string) bool {
 	return n.up
 }
 
-// failoverFrom promotes the replica of every shard whose primary is `name`.
+// failoverFrom promotes the replica of every shard whose primary is `name`. Only the leader
+// changes the map, and only by compare-and-swap: a router that lost the lead without knowing it
+// yet (say, partitioned from etcd) fails to save, and so never hands out a stale epoch.
 func (r *Router) failoverFrom(ctx context.Context, name string) {
-	r.mu.Lock()
-	var promoted []ShardMap
-	for i := range r.shards {
-		s := &r.shards[i]
-		if s.Primary != name {
+	if !r.leading.Load() {
+		return
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		r.mu.RLock()
+		shards := append([]ShardMap(nil), r.shards...)
+		version := r.version
+		r.mu.RUnlock()
+		var promoted []ShardMap
+		for i := range shards {
+			s := &shards[i]
+			if s.Primary != name {
+				continue
+			}
+			if !r.isUp(s.Replica) {
+				r.event("unavailable", "shard %d has no live copy (%s and %s are down)", s.ID, s.Primary, s.Replica)
+				continue
+			}
+			s.Epoch++
+			s.Primary, s.Replica = s.Replica, s.Primary
+			promoted = append(promoted, *s)
+		}
+		if len(promoted) == 0 {
+			return
+		}
+		sctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		newVersion, err := r.store.Save(sctx, shards, version)
+		cancel()
+		if errors.Is(err, ErrConflict) {
+			r.reloadMap(ctx) // someone else changed it: recompute from theirs
 			continue
 		}
-		if !r.isUp(s.Replica) {
-			r.event("unavailable", "shard %d has no live copy (%s and %s are down)", s.ID, s.Primary, s.Replica)
-			continue
+		if err != nil {
+			r.log.Error("saving the shard map", "err", err)
+			return
 		}
-		s.Epoch++
-		s.Primary, s.Replica = s.Replica, s.Primary
-		promoted = append(promoted, *s)
-		r.metrics.failovers.Add(1)
-		r.event("failover", "shard %d: %s promoted to primary (epoch %d)", s.ID, s.Primary, s.Epoch)
+		r.applyMap(shards, newVersion)
+		for _, s := range promoted {
+			r.metrics.failovers.Add(1)
+			r.event("failover", "shard %d: %s promoted to primary (epoch %d)", s.ID, s.Primary, s.Epoch)
+			// Its replica (the failed node) gets its role back when it returns.
+			r.assign(ctx, s.Primary, s, RolePrimary, r.nodes[s.Replica].cfg.Addr)
+		}
+		return
 	}
-	if err := r.saveStateLocked(); err != nil {
-		r.log.Error("persisting shard map", "err", err)
-	}
-	r.mu.Unlock()
-	for _, s := range promoted {
-		// Its replica (the failed node) gets its role back when it returns.
-		r.assign(ctx, s.Primary, s, RolePrimary, r.nodes[s.Replica].cfg.Addr)
+}
+
+func (r *Router) reloadMap(ctx context.Context) {
+	lctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if shards, version, err := r.store.Load(lctx); err == nil && shards != nil {
+		r.applyMap(shards, version)
 	}
 }
 
@@ -366,6 +399,9 @@ func (r *Router) failoverFrom(ctx context.Context, name string) {
 // replica's catch-up finds its primary ready. A primary's replica is re-assigned too, because a
 // restarted primary no longer forwards to it until the replica fetches again.
 func (r *Router) reconcile(ctx context.Context, name string) {
+	if !r.leading.Load() {
+		return // the leader assigns roles; followers only route
+	}
 	r.mu.RLock()
 	var involved []ShardMap
 	for _, s := range r.shards {
@@ -395,13 +431,57 @@ func (r *Router) assign(ctx context.Context, name string, s ShardMap, role Role,
 	}
 }
 
-// Bootstrap assigns every shard on every reachable node once at startup.
+// Bootstrap joins the leader election and the shard-map watch, then checks every node once (the
+// leader also assigns their roles). Run continues from there.
 func (r *Router) Bootstrap(ctx context.Context) {
-	r.checkAll(ctx) // marks reachable nodes up and reconciles them
+	r.join(ctx)
+	r.checkAll(ctx) // marks reachable nodes up and, on the leader, reconciles them
+}
+
+func (r *Router) join(ctx context.Context) {
+	r.joined.Do(func() {
+		lead := r.store.Lead(ctx, r.cfg.ID)
+		select {
+		case leading, ok := <-lead: // a single router (FileStore) leads at once
+			if ok && leading {
+				r.leading.Store(true)
+				r.event("leader", "%s is the leader", r.cfg.ID)
+			}
+		default:
+		}
+		go r.followLeadership(ctx, lead)
+		go r.store.Watch(ctx, r.applyMap)
+	})
+}
+
+// followLeadership tracks this router's leadership. On taking over, it re-reads the map and takes
+// charge: re-assigns every live node's roles and fails over the shards of nodes already down.
+func (r *Router) followLeadership(ctx context.Context, lead <-chan bool) {
+	for leading := range lead {
+		if leading == r.leading.Load() {
+			continue
+		}
+		r.leading.Store(leading)
+		if !leading {
+			r.event("leader", "%s lost the lead", r.cfg.ID)
+			continue
+		}
+		r.event("leader", "%s took over as leader", r.cfg.ID)
+		r.reloadMap(ctx)
+		for _, name := range r.names {
+			if r.isUp(name) {
+				r.reconcile(ctx, name)
+			} else {
+				r.failoverFrom(ctx, name)
+			}
+		}
+	}
 }
 
 // ClusterView is the JSON shape of GET /v1/cluster.
 type ClusterView struct {
+	Router string      `json:"router"`
+	Leader bool        `json:"leader"`
 	Nodes  []NodeView  `json:"nodes"`
 	Shards []ShardView `json:"shards"`
 	Events []Event     `json:"events"`
@@ -426,7 +506,7 @@ type ShardView struct {
 
 // View snapshots the cluster for the API and UI.
 func (r *Router) View() ClusterView {
-	var v ClusterView
+	v := ClusterView{Router: r.cfg.ID, Leader: r.leading.Load()}
 	copies := map[string]map[int]ShardStatus{}
 	for _, name := range r.names {
 		n := r.nodes[name]
