@@ -4,10 +4,10 @@
 #include <filesystem>
 #include <fstream>
 
-#include "oryx/brute_force.h"
-#include "oryx/dataset.h"
+#include "epzero/brute_force.h"
+#include "epzero/dataset.h"
 
-namespace oryx {
+namespace epzero {
 namespace {
 
 template <typename T>
@@ -19,8 +19,8 @@ void write_row(std::ofstream& out, const std::vector<T>& row) {
 
 TEST(Dataset, ReadsFvecsAndIvecs) {
   const auto dir = std::filesystem::temp_directory_path();
-  const auto fvecs = (dir / "oryx_test.fvecs").string();
-  const auto ivecs = (dir / "oryx_test.ivecs").string();
+  const auto fvecs = (dir / "epzero_test.fvecs").string();
+  const auto ivecs = (dir / "epzero_test.ivecs").string();
   {
     std::ofstream out(fvecs, std::ios::binary);
     write_row<float>(out, {1, 2, 3});
@@ -43,7 +43,7 @@ TEST(Dataset, ReadsFvecsAndIvecs) {
 }
 
 TEST(Dataset, RejectsTruncatedFile) {
-  const auto path = (std::filesystem::temp_directory_path() / "oryx_truncated.fvecs").string();
+  const auto path = (std::filesystem::temp_directory_path() / "epzero_truncated.fvecs").string();
   {
     std::ofstream out(path, std::ios::binary);
     const std::int32_t dim = 4;
@@ -71,4 +71,4 @@ TEST(BruteForce, FindsExactNeighborsAndPerfectRecall) {
 }
 
 }  // namespace
-}  // namespace oryx
+}  // namespace epzero
