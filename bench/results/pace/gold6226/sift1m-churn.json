@@ -1,0 +1,17 @@
+{
+  "dataset": "data/sift/sift_base.fvecs", "n": 1000000, "dim": 128, "queries": 10000, "k": 10, "ef": 80, "readers": 8, "simd": "avx512",
+  "mixed": [
+    {"writers": 0, "seconds": 30.0002, "search_qps": 44041.2, "writes_per_s": 0, "recall": 0.974275, "p50_us": 185.993, "p99_us": 236.121, "p999_us": 480.982},
+    {"writers": 2, "seconds": 30.0002, "search_qps": 40177.8, "writes_per_s": 4049.17, "recall": 0.973782, "p50_us": 203.589, "p99_us": 261.899, "p999_us": 513.567}
+  ],
+  "churn": 0.1, "compaction_seconds": 34.6497,
+  "cycles": [
+    {"cycle": 0, "compacted": false, "recall": 0.97422, "qps": 6126.2, "slots": 1000000, "tombstone_share": 0},
+    {"cycle": 1, "compacted": false, "recall": 0.97369, "qps": 5673.51, "slots": 1100000, "tombstone_share": 0.0909091},
+    {"cycle": 2, "compacted": false, "recall": 0.97269, "qps": 5355.48, "slots": 1200000, "tombstone_share": 0.166667},
+    {"cycle": 3, "compacted": false, "recall": 0.97185, "qps": 5054.47, "slots": 1300000, "tombstone_share": 0.230769},
+    {"cycle": 4, "compacted": false, "recall": 0.97065, "qps": 4794.31, "slots": 1400000, "tombstone_share": 0.285714},
+    {"cycle": 5, "compacted": false, "recall": 0.96965, "qps": 4536.78, "slots": 1500000, "tombstone_share": 0.333333},
+    {"cycle": 5, "compacted": true, "recall": 0.9742, "qps": 6234.6, "slots": 1000000, "tombstone_share": 0}
+  ]
+}
