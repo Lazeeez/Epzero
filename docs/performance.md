@@ -1,6 +1,6 @@
 # Performance engineering log
 
-How Oryx's search got 31% faster, and which ideas didn't work. Each change was
+How Epzero's search got 31% faster, and which ideas didn't work. Each change was
 kept only if an interleaved A/B test on SIFT1M showed a gain.
 
 <picture>
@@ -23,7 +23,7 @@ kept only if an interleaved A/B test on SIFT1M showed a gain.
   core a thread runs on, so pinning isn't possible. Interleaving makes frequency
   drift and scheduler noise affect every candidate equally. Differences under
   ~3% are treated as noise.
-- **Library comparison.** Oryx, hnswlib and FAISS (`IndexHNSWFlat`) are loaded
+- **Library comparison.** Epzero, hnswlib and FAISS (`IndexHNSWFlat`) are loaded
   into one process and queried in interleaved rounds, each through its own C++
   batch loop, so Python call overhead isn't part of the timing.
   See [`bench/compare_libs.py`](../bench/compare_libs.py).
@@ -54,7 +54,7 @@ instruction-level changes.
 |---|---|---|
 | **Batched prefetch.** Filter a node's unvisited neighbors first, prefetch all their vectors, then score them | **+15%** | Up to 32 cache misses are in flight at once instead of one per distance call. Prefetching only the first line is enough: the hardware stream prefetcher follows once the kernel starts reading (64, 128, 256 and 512 bytes all measured the same; no prefetch at all was 14% slower) |
 | **2 MiB transparent huge pages** for the layer-0 block (`madvise(MADV_HUGEPAGE)`, 2 MiB aligned) | **+13%**, p99 −16% | 764 MB spans ~190k 4 KiB pages, far more than the TLB covers, so almost every node visit was also a page walk. With huge pages it's ~380 pages. Verified via `AnonHugePages` in `/proc/<pid>/smaps_rollup` (672 MB huge-page backed) |
-| **Lock-free reads.** Neighbor-list slots are written with release stores and read with acquire loads (compiler atomic builtins) | +2% (noise) | No throughput gain: uncontended mutexes are cheap, and the profiler overstated them. Kept because a search now never waits behind an insert, and the memory-ordering argument is simple (see [`hnsw.h`](../engine/include/oryx/hnsw.h)). Checked with ThreadSanitizer under concurrent inserts and searches |
+| **Lock-free reads.** Neighbor-list slots are written with release stores and read with acquire loads (compiler atomic builtins) | +2% (noise) | No throughput gain: uncontended mutexes are cheap, and the profiler overstated them. Kept because a search now never waits behind an insert, and the memory-ordering argument is simple (see [`hnsw.h`](../engine/include/epzero/hnsw.h)). Checked with ThreadSanitizer under concurrent inserts and searches |
 | **8-bit visited tags** (1 MiB for 1M nodes vs 2 MiB) | −1% to +3% (noise) | Fits the P-core's 1.25 MiB L2 and halves per-search scratch memory. The extra full clear every 255 queries costs ~0.1 µs per query |
 
 ## Tried and removed
@@ -70,12 +70,12 @@ instruction-level changes.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/sift1m-recall-qps-dark.svg">
-  <img alt="Recall versus QPS on SIFT1M: Oryx is above hnswlib and FAISS at every recall level" src="img/sift1m-recall-qps-light.svg">
+  <img alt="Recall versus QPS on SIFT1M: Epzero is above hnswlib and FAISS at every recall level" src="img/sift1m-recall-qps-light.svg">
 </picture>
 
 The reference run is on a dedicated server node: 2 × Intel Xeon Gold 6226 (Cascade Lake, 24
 cores, AVX-512, clock fixed at 2.7 GHz), Slurm `--exclusive`, search pinned to one socket and its
-local memory. Repeated runs agree within 0.5%. At the same recall (0.95), Oryx serves **1.13×
+local memory. Repeated runs agree within 0.5%. At the same recall (0.95), Epzero serves **1.13×
 hnswlib's QPS and 1.17× FAISS's**, and the lead holds at every recall level (1.12–1.14× and
 1.16–1.24× between recall 0.80 and 0.995). It also builds the graph fastest: 26.1 s, against 27.8 s
 and 37.8 s, on 24 threads. Raw data:
@@ -92,23 +92,23 @@ The server's smaller lead is explained by transparent huge pages:
 
 | Setup (SIFT1M, equal recall, one search thread) | vs hnswlib | vs FAISS |
 |---|---|---|
-| Laptop: huge pages opt-in (`madvise`); only Oryx asks for them | 1.44–1.55× | 1.39–1.55× |
-| Laptop: no library on huge pages (`ORYX_NO_HUGEPAGES=1`) | 1.18–1.25× | 1.21–1.35× |
+| Laptop: huge pages opt-in (`madvise`); only Epzero asks for them | 1.44–1.55× | 1.39–1.55× |
+| Laptop: no library on huge pages (`EPZERO_NO_HUGEPAGES=1`) | 1.18–1.25× | 1.21–1.35× |
 | Server: huge pages for every program (`always`) | 1.12–1.14× | 1.16–1.24× |
 
-A random walk over a 765 MB graph misses the TLB on almost every node with 4 KiB pages. Oryx
+A random walk over a 765 MB graph misses the TLB on almost every node with 4 KiB pages. Epzero
 requests 2 MiB pages for its graph (`MADV_HUGEPAGE`), which is worth about 16% on its own: turning
 the request off cut its QPS at recall 0.97 from 11,556 to 9,999, and the kernel reported no huge
 pages in use. hnswlib and FAISS don't ask, so they get huge pages only where the kernel hands them
 to every program. Asking for them is still a real advantage on kernels where they are opt-in; but
-the like-for-like comparison is on equal pages, and there Oryx's design is worth about 1.13–1.25×
+the like-for-like comparison is on equal pages, and there Epzero's design is worth about 1.13–1.25×
 depending on the CPU. Laptop data:
 [`bench/results/sift1m-compare.json`](../bench/results/sift1m-compare.json).
 
 ### Against the field: four more datasets
 
-SIFT1M is one dataset with 128 dimensions. [`bench/compete.py`](../bench/compete.py) runs seven
-libraries on four more ann-benchmarks datasets on the same server node. The rules match the SIFT1M
+SIFT1M is one dataset with 128 dimensions. [`bench/compete.py`](../bench/compete.py) runs Epzero and
+five other libraries (eight configurations in all) on four more ann-benchmarks datasets on the same server node. The rules match the SIFT1M
 comparison: the same graph degree (M = 16, i.e. 32 links on the base layer) and build beam (200),
 every index built on all 24 cores and then searched from one process on one thread pinned to one
 socket, the median of three interleaved rounds. Each library's QPS is interpolated (log-linear)
@@ -116,8 +116,8 @@ to the same recall@10.
 
 | Library | GIST1M, 960-D (recall 0.95) | GloVe-100 (recall 0.90) | DBpedia OpenAI, 1,536-D (recall 0.95) | DEEP10M, 10M × 96-D (recall 0.95) |
 |---|---|---|---|---|
-| Oryx | 351 | 1,311 | 1,419 | 3,824 |
-| Oryx SQ8 | 481 | 1,373 | 2,170 | 4,101 |
+| Epzero | 351 | 1,311 | 1,419 | 3,824 |
+| Epzero SQ8 | 481 | 1,373 | 2,170 | 4,101 |
 | hnswlib | 356 | 1,133 | 1,438 | 3,710 |
 | FAISS HNSW | 336 | 1,160 | 1,617 | 3,407 |
 | FAISS IVF-PQ | never reaches | never reaches | 1,620 | never reaches |
@@ -125,24 +125,24 @@ to the same recall@10.
 | VSAG | 414 | 1,050 | 1,798 | 3,113 |
 | Glass | **709** | **2,867** | **3,604** | **6,344** |
 
-- **Glass is the fastest on every dataset**, 1.5–2.1× Oryx SQ8. Like Oryx SQ8 and VSAG it walks
+- **Glass is the fastest on every dataset**, 1.5–2.1× Epzero SQ8. Like Epzero SQ8 and VSAG it walks
   the graph on 8-bit codes and re-ranks with the full vectors, and it measures the best prefetch
   distance for the machine before searching (its `optimize` step). It is the one to learn from:
   tuned prefetch depth and a batch search loop are the next levers worth trying here.
-- **Oryx SQ8 is second on all four.**
-- **Uncompressed, Oryx is level with hnswlib** on the high-dimensional sets (GIST 351 vs 356,
+- **Epzero SQ8 is second on all four.**
+- **Uncompressed, Epzero is level with hnswlib** on the high-dimensional sets (GIST 351 vs 356,
   DBpedia 1,419 vs 1,438) and ahead on the low-dimensional ones (DEEP10M +3%, GloVe +16%). With
   960 or 1,536 dimensions, each distance is a long, bandwidth-bound scan, and the memory work
   around it (prefetching, the visited set) is a small share of the time. On DBpedia, FAISS HNSW
-  (+14%) and VSAG are ahead of uncompressed Oryx.
+  (+14%) and VSAG are ahead of uncompressed Epzero.
 - **GloVe is compared at recall 0.90**: at M = 16 no library but VSAG reaches 0.95 by `ef` = 800
   (the others top out at 0.942–0.946). Tuned FAISS IVF-PQ reaches 0.95 only on DBpedia.
-- **Build is not Oryx's strength here.** On SIFT1M it built fastest; on these sets hnswlib builds
+- **Build is not Epzero's strength here.** On SIFT1M it built fastest; on these sets hnswlib builds
   5–30% faster (GIST 167 s vs 213 s, DBpedia 220 s vs 288 s, DEEP10M 315 s vs 335 s).
 
 | Build, 24 threads | GIST1M | GloVe-100 | DBpedia OpenAI | DEEP10M |
 |---|---|---|---|---|
-| Oryx | 213 s | 42 s | 288 s | 335 s |
+| Epzero | 213 s | 42 s | 288 s | 335 s |
 | hnswlib | 167 s | 45 s | 220 s | 315 s |
 | FAISS HNSW | 219 s | 45 s | 335 s | 384 s |
 | USearch | 178 s | 51 s | 220 s | 422 s |
@@ -155,7 +155,7 @@ the search run; its build time is from the build run. The DBpedia dataset is gen
 ann-benchmarks does it ([`scripts/make_dbpedia.py`](../scripts/make_dbpedia.py)): 990,000 base
 vectors, 10,000 queries, exact neighbours. Raw data: `bench/results/pace/gold6226/*-compete.json`.
 
-### What Glass does better, and what Oryx took from it
+### What Glass does better, and what Epzero took from it
 
 The guess was memory-system tricks (tuned prefetching, a batched query loop). Reading Glass's
 search code ([zilliztech/pyglass](https://github.com/zilliztech/pyglass), `graph_searcher.hpp`,
@@ -163,12 +163,12 @@ search code ([zilliztech/pyglass](https://github.com/zilliztech/pyglass), `graph
 loop over queries, so batching isn't it. Three differences are:
 
 1. **It re-ranks 15 candidates, not the whole beam.** Glass walks the graph on 8-bit codes and then
-   re-scores the best 1.5 × k with full vectors. Oryx re-scored every one of its `ef` candidates: at
+   re-scores the best 1.5 × k with full vectors. Epzero re-scored every one of its `ef` candidates: at
    `ef` 400 on GIST that is 400 extra reads of a 3.8 KB vector per query. Re-ranking 15, 20, 30, 50
    or 100 gave the same recall as re-ranking all of them (to 0.0002, on SIFT1M, GloVe-100 and
    GIST1M), so the default is now 3 × k.
 2. **Its distances are integer arithmetic.** Glass quantizes the query too, with one scale for all
-   dimensions, and scores int8 against int8. Oryx kept its per-dimension scales (more accurate
+   dimensions, and scores int8 against int8. Epzero kept its per-dimension scales (more accurate
    codes) and changed only the arithmetic: the per-query weights, already folded with the scales,
    are rounded to int8 once per query, and each node is then an integer dot product of those
    weights with its uint8 codes. On CPUs with VNNI that is one `vpdpbusd` per 64 dimensions (AVX-512)
@@ -176,7 +176,7 @@ loop over queries, so batching isn't it. Three differences are:
    gets a `maddubs` kernel. Weights stay within ±63 so the AVX2 kernel's 16-bit pair sums can't
    saturate, and every kernel returns exactly the same integer. Recall changed by at most 0.001.
 3. **It tunes its prefetching to the machine** (how many neighbours ahead, how many cache lines),
-   by timing searches of sample points. Oryx's default, every neighbour's first line up front, is
+   by timing searches of sample points. Epzero's default, every neighbour's first line up front, is
    already close to Glass's best settings on most data; `HnswIndex::tune_prefetch()` now measures a
    small grid of alternatives on sample vectors and keeps one only if it is at least 3% faster.
 
@@ -195,7 +195,7 @@ the instruction count matters, which is exactly where Glass's lead was. Prefetch
 +17% at full precision on GloVe-100 (8 neighbours ahead, 4 lines each) and about 6% on SIFT1M,
 and nothing on SQ8 codes, where one line up front was already best; Glass's own tuning log shows the
 same pattern (+0.1% on GIST, +36% on GloVe over its default). The server numbers, and where this
-leaves Oryx against Glass, come from re-running `compete.sbatch`.
+leaves Epzero against Glass, come from re-running `compete.sbatch`.
 
 ### Thread scaling
 
