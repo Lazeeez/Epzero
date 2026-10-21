@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-import oryx
+import oryxdb as oryx
 
 
 @pytest.fixture(scope="module")
@@ -43,7 +43,7 @@ def test_filtered_search_returns_only_allowed_labels(data):
     compiled = index.filter(allowed)
     assert compiled.allowed == len(allowed)
     assert abs(compiled.selectivity - len(allowed) / len(base)) < 1e-9
-    assert "oryx.Filter" in repr(compiled)
+    assert "oryxdb.Filter" in repr(compiled)
     for flt in (compiled, allowed, list(allowed)):  # compiled once, or compiled per call
         for strategy in ("auto", "exact", "inline", "two-hop"):
             labels, _ = index.search(queries, k=10, ef=100, filter=flt, strategy=strategy)
