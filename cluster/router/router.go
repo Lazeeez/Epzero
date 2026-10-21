@@ -1,4 +1,4 @@
-// Package router is the Oryx cluster's coordinator and query front end.
+// Package router is the Epzero cluster's coordinator and query front end.
 //
 // It owns the shard map (which node is primary and which is replica for each shard, and the
 // shard's epoch), health-checks every data node, fails over a shard to its replica when the
