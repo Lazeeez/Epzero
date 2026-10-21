@@ -5,7 +5,7 @@
 
 #include "kernels.h"
 
-namespace oryx::kernels {
+namespace epzero::kernels {
 namespace {
 
 // Loads the final (dim % 16) floats with a mask, so there is no scalar tail loop.
@@ -78,6 +78,6 @@ float ip_avx512(const float* a, const float* b, std::size_t dim) noexcept {
   return 1.0f - _mm512_reduce_add_ps(_mm512_add_ps(acc0, acc1));
 }
 
-}  // namespace oryx::kernels
+}  // namespace epzero::kernels
 
 #endif
