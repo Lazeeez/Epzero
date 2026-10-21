@@ -29,6 +29,7 @@
     <nav aria-label="Main">
       <a href={router.href("try")} class="link" aria-current={router.route === "try" ? "page" : undefined}>Try it</a>
       <a href={router.href("play")} class="link" aria-current={router.route === "play" ? "page" : undefined}>Play</a>
+      <a href={router.href("cluster")} class="link" aria-current={router.route === "cluster" ? "page" : undefined}>Cluster</a>
       <a href={router.href("benchmarks")} class="link" aria-current={router.route === "benchmarks" ? "page" : undefined}>Benchmarks</a>
     </nav>
     <div class="right">
@@ -237,7 +238,17 @@
       display: none;
     }
   }
-  /* Three links, the logo and the theme toggle share a phone's width: the logo drops its name. */
+  /* Four links, the logo and the theme toggle share a phone's width: the links tighten and the
+     logo drops its name. */
+  @media (max-width: 520px) {
+    nav {
+      gap: 0;
+    }
+    .link {
+      padding: 7px 8px;
+      font-size: 13.5px;
+    }
+  }
   @media (max-width: 400px) {
     .brand span {
       display: none;
@@ -245,7 +256,8 @@
   }
   @media (max-width: 359px) {
     .link {
-      padding: 7px 8px;
+      padding: 7px 5px;
+      font-size: 13px;
     }
     .inner,
     .overlay .inner {
