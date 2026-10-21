@@ -58,8 +58,11 @@ def build():
         sys.exit("no parquet files: run `python scripts/make_dbpedia.py download` first")
     parts = []
     for f in files:
-        column = pq.read_table(f, columns=["openai"]).column("openai")
-        parts.append(np.asarray(column.to_pylist(), dtype=np.float32))
+        # Straight from Arrow's flat buffer to NumPy: a Python list per vector would need tens of GB.
+        column = pq.read_table(f, columns=["openai"]).column("openai").combine_chunks()
+        flat = column.flatten().to_numpy(zero_copy_only=False).astype(np.float32, copy=False)
+        parts.append(flat.reshape(len(column), -1))
+        print(f"  read {os.path.basename(f)}: {parts[-1].shape}", flush=True)
     data = np.concatenate(parts)
     if len(data) < EXPECTED:
         sys.exit(f"only {len(data):,} of {EXPECTED:,} vectors in {len(files)} files: the download is incomplete; "
