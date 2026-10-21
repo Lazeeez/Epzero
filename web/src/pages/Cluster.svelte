@@ -7,6 +7,7 @@
   import { clusterSim, SIM_OPTIONS } from "../lib/cluster/sim.svelte";
   import type { Second } from "../lib/cluster/protocol";
   import { reveal } from "../lib/reveal";
+  import { spotlight } from "../lib/spotlight";
 
   $effect(() => {
     clusterSim.start();
@@ -107,7 +108,7 @@
     </div>
 
     <aside class="side">
-      <div class="card panel" aria-label="Live metrics">
+      <div class="card panel" aria-label="Live metrics" use:spotlight>
         <div class="tiles">
           <div class="tile">
             <span>Exact answers</span>
@@ -133,7 +134,7 @@
         <Sparkline {seconds} />
       </div>
 
-      <div class="card panel controls">
+      <div class="card panel controls" use:spotlight>
         <div class="row">
           <div>
             <strong>Consistency</strong>
@@ -187,7 +188,7 @@
   </section>
 
   <section class="container lower">
-    <div class="card panel log" aria-labelledby="events-title">
+    <div class="card panel log" aria-labelledby="events-title" use:spotlight>
       <h2 id="events-title">Router events</h2>
       {#if events.length}
         <ol>
@@ -204,7 +205,7 @@
       {/if}
     </div>
 
-    <div class="card panel how" use:reveal>
+    <div class="card panel how" use:reveal use:spotlight>
       <h2>What's real here</h2>
       <ul>
         <li>
