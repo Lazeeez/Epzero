@@ -1,9 +1,9 @@
 {
-  "name": "oryx-web",
+  "name": "epzero-web",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Oryx website: a from-scratch HNSW vector database running in the browser (Svelte 5, three.js, WebAssembly).",
+  "description": "Epzero website: a from-scratch HNSW vector database running in the browser (Svelte 5, three.js, WebAssembly).",
   "scripts": {
     "assets": "node scripts/fetch-assets.mjs",
     "dev": "npm run assets && vite",
