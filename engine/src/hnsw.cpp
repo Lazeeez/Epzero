@@ -1,6 +1,7 @@
 #include "oryx/hnsw.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -36,6 +37,12 @@ inline void prefetch(const void* p) noexcept {
 #else
   (void)p;
 #endif
+}
+
+// The first `lines` cache lines at `p`.
+inline void prefetch_lines(const void* p, std::size_t lines) noexcept {
+  const auto* bytes = static_cast<const std::byte*>(p);
+  for (std::size_t i = 0; i < lines; ++i) prefetch(bytes + 64 * i);
 }
 
 // Neighbor lists are read without any lock while writers (serialized per node by node_locks_)
@@ -238,6 +245,15 @@ class HnswIndex::Scorer {
       qq += query[i] * query[i];
     }
     base_ = l2_ ? qq - 2.0f * c : 1.0f - c;
+    if (index.sq8_int_dot_ == nullptr) return;
+    // Integer kernel: the weights rounded to int8 on one scale per query. The rounding error is at
+    // most half a step per dimension, against distances the beam only needs to rank; the final
+    // candidates are re-scored exactly.
+    float largest = 0.0f;
+    for (const float w : weights_) largest = std::max(largest, std::abs(w));
+    w_scale_ = largest > 0.0f ? largest / static_cast<float>(kSq8IntWeightMax) : 1.0f;
+    iweights_.resize(dim);
+    for (std::size_t i = 0; i < dim; ++i) iweights_[i] = static_cast<std::int8_t>(std::lrint(weights_[i] / w_scale_));
   }
 
   float operator()(id_t id) const noexcept {
@@ -251,7 +267,10 @@ class HnswIndex::Scorer {
       return 1.0f - (f.norm * rbq_.norm * est + f.dot_c + rbq_.dot_c - center_sq_);
     }
     if (adc_) {
-      const float dot = index_.sq8_dot_(weights_.data(), index_.codes_of(id), weights_.size());
+      const float dot =
+          iweights_.empty()
+              ? index_.sq8_dot_(weights_.data(), index_.codes_of(id), weights_.size())
+              : w_scale_ * static_cast<float>(index_.sq8_int_dot_(iweights_.data(), index_.codes_of(id), iweights_.size()));
       return l2_ ? base_ + index_.code_norm(id) - 2.0f * dot : base_ - dot;
     }
     return index_.dist_(query_, index_.full_vector(id), index_.params_.dim);
@@ -289,6 +308,8 @@ class HnswIndex::Scorer {
   bool l2_ = false;
   float base_ = 0.0f;
   std::vector<float> weights_;
+  std::vector<std::int8_t> iweights_;  // integer SQ8 (empty: the float kernel)
+  float w_scale_ = 1.0f;
   rabitq::Query rbq_;
   std::size_t rbq_words_ = 0;  // nonzero in RaBitQ mode
   float center_sq_ = 0.0f;
@@ -296,11 +317,26 @@ class HnswIndex::Scorer {
 
 void HnswIndex::AlignedFree::operator()(void* p) const noexcept { std::free(p); }
 
+namespace {
+
+// Integer SQ8 where a SIMD integer kernel exists. ORYX_SQ8_KERNEL=float keeps the float kernel
+// (to compare the two on the same build).
+Sq8IntDotFn choose_sq8_int_dot(SimdLevel level) noexcept {
+  if (level != SimdLevel::AVX2 && level != SimdLevel::AVX512) return nullptr;
+  if (const char* forced = std::getenv("ORYX_SQ8_KERNEL"); forced != nullptr && std::string_view(forced) == "float") {
+    return nullptr;
+  }
+  return get_sq8_int_dot_fn(level);
+}
+
+}  // namespace
+
 HnswIndex::HnswIndex(const HnswParams& params)
     : params_(params),
       simd_level_(active_simd_level()),
       dist_(get_distance_fn(params.metric, simd_level_)),
       sq8_dot_(get_sq8_dot_fn(simd_level_)),
+      sq8_int_dot_(choose_sq8_int_dot(simd_level_)),
       rabitq_ip_(get_rabitq_ip_fn(simd_level_)),
       max_links0_(2 * params.M),
       level_mult_(params.M > 1 ? 1.0 / std::log(static_cast<double>(params.M)) : 1.0),
@@ -499,9 +535,49 @@ HnswIndex::id_t HnswIndex::greedy_descend(const Scorer& scorer, id_t entry, int 
   return current;
 }
 
+void HnswIndex::set_prefetch(std::size_t depth, std::size_t lines) noexcept {
+  prefetch_depth_ = depth;
+  prefetch_lines_ = lines;
+}
+
+std::pair<std::size_t, std::size_t> HnswIndex::tune_prefetch(const float* queries, std::size_t n, std::size_t k,
+                                                             std::size_t ef) {
+  constexpr std::size_t kAll = std::numeric_limits<std::size_t>::max();
+  if (n == 0 || size() == 0) return prefetch_settings();
+  // What one scored node reads: its codes (quantized) or its full vector.
+  const std::size_t bytes = sq8() ? params_.dim + sizeof(float) : rabitq() ? rabitq_record_bytes() : params_.dim * sizeof(float);
+  const std::size_t max_lines = std::max<std::size_t>(1, (bytes + 63) / 64);
+  std::vector<std::pair<std::size_t, std::size_t>> grid = {{kAll, 1}};  // the default first
+  for (const std::size_t depth : {kAll, std::size_t{16}, std::size_t{8}, std::size_t{4}, std::size_t{2}}) {
+    for (const std::size_t lines : {std::size_t{1}, std::size_t{2}, std::size_t{4}, std::size_t{8}}) {
+      if (lines <= max_lines && !(depth == kAll && lines == 1)) grid.emplace_back(depth, lines);
+    }
+  }
+  const auto time_pass = [&] {
+    const auto start = std::chrono::steady_clock::now();
+    for (std::size_t q = 0; q < n; ++q) search(queries + q * params_.dim, k, {.ef = ef});
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+  };
+  time_pass();  // warm the caches
+  std::vector<double> best(grid.size(), std::numeric_limits<double>::infinity());
+  for (int round = 0; round < 3; ++round) {  // interleaved, so drift affects every setting alike
+    for (std::size_t g = 0; g < grid.size(); ++g) {
+      set_prefetch(grid[g].first, grid[g].second);
+      best[g] = std::min(best[g], time_pass());
+    }
+  }
+  std::size_t pick = 0;
+  for (std::size_t g = 1; g < grid.size(); ++g) {
+    if (best[g] < best[pick]) pick = g;
+  }
+  if (best[pick] > 0.97 * best[0]) pick = 0;  // within 3% of the default: keep the default
+  set_prefetch(grid[pick].first, grid[pick].second);
+  return grid[pick];
+}
+
 std::vector<HnswIndex::Candidate> HnswIndex::search_layer(const Scorer& scorer, id_t entry, std::size_t ef,
                                                           int layer, SearchStats& stats, SearchTrace* trace,
-                                                          bool keep_deleted) const {
+                                                          bool keep_deleted, std::size_t k, std::size_t patience) const {
   auto visited = visited_pool_->acquire();
   std::priority_queue<Candidate, std::vector<Candidate>, CloserFirst> candidates;  // closest on top
   std::priority_queue<Candidate, std::vector<Candidate>, FartherFirst> best;       // farthest on top
@@ -519,6 +595,20 @@ std::vector<HnswIndex::Candidate> HnswIndex::search_layer(const Scorer& scorer, 
   if (!has_deletions || !is_deleted(entry)) best.push({entry_dist, entry});
   float bound = best.empty() ? kInfinity : best.top().distance;
 
+  // Patience: the best k so far (a small heap beside the beam), and how many expansions in a row
+  // have left them unchanged.
+  std::priority_queue<Candidate, std::vector<Candidate>, FartherFirst> top;
+  float kth = kInfinity;
+  std::size_t unchanged = 0;
+  const auto offer_top = [&](float d, id_t id) {
+    if (top.size() == k && d >= kth) return false;
+    top.push({d, id});
+    if (top.size() > k) top.pop();
+    kth = top.size() == k ? top.top().distance : kInfinity;
+    return true;
+  };
+  if (patience > 0 && !best.empty()) offer_top(entry_dist, entry);
+
   // Scratch space for one node's unvisited neighbors; the largest list is layer 0's.
   std::vector<id_t> batch(max_links0_);
 
@@ -526,25 +616,30 @@ std::vector<HnswIndex::Candidate> HnswIndex::search_layer(const Scorer& scorer, 
     const Candidate current = candidates.top();
     // Every remaining candidate is farther than the worst result we keep: the beam has converged.
     if (current.distance > bound && (best.size() >= ef || !has_deletions)) break;
+    // Or the answer has settled: the best k survived `patience` expansions in a row.
+    if (patience > 0 && unchanged >= patience) break;
     candidates.pop();
+    bool improved = false;
 
     const id_t* links = links_of(current.id, layer);
     const id_t count = load_link(links[0]);
     ++stats.nodes_expanded;
 
-    // Filter out visited neighbors first and prefetch every survivor's vector, so their cache
+    // Filter out visited neighbors first and prefetch the survivors' vectors, so their cache
     // misses overlap instead of being paid one after another inside the distance loop.
-    // Measured on SIFT1M: +12-18% QPS. Prefetching only the first line is enough; the hardware
-    // stream prefetcher follows once the kernel starts reading (more lines measured no better).
+    // Measured on SIFT1M: +12-18% QPS. By default every survivor's first line is prefetched up
+    // front (the hardware stream prefetcher follows once the kernel reads); set_prefetch() can
+    // instead keep a window of `depth` survivors ahead of the one being scored, `lines` lines each.
     std::size_t pending = 0;
     for (id_t i = 0; i < count; ++i) {
       const id_t neighbor = load_link(links[1 + i]);
       if (visited->test_and_set(neighbor)) continue;
       batch[pending++] = neighbor;
-      prefetch(scorer.address(neighbor));
+      if (pending <= prefetch_depth_) prefetch_lines(scorer.address(neighbor), prefetch_lines_);
     }
 
     for (std::size_t j = 0; j < pending; ++j) {
+      if (pending - j > prefetch_depth_) prefetch_lines(scorer.address(batch[j + prefetch_depth_]), prefetch_lines_);
       const id_t neighbor = batch[j];
       const float d = scorer.bounded(neighbor, best.size() < ef ? kInfinity : bound, exact);
       ++stats.distance_computations;
@@ -558,9 +653,17 @@ std::vector<HnswIndex::Candidate> HnswIndex::search_layer(const Scorer& scorer, 
         if (!has_deletions || !is_deleted(neighbor)) {
           best.push({d, neighbor});
           if (best.size() > ef) best.pop();
+          if (patience > 0) improved |= offer_top(d, neighbor);
         }
         bound = best.empty() ? kInfinity : best.top().distance;
       }
+    }
+    // Expanding a tombstone only routes through it (it can never improve the answer), so it doesn't
+    // count against patience: otherwise a walk through a churned region would stop too soon.
+    if (improved) {
+      unchanged = 0;
+    } else if (!has_deletions || !is_deleted(current.id)) {
+      ++unchanged;
     }
   }
 
@@ -1034,7 +1137,7 @@ std::vector<SearchResult> HnswIndex::search(const float* query, std::size_t k, c
   std::vector<Candidate> candidates;
   if (options.filter == nullptr) {
     const id_t start = greedy_descend(scorer, entry_point, top_level, 0, stats, trace);
-    candidates = search_layer(scorer, start, ef, 0, stats, trace);
+    candidates = search_layer(scorer, start, ef, 0, stats, trace, false, k, options.patience);
   } else {
     const SearchFilter& filter = *options.filter;
     FilterStrategy strategy =
@@ -1056,7 +1159,7 @@ std::vector<SearchResult> HnswIndex::search(const float* query, std::size_t k, c
   // (RaBitQ's unfiltered beam already holds exact distances, see Scorer::bounded.)
   const bool beam_exact = scorer.bounded_mode() && options.filter == nullptr;
   if (quantized() && full_ && !candidates.empty() && !beam_exact) {
-    std::size_t rerank = options.rerank == 0 ? candidates.size() : std::max(options.rerank, k);
+    std::size_t rerank = options.rerank == 0 ? 3 * k : std::max(options.rerank, k);
     rerank = std::min(rerank, candidates.size());
     for (std::size_t i = 0; i < rerank; ++i) prefetch(full_vector(candidates[i].id));
     for (std::size_t i = 0; i < rerank; ++i) {
