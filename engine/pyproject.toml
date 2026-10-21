@@ -46,7 +46,7 @@ ORYX_BUILD_PYTHON = "ON"
 build = "cp310-* cp311-* cp312-* cp313-*"
 skip = "*-musllinux_* *_i686"
 test-extras = ["test"]
-test-command = "pytest -q {project}/python/tests"
+test-command = "pytest -q {package}/python/tests"
 
 [tool.cibuildwheel.linux]
 manylinux-x86_64-image = "manylinux_2_28"
