@@ -383,9 +383,12 @@ class Engine {
 
   // ---- Photo metadata helpers ----
 
+  // Every photo from live.staticflickr.com (the same files as the old per-farm cN hosts, which
+  // the path's first part names): one host means one connection for a whole page of results,
+  // instead of a DNS lookup and TLS handshake for each of eight hosts.
   thumbnail(id: number, size: "q" | "n" | "z" = "n"): string {
-    const m = this.meta!;
-    return `https://c${m.host[id]}.staticflickr.com/${m.path[id]}_${size}.jpg`;
+    const path = this.meta!.path[id];
+    return `https://live.staticflickr.com/${path.slice(path.indexOf("/") + 1)}_${size}.jpg`;
   }
 
   caption(id: number): string {
