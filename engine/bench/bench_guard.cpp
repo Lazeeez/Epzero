@@ -30,13 +30,13 @@
 #include <thread>
 #include <vector>
 
-#include "oryx/brute_force.h"
-#include "oryx/dataset.h"
-#include "oryx/hnsw.h"
-#include "oryx/parallel.h"
-#include "oryx/recall.h"
+#include "epzero/brute_force.h"
+#include "epzero/dataset.h"
+#include "epzero/hnsw.h"
+#include "epzero/parallel.h"
+#include "epzero/recall.h"
 
-using namespace oryx;
+using namespace epzero;
 
 namespace {
 
