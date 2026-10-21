@@ -34,6 +34,7 @@
   let video: HTMLVideoElement | undefined = $state();
   let stream = $state.raw<MediaStream | null>(null);
   let cameraOn = $state(false);
+  let hasFrame = $state(false); // the preview is showing frames: until then there is nothing to capture
   let starting = $state(false);
   let live = $state(false);
   let liveTimer = 0;
@@ -226,6 +227,7 @@
   function releaseStream() {
     stream?.getTracks().forEach((t) => t.stop());
     stream = null;
+    hasFrame = false;
   }
 
   function stopCamera() {
@@ -379,7 +381,7 @@
     <div class="camera">
       {#if cameraOn}
         <div class="viewfinder">
-          <video bind:this={video} class:mirrored autoplay muted playsinline aria-label="Camera preview"></video>
+          <video bind:this={video} class:mirrored autoplay muted playsinline aria-label="Camera preview" onloadeddata={() => (hasFrame = true)}></video>
           {#if live}<span class="live-badge" aria-hidden="true">LIVE</span>{/if}
           <div class="corner-actions">
             {#if cameraCount > 1}
@@ -399,10 +401,10 @@
           </div>
         </div>
         <div class="camera-actions">
-          <button class="btn btn-primary" onclick={() => capture()} disabled={busy || imageEncoder.status !== "ready"}>
-            {imageEncoder.status === "ready" ? "Capture & search" : `Loading model… ${pct(imageEncoder.progress)}`}
+          <button class="btn btn-primary" onclick={() => capture()} disabled={busy || imageEncoder.status !== "ready" || !hasFrame}>
+            {imageEncoder.status !== "ready" ? `Loading model… ${pct(imageEncoder.progress)}` : hasFrame ? "Capture & search" : "Starting camera…"}
           </button>
-          <button class="btn btn-ghost" class:on={live} onclick={toggleLive} disabled={imageEncoder.status !== "ready"} aria-pressed={live}>
+          <button class="btn btn-ghost" class:on={live} onclick={toggleLive} disabled={imageEncoder.status !== "ready" || !hasFrame} aria-pressed={live}>
             <span class="dot" aria-hidden="true"></span>{live ? "Live" : "Go live"}
           </button>
         </div>
