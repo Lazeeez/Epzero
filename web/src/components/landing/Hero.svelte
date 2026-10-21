@@ -240,7 +240,7 @@
     bottom: 96px;
     width: 330px;
     padding: 14px;
-    background: var(--glass);
+    background: var(--glass-fill);
     animation: live-in 0.6s var(--ease);
   }
   .live header {
