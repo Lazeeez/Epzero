@@ -1,0 +1,57 @@
+name: wheels
+
+# Builds the oryxdb wheels (Linux x86-64 and ARM64, macOS Apple silicon and Intel; CPython
+# 3.10-3.13) and the source distribution, and tests every wheel in a clean environment, LangChain's
+# vector-store conformance suite included. A version tag (v0.2.0, ...) also publishes to PyPI by
+# trusted publishing: no token is stored anywhere.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  wheels:
+    name: wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14, macos-13]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pypa/cibuildwheel@v3.2.1
+        with:
+          package-dir: engine
+          output-dir: wheelhouse
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "13.3"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  sdist:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: pipx run build --sdist --outdir dist engine
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [wheels, sdist]
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/project/oryxdb/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1
