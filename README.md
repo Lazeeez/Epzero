@@ -14,8 +14,8 @@ system then answers from the wrong documents without anyone noticing. Oryx's
 recall guard re-answers a small sample of real queries exactly in the
 background, reports live recall with a confidence interval, and moves the
 search effort to hold a target. Under drift on SIFT1M it held 0.95 recall where
-a fixed setting fell to 0.94, at 15% less cost than over-provisioning, and its
-estimates were within 0.007 of the truth. It can also say why any given
+a fixed setting fell to 0.948, at 6–15% less cost than over-provisioning, and its
+estimates were within 0.011 of the truth (dedicated server, SIFT1M). It can also say why any given
 document wasn't retrieved. [How it works and the evidence →](docs/recall-guard.md)
 
 The same engine runs on three targets: native (benchmarks and servers),
@@ -94,7 +94,11 @@ navigator HUD lean on that idea.
   ([details](docs/recall-guard.md)).
 - **Filtered search that chooses its own strategy:** an exact scan of the
   allowed vectors, a graph walk that skips excluded ones, or a two-hop walk
-  across them, picked per query by how selective the filter is.
+  across them, picked per query by a cost model calibrated on a dedicated
+  server. Each wins somewhere: from 39k queries/s (0.1% of vectors allowed)
+  to 5k (50%), at recall 0.95 on SIFT1M.
+- **Searches don't stop for writes:** 4,049 writes/s cost concurrent readers
+  9% of their throughput, and p99 latency went from 236 to 262 µs.
 - **Hardened against malformed files:** libFuzzer runs on every parser of
   untrusted bytes in CI; it found four crash bugs in the index loaders, all
   fixed and kept as regression cases.
@@ -261,7 +265,9 @@ accumulators.
   gives **+48% QPS at identical recall**, or 58% less memory without the float
   vectors. See the [performance log](docs/performance.md#8-bit-scalar-quantization-sq8).
 - **Deletes.** Tombstones that keep routing searches but are never returned or
-  linked to again; `compacted()` rebuilds the index without them.
+  linked to again; `compacted()` rebuilds the index without them. Five cycles
+  of deleting and re-inserting 10% of SIFT1M cost 0.5 points of recall and 26%
+  of throughput; a 35 s compaction restores both.
 - **Durability.** `Database` adds a write-ahead log: CRC32C-framed records,
   fsync per write or group commit, and atomic checkpoints (the snapshot is
   written, fsynced and renamed before `CHECKPOINT` switches to it). Recovery
@@ -276,10 +282,14 @@ accumulators.
   CI keeps it that way.
 - **Filtered search.** A filter is compiled once against the index (a bitset
   plus the allowed slots) and reused by every query. Each query then picks a
-  strategy from the filter's selectivity: score the allowed vectors directly
-  when few pass, walk the graph keeping only allowed results when most pass,
-  and in between walk only allowed nodes, stepping past an excluded neighbour
-  to its own neighbours (the idea behind ACORN) so the walk stays connected.
+  strategy from the filter's selectivity and the beam width: score the allowed
+  vectors directly when few pass, walk the graph keeping only allowed results
+  when a quarter or more pass, and in between walk only allowed nodes,
+  stepping past an excluded neighbour to its own neighbours (the idea behind
+  ACORN) so the walk stays connected. Below 1.5% that walk can't reach the
+  target recall, so Auto weighs a scan against the plain walk by estimated
+  cost. The thresholds come from measuring every strategy at 12 selectivities
+  on a dedicated server (`bench/results/pace/gold6226/sift1m-filter.json`).
 - **Recall monitoring and control.** See [docs/recall-guard.md](docs/recall-guard.md).
 
 ## Python
