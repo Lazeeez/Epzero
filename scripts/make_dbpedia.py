@@ -23,14 +23,30 @@ QUERIES = 10_000
 EXPECTED = 1_000_000  # rows in the full dataset
 
 
-def download():
-    from huggingface_hub import snapshot_download
+REPO = "https://huggingface.co/datasets/KShivendu/dbpedia-entities-openai-1M"
+API = "https://huggingface.co/api/datasets/KShivendu/dbpedia-entities-openai-1M/tree/main/data"
 
-    # One file at a time: parallel downloads use enough memory for a login node to kill them.
-    # Rerunning resumes, skipping files already complete.
-    snapshot_download("KShivendu/dbpedia-entities-openai-1M", repo_type="dataset", local_dir=RAW,
-                      allow_patterns=["*.parquet"], max_workers=1)
-    print("downloaded:", len(glob.glob(os.path.join(RAW, "**", "*.parquet"), recursive=True)), "parquet files")
+
+def download():
+    # Plain curl, one file at a time: the Hugging Face client's download backend needs enough
+    # memory per file that PACE's login nodes kill it. curl streams to disk, and -C - resumes a
+    # partial file, so rerunning picks up where a previous run stopped.
+    import json
+    import subprocess
+    import urllib.request
+
+    with urllib.request.urlopen(API) as resp:
+        files = [f for f in json.load(resp) if f["path"].endswith(".parquet")]
+    os.makedirs(os.path.join(RAW, "data"), exist_ok=True)
+    for i, f in enumerate(files, 1):
+        dest = os.path.join(RAW, f["path"])
+        if os.path.exists(dest) and os.path.getsize(dest) == f["size"]:
+            continue
+        print(f"[{i}/{len(files)}] {f['path']} ({f['size'] / 1e6:.0f} MB)", flush=True)
+        subprocess.run(["curl", "-fL", "--retry", "5", "-C", "-", "-s", "-o", dest, f"{REPO}/resolve/main/{f['path']}"], check=True)
+        if os.path.getsize(dest) != f["size"]:
+            sys.exit(f"{dest}: size mismatch; rerun to resume")
+    print(f"downloaded: {len(files)} parquet files, complete")
 
 
 def build():
