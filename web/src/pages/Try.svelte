@@ -400,7 +400,7 @@
     flex-direction: column;
     gap: 16px;
     padding: 20px;
-    background: var(--glass);
+    background: var(--glass-fill);
     overflow-y: auto;
     scrollbar-width: thin;
   }
@@ -424,7 +424,7 @@
     align-items: center;
     gap: 16px;
     padding: 10px 12px 10px 16px;
-    background: var(--glass);
+    background: var(--glass-fill);
   }
   .ef {
     display: flex;
@@ -597,7 +597,7 @@
     display: grid;
     gap: 12px;
     padding: 20px;
-    background: var(--glass);
+    background: var(--glass-fill);
     transform: translate(-50%, -50%);
   }
   .no-3d {
