@@ -1,5 +1,5 @@
-// oryx-node: a data node of the Oryx cluster. Hosts shard copies (each a durable oryx::Database)
-// and serves the gRPC protocol in proto/oryx/v1/oryx.proto.
+// epzero-node: a data node of the Epzero cluster. Hosts shard copies (each a durable epzero::Database)
+// and serves the gRPC protocol in proto/epzero/v1/epzero.proto.
 //
 // Replication is primary/backup per shard. The primary logs and applies a write, forwards the
 // same log records (same LSNs) to its replica and waits for it before acknowledging, so an
@@ -26,11 +26,11 @@
 #include <string>
 #include <thread>
 
-#include "oryx/database.h"
-#include "oryx/v1/oryx.grpc.pb.h"
+#include "epzero/database.h"
+#include "epzero/v1/epzero.grpc.pb.h"
 
 namespace fs = std::filesystem;
-namespace pb = oryx::v1;
+namespace pb = epzero::v1;
 using grpc::ServerContext;
 using grpc::StatusCode;
 using Clock = std::chrono::steady_clock;
@@ -41,14 +41,14 @@ struct Config {
   std::string listen = "0.0.0.0:7000";
   std::string advertise;  // address peers use to reach this node (default: listen)
   std::string name = "node";
-  std::string data = "/var/lib/oryx/data";
+  std::string data = "/var/lib/epzero/data";
   std::string token;      // required by Crash
-  oryx::HnswParams params{.dim = 512, .metric = oryx::Metric::Cosine, .max_elements = 200'000, .M = 16,
+  epzero::HnswParams params{.dim = 512, .metric = epzero::Metric::Cosine, .max_elements = 200'000, .M = 16,
                           .ef_construction = 128};
-  oryx::SyncMode sync = oryx::SyncMode::Always;
+  epzero::SyncMode sync = epzero::SyncMode::Always;
 };
 
-pb::Record to_proto(const oryx::LogRecord& r) {
+pb::Record to_proto(const epzero::LogRecord& r) {
   pb::Record out;
   out.set_type(static_cast<std::uint32_t>(r.type));
   out.set_lsn(r.lsn);
@@ -57,8 +57,8 @@ pb::Record to_proto(const oryx::LogRecord& r) {
   return out;
 }
 
-oryx::LogRecord from_proto(const pb::Record& r) {
-  return {static_cast<oryx::LogRecord::Type>(r.type()), r.lsn(), r.label(),
+epzero::LogRecord from_proto(const pb::Record& r) {
+  return {static_cast<epzero::LogRecord::Type>(r.type()), r.lsn(), r.label(),
           std::vector<float>(r.vector().begin(), r.vector().end())};
 }
 
@@ -73,9 +73,9 @@ struct Assignment {
 class Shard {
  public:
   Shard(std::uint32_t id, const Config& config) : id_(id), dir_(fs::path(config.data) / ("shard-" + std::to_string(id))) {
-    oryx::DatabaseOptions options;
+    epzero::DatabaseOptions options;
     options.sync = config.sync;
-    db_ = oryx::Database::open(dir_.string(), config.params, options);
+    db_ = epzero::Database::open(dir_.string(), config.params, options);
     std::ifstream in(dir_ / "ASSIGNMENT");
     int role = 0;
     if (in >> role >> assignment_.epoch) {
@@ -85,7 +85,7 @@ class Shard {
   }
 
   std::uint32_t id() const { return id_; }
-  oryx::Database& db() { return *db_; }
+  epzero::Database& db() { return *db_; }
 
   std::mutex mu;                      // writes, role changes and forwarding, in log order
   std::condition_variable caught_up;  // signalled when a catch-up finishes
@@ -108,7 +108,7 @@ class Shard {
  private:
   std::uint32_t id_;
   fs::path dir_;
-  std::unique_ptr<oryx::Database> db_;
+  std::unique_ptr<epzero::Database> db_;
   Assignment assignment_;
 };
 
@@ -135,7 +135,7 @@ class NodeService final : public pb::Node::Service {
     std::unique_lock lock(s->mu);
     if (grpc::Status st = check_primary(*s, req->epoch()); !st.ok()) return st;
     try {
-      std::vector<oryx::LogRecord> records;
+      std::vector<epzero::LogRecord> records;
       if (n == 1) {
         records.push_back(s->db().upsert(req->labels(0), req->vectors().data()));
       } else {
@@ -166,7 +166,7 @@ class NodeService final : public pb::Node::Service {
     if (static_cast<std::size_t>(req->query_size()) != config_.params.dim) {
       return {StatusCode::INVALID_ARGUMENT, "query has the wrong dimension"};
     }
-    oryx::SearchStats stats;
+    epzero::SearchStats stats;
     const auto start = Clock::now();
     const auto hits = s->db().search(req->query().data(), std::max(1u, req->k()),
                                      {.ef = std::max<std::size_t>(req->ef(), 16), .stats = &stats});
@@ -191,7 +191,7 @@ class NodeService final : public pb::Node::Service {
     if (a.role != pb::ROLE_REPLICA || req->epoch() != a.epoch) {
       return {StatusCode::FAILED_PRECONDITION, "not a replica in this epoch"};
     }
-    std::vector<oryx::LogRecord> records;
+    std::vector<epzero::LogRecord> records;
     records.reserve(static_cast<std::size_t>(req->records_size()));
     for (const auto& r : req->records()) records.push_back(from_proto(r));
     try {
@@ -213,7 +213,7 @@ class NodeService final : public pb::Node::Service {
     if (a.role != pb::ROLE_PRIMARY || req->epoch() != a.epoch || req->replica_address() != a.peer) {
       return {StatusCode::FAILED_PRECONDITION, "not this replica's primary in this epoch"};
     }
-    std::optional<std::vector<oryx::LogRecord>> records;
+    std::optional<std::vector<epzero::LogRecord>> records;
     if (!req->force_snapshot() && req->after_lsn() <= s->db().last_lsn()) records = s->db().records_since(req->after_lsn());
     if (records) {
       for (const auto& r : *records) *reply->add_records() = to_proto(r);
@@ -252,7 +252,7 @@ class NodeService final : public pb::Node::Service {
   grpc::Status Status(ServerContext*, const pb::StatusRequest*, pb::StatusReply* reply) override {
     reply->set_node(config_.name);
     reply->set_started_unix_ms(started_);
-    reply->set_simd(std::string(oryx::to_string(oryx::active_simd_level())));
+    reply->set_simd(std::string(epzero::to_string(epzero::active_simd_level())));
     std::shared_lock lock(shards_mu_);
     for (const auto& [id, s] : shards_) {
       std::unique_lock shard_lock(s->mu, std::try_to_lock);  // never block health checks on a write
@@ -309,7 +309,7 @@ class NodeService final : public pb::Node::Service {
   }
 
   // Caller holds s.mu. Returns whether the replica applied the records.
-  bool forward(Shard& s, const std::vector<oryx::LogRecord>& records) {
+  bool forward(Shard& s, const std::vector<epzero::LogRecord>& records) {
     if (!s.peer_stub || !s.in_sync) return false;
     pb::ReplicateRequest req;
     req.set_shard(s.id());
@@ -352,7 +352,7 @@ class NodeService final : public pb::Node::Service {
           try {
             if (status.ok()) {
               if (reply.has_snapshot()) s->db().import_snapshot(reply.snapshot_lsn(), reply.snapshot());
-              std::vector<oryx::LogRecord> records;
+              std::vector<epzero::LogRecord> records;
               for (const auto& r : reply.records()) records.push_back(from_proto(r));
               s->db().apply(records);
               force_snapshot_[id] = false;
@@ -400,10 +400,10 @@ Config parse(int argc, char** argv) {
     else if (arg == "--max") c.params.max_elements = std::stoul(value());
     else if (arg == "--metric") {
       const std::string m = value();
-      c.params.metric = m == "l2" ? oryx::Metric::L2 : m == "ip" ? oryx::Metric::InnerProduct : oryx::Metric::Cosine;
+      c.params.metric = m == "l2" ? epzero::Metric::L2 : m == "ip" ? epzero::Metric::InnerProduct : epzero::Metric::Cosine;
     } else if (arg == "--sync") {
       const std::string m = value();
-      c.sync = m == "none" ? oryx::SyncMode::None : m == "batch" ? oryx::SyncMode::Batch : oryx::SyncMode::Always;
+      c.sync = m == "none" ? epzero::SyncMode::None : m == "batch" ? epzero::SyncMode::Batch : epzero::SyncMode::Always;
     } else {
       throw std::invalid_argument("unknown argument " + arg);
     }
@@ -425,11 +425,11 @@ int main(int argc, char** argv) try {
   builder.RegisterService(&service);
   auto server = builder.BuildAndStart();
   if (!server) throw std::runtime_error("cannot listen on " + config.listen);
-  std::cerr << config.name << " listening on " << config.listen << " (simd " << oryx::to_string(oryx::active_simd_level())
+  std::cerr << config.name << " listening on " << config.listen << " (simd " << epzero::to_string(epzero::active_simd_level())
             << ")\n";
   server->Wait();
   return 0;
 } catch (const std::exception& e) {
-  std::cerr << "oryx-node: " << e.what() << '\n';
+  std::cerr << "epzero-node: " << e.what() << '\n';
   return 1;
 }
