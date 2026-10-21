@@ -61,7 +61,7 @@ jobs:
           version: 6.0.10
       - run: sudo apt-get install -y ninja-build
       - name: Configure
-        run: emcmake cmake -S engine -B build -G Ninja -DORYX_BUILD_BENCH=OFF
+        run: emcmake cmake -S engine -B build -G Ninja -DEPZERO_BUILD_BENCH=OFF
       - name: Build
         run: cmake --build build
       - name: Test (C++ suite compiled to WASM SIMD128 + threads, run under Node)
@@ -80,7 +80,7 @@ jobs:
       # TSan cannot map its shadow memory with the kernel's default 32-bit mmap randomization.
       - run: sudo sysctl vm.mmap_rnd_bits=28
       - name: Configure
-        run: cmake -S engine -B build -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=RelWithDebInfo -DORYX_SANITIZE=${{ matrix.sanitizer }} -DORYX_BUILD_BENCH=OFF
+        run: cmake -S engine -B build -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=RelWithDebInfo -DEPZERO_SANITIZE=${{ matrix.sanitizer }} -DEPZERO_BUILD_BENCH=OFF
       - name: Build
         run: cmake --build build
       - name: Test
@@ -98,7 +98,7 @@ jobs:
       - name: Build the fuzzers (libFuzzer + ASan + UBSan)
         run: >-
           cmake -S engine -B build -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=RelWithDebInfo
-          -DORYX_BUILD_FUZZ=ON -DORYX_BUILD_TESTS=OFF -DORYX_BUILD_BENCH=OFF -DORYX_BUILD_NODE=OFF
+          -DEPZERO_BUILD_FUZZ=ON -DEPZERO_BUILD_TESTS=OFF -DEPZERO_BUILD_BENCH=OFF -DEPZERO_BUILD_NODE=OFF
           && cmake --build build
       - name: Seed corpus (one valid file of each kind)
         run: build/fuzz_seeds corpus
