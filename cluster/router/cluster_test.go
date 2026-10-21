@@ -1,8 +1,8 @@
 //go:build integration
 
-// End-to-end test against real oryx-node processes:
+// End-to-end test against real epzero-node processes:
 //
-//	ORYX_NODE_BIN=/path/to/oryx-node go test -tags integration ./router -v
+//	EPZERO_NODE_BIN=/path/to/epzero-node go test -tags integration ./router -v
 package router
 
 import (
@@ -109,9 +109,9 @@ func waitFor(t *testing.T, what string, timeout time.Duration, ok func() bool) {
 }
 
 func TestClusterFailoverAndRecovery(t *testing.T) {
-	bin := os.Getenv("ORYX_NODE_BIN")
+	bin := os.Getenv("EPZERO_NODE_BIN")
 	if bin == "" {
-		t.Skip("set ORYX_NODE_BIN to the oryx-node binary")
+		t.Skip("set EPZERO_NODE_BIN to the epzero-node binary")
 	}
 	base := t.TempDir()
 	tokenFile := filepath.Join(base, "token")
