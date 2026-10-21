@@ -28,7 +28,7 @@ test("landing, text search, similar photos, the game and the lab all work", asyn
   await page.getByRole("button", { name: "Start navigating" }).click({ timeout: 150_000 });
   await expect(page.locator(".options button").first()).toBeVisible({ timeout: 30_000 });
   for (let hop = 0; hop < 3 && !(await page.locator(".result").isVisible()); hop++) {
-    await page.getByRole("button", { name: /Ask Oryx/ }).click();
+    await page.getByRole("button", { name: /Ask Epzero/ }).click();
     await page.locator(".options button.hinted").click();
   }
 
