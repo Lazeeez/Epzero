@@ -122,7 +122,6 @@
     background: rgba(0, 0, 0, 0.62);
     color: #fff;
     font: 600 10.5px/1.6 var(--mono);
-    backdrop-filter: blur(6px);
   }
   .rank {
     left: 6px;
