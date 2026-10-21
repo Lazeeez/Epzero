@@ -28,7 +28,7 @@
 <div class="stats" aria-live="polite">
   <div class="primary">
     <div class="stat hero">
-      <span class="label">{filtered ? "Oryx, filtered" : "HNSW search"}</span>
+      <span class="label">{filtered ? "Epzero, filtered" : "HNSW search"}</span>
       <strong class="num">{time(trace.micros)}</strong>
     </div>
     <div class="vs" aria-hidden="true">vs</div>
