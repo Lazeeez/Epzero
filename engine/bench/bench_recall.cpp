@@ -41,6 +41,7 @@ struct Options {
   Quantization quantization = Quantization::None;
   bool keep_vectors = true;
   std::size_t rerank = 0;
+  std::size_t prefetch_depth = 0, prefetch_lines = 0;  // 0: the index's default
   std::vector<std::size_t> ef = {10, 20, 40, 80, 160, 320};
   Metric metric = Metric::L2;
 };
@@ -85,6 +86,12 @@ Options parse(int argc, char** argv) {
     }
     else if (arg == "--no-keep") o.keep_vectors = false;
     else if (arg == "--rerank") o.rerank = std::stoul(value());
+    else if (arg == "--prefetch") {  // depth,lines
+      const auto v = parse_list(value());
+      if (v.size() != 2) throw std::invalid_argument("--prefetch takes depth,lines");
+      o.prefetch_depth = v[0];
+      o.prefetch_lines = v[1];
+    }
     else if (arg == "--metric") {
       const std::string m = value();
       o.metric = m == "cosine" ? Metric::Cosine : m == "ip" ? Metric::InnerProduct : Metric::L2;
@@ -182,6 +189,7 @@ int main(int argc, char** argv) try {
                 opt.threads, opt.M, opt.ef_construction);
   }
   HnswIndex& index = *loaded;
+  if (opt.prefetch_depth > 0) index.set_prefetch(opt.prefetch_depth, opt.prefetch_lines);
   const auto& ip = index.params();
   const bool quantized = ip.quantization != Quantization::None;
   std::printf("index     simd=%s, quant=%s, %.1f MiB, %d layers\n", std::string(to_string(index.simd_level())).c_str(),
