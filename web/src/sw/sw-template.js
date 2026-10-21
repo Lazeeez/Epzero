@@ -1,17 +1,17 @@
-/* Oryx service worker (generated at build time from src/sw/sw-template.js).
+/* Epzero service worker (generated at build time from src/sw/sw-template.js).
  *
  * 1. Cross-origin isolation: WebAssembly threads need SharedArrayBuffer, which browsers only enable
- *    on pages served with COOP/COEP headers. GitHub Pages cannot send headers, so this worker adds
- *    them to every same-origin response.
+ *    on pages served with COOP/COEP headers. Cloudflare sends them in production; on a host that
+ *    can't, this worker adds them to every same-origin response.
  * 2. Offline: the app shell is precached at install; the engine, dataset and models are cached the
  *    first time they are used. After one visit the whole demo works without a network.
  */
 const BUILD = "__BUILD__";
 const PRECACHE = __PRECACHE__;
-const SHELL_CACHE = `oryx-shell-${BUILD}`;
+const SHELL_CACHE = `epzero-shell-${BUILD}`;
 // Large, rarely-changing files keep their own cache across deploys (bump the version to refresh).
-const DATA_CACHE = "oryx-data-v1";
-const IMAGE_CACHE = "oryx-images-v1";
+const DATA_CACHE = "epzero-data-v1";
+const IMAGE_CACHE = "epzero-images-v1";
 const BASE = new URL(self.registration.scope).pathname;
 
 self.addEventListener("install", (event) => {
@@ -30,12 +30,14 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(
           keys
-            // Old builds' shells, data/image caches from an older version of their name, and the
-            // second copy of the models transformers.js used to keep (this worker caches them).
+            // Old builds' shells, data/image caches from an older version of their name, caches from
+            // before the project was renamed from Oryx, and the second copy of the models
+            // transformers.js used to keep (this worker caches them).
             .filter(
               (k) =>
                 k === "transformers-cache" ||
-                (/^oryx-(shell|data|images)-/.test(k) && ![SHELL_CACHE, DATA_CACHE, IMAGE_CACHE].includes(k)),
+                /^oryx-/.test(k) ||
+                (/^epzero-(shell|data|images)-/.test(k) && ![SHELL_CACHE, DATA_CACHE, IMAGE_CACHE].includes(k)),
             )
             .map((k) => caches.delete(k)),
         ),
