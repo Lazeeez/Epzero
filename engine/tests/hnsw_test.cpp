@@ -400,6 +400,24 @@ TEST_F(HnswTest, RemovedLabelsAreNeverReturned) {
   EXPECT_EQ(index.search(data_.base.row(0), 1, {.ef = 64})[0].label, 0u);
 }
 
+// Regression (found by LangChain's vector-store test suite): with every node deleted, new nodes
+// found no live neighbour to link to and were unreachable, so every search came back empty.
+TEST_F(HnswTest, InsertsAfterDeletingEverythingAreFound) {
+  HnswIndex index(params_for(Metric::L2, 2 * kBase));
+  const std::size_t n = 200;
+  for (std::size_t i = 0; i < n; ++i) index.add(i, data_.base.row(i));
+  for (std::size_t i = 0; i < n; ++i) ASSERT_TRUE(index.remove(i));
+  for (std::size_t i = 0; i < n; ++i) index.add(n + i, data_.base.row(n + i));
+  std::size_t found = 0;
+  for (std::size_t i = 0; i < n; ++i) {
+    const auto hits = index.search(data_.base.row(n + i), 1, {.ef = 64});
+    ASSERT_FALSE(hits.empty());
+    EXPECT_GE(hits[0].label, n) << "deleted label returned";
+    found += hits[0].label == n + i;
+  }
+  EXPECT_GE(found, n * 95 / 100);
+}
+
 TEST_F(HnswTest, TombstonesSurviveSaveAndCompaction) {
   HnswIndex index(params_for(Metric::L2));
   for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
