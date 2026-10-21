@@ -3,7 +3,7 @@ name: pages
 on:
   push:
     branches: [main]
-    paths: ["engine/**", "web/**", "bench/results/**", "scripts/build_wasm.sh", ".github/workflows/pages.yml"]
+    paths: ["engine/**", "cluster/**", "web/**", "bench/results/**", "scripts/build_wasm.sh", "scripts/build_sim_wasm.sh", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:
@@ -26,6 +26,12 @@ jobs:
       - run: sudo apt-get install -y ninja-build
       - name: Build WebAssembly engine (threaded + single-threaded)
         run: scripts/build_wasm.sh
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cluster/go.mod
+          cache-dependency-path: cluster/go.sum
+      - name: Build the cluster simulator (Go router to WebAssembly)
+        run: scripts/build_sim_wasm.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 22
