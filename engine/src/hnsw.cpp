@@ -184,11 +184,21 @@ class ChunkedWriter {
 // Largest M a snapshot may declare: far above any useful value, low enough that sizes can't overflow.
 constexpr std::size_t kMaxM = 1024;
 
-// Filtered search: Auto's choice of strategy (see choose_strategy). Exact wins while the allowed set
-// is small enough to score outright; Inline while most nodes pass, since it walks the graph at
-// almost full speed; TwoHop in between.
+// Filtered search: Auto's choice of strategy (see choose_strategy), calibrated on SIFT1M on a
+// dedicated server (bench/results/pace/gold6226/sift1m-filter.json):
+//  - Inline from a quarter of the nodes up: it walks the graph at almost full speed, and beat
+//    TwoHop at equal recall from 30% (24% more queries per second at recall 0.95).
+//  - Below 1.5%, TwoHop's walk falls apart (recall 0.91 at best at 1%, even at ef 320), so the
+//    choice is between scoring every allowed vector and Inline, by estimated cost. Inline scores
+//    about 90 * (ef / selectivity)^0.7 vectors (fitted, within 44%), at random places in memory;
+//    a scan streams through the allowed rows at about half the cost per vector.
+//  - In between, scan while the allowed set is small next to the beam, and TwoHop otherwise.
+constexpr double kInlineSelectivity = 0.25;
+constexpr double kTwoHopMinSelectivity = 0.015;
 constexpr std::size_t kExactPerEf = 64;  // scan when allowed <= kExactPerEf * ef
-constexpr double kInlineSelectivity = 0.5;
+constexpr double kInlineScale = 90;
+constexpr double kInlineExponent = 0.7;
+constexpr double kScanCostRatio = 0.5;  // a scanned vector's cost relative to one Inline scores
 
 }  // namespace
 
@@ -731,9 +741,13 @@ MissExplanation HnswIndex::explain(const float* query, std::size_t k, std::uint6
 }
 
 FilterStrategy HnswIndex::choose_strategy(const SearchFilter& filter, std::size_t ef) const noexcept {
+  const double selectivity = filter.selectivity();
   if (filter.allowed() <= kExactPerEf * ef) return FilterStrategy::Exact;
-  if (filter.selectivity() >= kInlineSelectivity) return FilterStrategy::Inline;
-  return FilterStrategy::TwoHop;
+  if (selectivity >= kInlineSelectivity) return FilterStrategy::Inline;
+  if (selectivity >= kTwoHopMinSelectivity) return FilterStrategy::TwoHop;
+  const double inline_cost = kInlineScale * std::pow(static_cast<double>(ef) / selectivity, kInlineExponent);
+  return kScanCostRatio * static_cast<double>(filter.allowed()) <= inline_cost ? FilterStrategy::Exact
+                                                                               : FilterStrategy::Inline;
 }
 
 SearchFilter HnswIndex::filter_from_ids(std::vector<id_t> ids) const {
@@ -954,7 +968,8 @@ std::vector<SearchResult> HnswIndex::search(const float* query, std::size_t k, c
         strategy = FilterStrategy::Exact;
       }
     }
-    if (strategy == FilterStrategy::Exact) candidates = scan_allowed(scorer, filter, ef, stats);
+    // An exact scan needs only the k best, unless SQ8 re-ranks a wider set below.
+    if (strategy == FilterStrategy::Exact) candidates = scan_allowed(scorer, filter, sq8() ? ef : k, stats);
     stats.strategy = strategy;
   }
 
