@@ -11,7 +11,8 @@ test.use({
 test("searches 29,825 photos by text, photo and camera, with the debugger and race", async ({ page, request }) => {
   test.setTimeout(600_000); // downloads both CLIP models (156 MB) on a cold cache, on a GPU-less CI runner
   const errors: string[] = [];
-  page.on("console", (message) => message.type() === "error" && errors.push(message.text()));
+  // A photo since deleted from Flickr 404s; the page shows a placeholder, but the browser still logs it.
+  page.on("console", (m) => m.type() === "error" && !m.location().url.includes("staticflickr.com") && errors.push(m.text()));
   page.on("pageerror", (error) => errors.push(error.message));
 
   await page.setViewportSize({ width: 1440, height: 900 });
