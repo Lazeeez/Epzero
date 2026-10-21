@@ -117,7 +117,7 @@
     display: grid;
     gap: 2px;
     padding: 5px;
-    background: var(--glass);
+    background: var(--glass-fill);
   }
   button {
     display: grid;
@@ -192,7 +192,7 @@
     max-width: min(640px, calc(100vw - 32px));
     height: auto;
     padding: 10px 16px;
-    background: var(--glass);
+    background: var(--glass-fill);
     color: var(--text-2);
     font-size: 13px;
     transform: translateX(-50%);
