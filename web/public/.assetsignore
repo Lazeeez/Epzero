@@ -1,0 +1,3 @@
+# Files Cloudflare serves from R2 instead of static assets (over the 25 MiB per-file limit).
+models/
+.wrangler/
