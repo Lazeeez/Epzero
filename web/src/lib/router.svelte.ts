@@ -1,11 +1,11 @@
-// Client-side routing for the three pages, with the View Transitions API for page changes.
+// Client-side routing for the pages, with the View Transitions API for page changes.
 // Paths are relative to the site's base (e.g. /Oryx/).
 
-export type Route = "home" | "try" | "play" | "benchmarks" | "notfound";
+export type Route = "home" | "try" | "play" | "cluster" | "benchmarks" | "notfound";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-const ROUTES: Record<string, Route> = { "": "home", "/": "home", "/try": "try", "/play": "play", "/benchmarks": "benchmarks" };
+const ROUTES: Record<string, Route> = { "": "home", "/": "home", "/try": "try", "/play": "play", "/cluster": "cluster", "/benchmarks": "benchmarks" };
 
 function parse(pathname: string): { route: Route; hash: string } {
   let path = pathname.startsWith(BASE) ? pathname.slice(BASE.length) : pathname;
