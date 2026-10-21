@@ -11,10 +11,10 @@
 #include <unistd.h>
 #endif
 
-#include "oryx/database.h"
-#include "oryx/dataset.h"
+#include "epzero/database.h"
+#include "epzero/dataset.h"
 
-namespace oryx {
+namespace epzero {
 namespace {
 
 namespace fs = std::filesystem;
@@ -23,7 +23,7 @@ constexpr std::size_t kDim = 16;
 class DatabaseTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    dir_ = fs::temp_directory_path() / ("oryx_db_" + std::to_string(::testing::UnitTest::GetInstance()->random_seed()) +
+    dir_ = fs::temp_directory_path() / ("epzero_db_" + std::to_string(::testing::UnitTest::GetInstance()->random_seed()) +
                                         "_" + ::testing::UnitTest::GetInstance()->current_test_info()->name());
     fs::remove_all(dir_);
     data_ = make_clustered(2000, 50, kDim, 20, 5);
@@ -300,4 +300,4 @@ TEST_F(DatabaseTest, SurvivesKillNineMidWrite) {
 #endif
 
 }  // namespace
-}  // namespace oryx
+}  // namespace epzero
