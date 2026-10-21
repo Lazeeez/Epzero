@@ -10,8 +10,17 @@ test("benchmarks page: interactive charts, and the lab runs on this device", asy
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("benchmarks");
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("Faster than the libraries");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Faster than hnswlib and FAISS");
   await expect(page.locator(".stats dd").first()).toHaveText(/^1\.\d\d×$/);
+
+  // Against the field: switching datasets re-ranks the bars, fastest first.
+  const field = page.locator("section[aria-labelledby=field-title]");
+  await field.scrollIntoViewIfNeeded();
+  await expect(field.locator(".row")).toHaveCount(8);
+  await field.getByRole("radio", { name: "DEEP10M" }).click();
+  await expect(field.getByRole("radio", { name: "DEEP10M" })).toHaveAttribute("aria-checked", "true");
+  await expect(field.locator(".meta")).toContainText("9,990,000");
+  await expect(field.locator(".row.oryx")).toHaveCount(2);
 
   // Hovering a point compares the libraries at the same ef.
   const chart = page.getByRole("img", { name: /Recall versus queries per second on SIFT1M/ });
