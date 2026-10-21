@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Runs against a server that sends no isolation headers, like GitHub Pages: multithreading only
+// Runs against a server that sends no isolation headers (a host that can't set them): multithreading only
 // works if the service worker isolates the page, including after a hard refresh (which bypasses it).
 // The page reloads itself while recovering, which can interrupt a check: count that as "not yet".
 const isolated = (page: Page) => page.evaluate(() => self.crossOriginIsolated).catch(() => false);
