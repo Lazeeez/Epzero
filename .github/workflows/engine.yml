@@ -45,10 +45,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Build and install
-        run: pip install ./engine pytest
+      - name: Build and install (with LangChain and its conformance suite)
+        run: pip install "./engine[test]"
       - name: Test
-        run: pytest -q engine/python/tests
+        working-directory: engine
+        run: pytest -q python/tests
 
   wasm:
     name: webassembly tests (node)
