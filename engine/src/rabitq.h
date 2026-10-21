@@ -32,7 +32,7 @@
 #include <random>
 #include <vector>
 
-namespace oryx::rabitq {
+namespace epzero::rabitq {
 
 // Per-vector numbers stored beside the bits.
 struct Factors {
@@ -159,4 +159,4 @@ inline float error_bound(const Factors& f, std::size_t padded) noexcept {
   return kEps0 * std::sqrt(std::max(0.0f, 1.0f - ip * ip)) / ip / std::sqrt(static_cast<float>(padded - 1));
 }
 
-}  // namespace oryx::rabitq
+}  // namespace epzero::rabitq
