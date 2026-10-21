@@ -3,6 +3,11 @@
 //	oryx-router -listen :8080 -nodes node1=10.42.1.11:7000,node2=10.42.1.12:7000,node3=10.42.1.13:7000 \
 //	            -dim 512 -token-file /etc/oryx/token -state /var/lib/oryx/router.json \
 //	            -origins https://lazeeez.github.io
+//
+// Several routers (for availability, behind one load balancer) share the shard map through etcd
+// instead of -state; one of them is elected to health-check the nodes and fail shards over:
+//
+//	oryx-router ... -etcd 10.42.0.5:2379,10.42.0.6:2379,10.42.0.7:2379 -cluster prod -id router-a
 package main
 
 import (
@@ -28,10 +33,27 @@ func main() {
 	state := flag.String("state", "router.json", "where the shard map is persisted")
 	origins := flag.String("origins", "", "comma-separated CORS origins allowed to call the API")
 	hedge := flag.Duration("hedge", 40*time.Millisecond, "query the other copy of a shard if the first is this slow")
+	etcd := flag.String("etcd", "", "comma-separated etcd endpoints: share the shard map with other routers (replaces -state)")
+	cluster := flag.String("cluster", "oryx", "with -etcd: the cluster's name (its keys are under /oryx/<name>/)")
+	id := flag.String("id", "", "with -etcd: this router's name in the leader election (default: the host name)")
+	lease := flag.Int("lease", 5, "with -etcd: seconds a silent leader keeps the lead before another router takes over")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	cfg := router.Config{Shards: *shards, Dim: *dim, StatePath: *state, HedgeAfter: *hedge, Logger: log}
+	if *etcd != "" {
+		client, err := router.DialEtcd(strings.Split(*etcd, ","))
+		if err != nil {
+			log.Error("connecting to etcd", "err", err)
+			os.Exit(1)
+		}
+		defer client.Close()
+		cfg.Store = router.NewEtcdStore(client, *cluster, *lease)
+		cfg.ID = *id
+		if cfg.ID == "" {
+			cfg.ID, _ = os.Hostname()
+		}
+	}
 	for _, entry := range strings.Split(*nodes, ",") {
 		name, addr, ok := strings.Cut(strings.TrimSpace(entry), "=")
 		if !ok {
