@@ -61,6 +61,27 @@ export interface SearchOutcome {
 
 const DATA = `${import.meta.env.BASE_URL}data/openimages/`;
 
+const HYBRID_KEY = "oryx-hybrid";
+function readHybrid(): boolean {
+  try {
+    return localStorage.getItem(HYBRID_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+// Flickr titles arrive HTML-escaped (&quot;, &amp;, &#39;...).
+const ENTITIES: Record<string, string> = { amp: "&", quot: '"', apos: "'", lt: "<", gt: ">", nbsp: " " };
+function decodeEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, code: string) => {
+    if (code[0] === "#") {
+      const n = code[1] === "x" || code[1] === "X" ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : whole;
+    }
+    return ENTITIES[code.toLowerCase()] ?? whole;
+  });
+}
+
 class Engine {
   status = $state<EngineStatus>("idle");
   /** 0..1 across download + build */
@@ -94,11 +115,14 @@ class Engine {
   unsupported = $state(false);
   /** The category filter every search honors (null: all photos). */
   filter = $state.raw<ActiveFilter | null>(null);
+  /** Hybrid search: text queries also match their words against the photos' captions. */
+  hybrid = $state(readHybrid());
 
   private worker: Worker | null = null;
   private pending = new Map<number, { resolve: (o: SearchOutcome) => void; reject: (e: Error) => void; ef: number }>();
   private replies = new Map<number, { resolve: (value: never) => void; reject: (e: Error) => void }>();
   private rebuilt: (() => void) | null = null;
+  private keywordsSent = false;
   private seq = 0;
   private started: Promise<void> | null = null;
 
@@ -207,6 +231,7 @@ class Engine {
               this.rebuilding = false;
               this.rebuilt?.();
               this.rebuilt = null;
+              this.sendKeywords();
               resolve();
             });
             break;
@@ -267,6 +292,28 @@ class Engine {
     });
   }
 
+  // The captions, one line per photo (its title, or its labels), for the worker's keyword index.
+  // Sent once, after the first build: a few hundred kilobytes, indexed in WebAssembly in the worker.
+  private sendKeywords() {
+    if (this.keywordsSent || !this.worker || !this.meta) return;
+    this.keywordsSent = true;
+    const m = this.meta;
+    const lines = m.title.map((title, id) =>
+      (title ? decodeEntities(title) : m.labels[id].map((l) => m.labelNames[l]).join(" ")).replace(/\s+/g, " "),
+    );
+    this.worker.postMessage({ type: "keywords", texts: lines.join("\n") });
+  }
+
+  /** Turns hybrid search on or off (remembered on this device). */
+  setHybrid(on: boolean) {
+    this.hybrid = on;
+    try {
+      localStorage.setItem(HYBRID_KEY, on ? "1" : "0");
+    } catch {
+      /* private mode: just not remembered */
+    }
+  }
+
   private fail(message: string) {
     this.status = "error";
     this.error = message;
@@ -279,7 +326,8 @@ class Engine {
     const seq = ++this.seq;
     return new Promise((resolve, reject) => {
       this.pending.set(seq, { resolve, reject, ef });
-      this.worker!.postMessage({ type: "search", seq, query, k, ef });
+      const hybrid = this.hybrid && query.kind === "vector" && query.source === "text";
+      this.worker!.postMessage({ type: "search", seq, query, k, ef, hybrid });
     });
   }
 
@@ -393,7 +441,7 @@ class Engine {
 
   caption(id: number): string {
     const m = this.meta!;
-    return m.labels[id].length ? m.labels[id].map((l) => m.labelNames[l]).join(" · ") : m.title[id] || "Untitled";
+    return m.labels[id].length ? m.labels[id].map((l) => m.labelNames[l]).join(" · ") : decodeEntities(m.title[id]) || "Untitled";
   }
 
   author(id: number): string {
