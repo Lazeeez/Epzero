@@ -68,6 +68,29 @@ sbatch scripts/pace/churn.sbatch        # search p99 under writes; delete/re-ins
 
 Both reuse SIFT1M; `filter.sbatch` also reuses the index saved by `sift1m.sbatch`.
 
+## Competitive benchmark: more datasets, more libraries
+
+Oryx (full precision and SQ8) against hnswlib, FAISS (HNSW, and IVF-PQ fast-scan with exact
+re-rank), USearch, VSAG and Glass, on the ann-benchmarks datasets ([`bench/compete.py`](../../bench/compete.py)).
+On the login node, once:
+
+```bash
+bash scripts/pace/bench-env.sh            # if not done already
+bash scripts/pace/compete-env.sh          # USearch, VSAG, h5py; Glass's source
+scripts/download_ann_dataset.sh gist-960-euclidean glove-100-angular dbpedia-openai-1000k-angular deep-image-96-angular
+```
+
+Then one job per dataset (DEEP10M is ten times larger, so it gets more time):
+
+```bash
+sbatch --export=ALL,DATASET=gist-960-euclidean scripts/pace/compete.sbatch
+sbatch --export=ALL,DATASET=glove-100-angular scripts/pace/compete.sbatch
+sbatch --export=ALL,DATASET=dbpedia-openai-1000k-angular scripts/pace/compete.sbatch
+sbatch --export=ALL,DATASET=deep-image-96-angular --time=10:00:00 scripts/pace/compete.sbatch
+```
+
+Results: `pace-results/gold6226/<dataset>-compete.json`.
+
 ## Notes
 
 - Nodes differ (`sinfo -p ice-cpu -o "%D %c %m %f"` lists the types). Benchmarks run on the
