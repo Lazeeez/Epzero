@@ -3,12 +3,12 @@
 #include <algorithm>
 #include <vector>
 
-#include "oryx/brute_force.h"
-#include "oryx/dataset.h"
-#include "oryx/hnsw.h"
-#include "oryx/recall.h"
+#include "epzero/brute_force.h"
+#include "epzero/dataset.h"
+#include "epzero/hnsw.h"
+#include "epzero/recall.h"
 
-namespace oryx {
+namespace epzero {
 namespace {
 
 constexpr std::size_t kDim = 32;
@@ -160,4 +160,4 @@ TEST(RecallGuardSegments, BandsBySelectivity) {
 }
 
 }  // namespace
-}  // namespace oryx
+}  // namespace epzero
