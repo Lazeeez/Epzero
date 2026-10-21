@@ -2,7 +2,7 @@
 type IsolationState = "isolated" | "reloading" | "waiting" | "unavailable";
 
 export function isolationState(): IsolationState {
-  return (window as unknown as { oryxIsolation?: IsolationState }).oryxIsolation ?? (self.crossOriginIsolated ? "isolated" : "unavailable");
+  return (window as unknown as { epzeroIsolation?: IsolationState }).epzeroIsolation ?? (self.crossOriginIsolated ? "isolated" : "unavailable");
 }
 
 // Resolves once it's worth starting large downloads. While sw-register.js is about to reload the
@@ -15,11 +15,11 @@ export function isolationSettled(): Promise<void> {
     const check = () => {
       const now = isolationState();
       if (now === "isolated" || now === "unavailable") {
-        removeEventListener("oryx-isolation", check);
+        removeEventListener("epzero-isolation", check);
         resolve();
       }
     };
-    addEventListener("oryx-isolation", check);
+    addEventListener("epzero-isolation", check);
     setTimeout(resolve, 6000); // a safety net if the service worker never takes control
   });
 }
@@ -27,7 +27,7 @@ export function isolationSettled(): Promise<void> {
 /** Reloads so the service worker can serve (and isolate) the page: the "use all cores" action. */
 export function reloadForThreads() {
   try {
-    sessionStorage.removeItem("oryx-sw-reloads"); // an explicit request: allow the reload again
+    sessionStorage.removeItem("epzero-sw-reloads"); // an explicit request: allow the reload again
   } catch {
     /* storage blocked */
   }
