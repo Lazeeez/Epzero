@@ -165,25 +165,25 @@ func (r *Router) handleCrash(w http.ResponseWriter, req *http.Request) {
 
 func (m *metrics) serve(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-	fmt.Fprintf(w, "# TYPE oryx_searches_total counter\noryx_searches_total %d\n", m.searches.Load())
-	fmt.Fprintf(w, "# TYPE oryx_searches_partial_total counter\noryx_searches_partial_total %d\n", m.partial.Load())
-	fmt.Fprintf(w, "# TYPE oryx_hedged_requests_total counter\noryx_hedged_requests_total %d\n", m.hedges.Load())
-	fmt.Fprintf(w, "# TYPE oryx_failovers_total counter\noryx_failovers_total %d\n", m.failovers.Load())
-	fmt.Fprintf(w, "# TYPE oryx_vectors_written_total counter\noryx_vectors_written_total %d\n", m.writes.Load())
+	fmt.Fprintf(w, "# TYPE epzero_searches_total counter\nepzero_searches_total %d\n", m.searches.Load())
+	fmt.Fprintf(w, "# TYPE epzero_searches_partial_total counter\nepzero_searches_partial_total %d\n", m.partial.Load())
+	fmt.Fprintf(w, "# TYPE epzero_hedged_requests_total counter\nepzero_hedged_requests_total %d\n", m.hedges.Load())
+	fmt.Fprintf(w, "# TYPE epzero_failovers_total counter\nepzero_failovers_total %d\n", m.failovers.Load())
+	fmt.Fprintf(w, "# TYPE epzero_vectors_written_total counter\nepzero_vectors_written_total %d\n", m.writes.Load())
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	fmt.Fprintln(w, "# TYPE oryx_search_latency_ms histogram")
+	fmt.Fprintln(w, "# TYPE epzero_search_latency_ms histogram")
 	for i, b := range latencyBuckets {
-		fmt.Fprintf(w, "oryx_search_latency_ms_bucket{le=\"%g\"} %d\n", b, m.buckets[i])
+		fmt.Fprintf(w, "epzero_search_latency_ms_bucket{le=\"%g\"} %d\n", b, m.buckets[i])
 	}
-	fmt.Fprintf(w, "oryx_search_latency_ms_bucket{le=\"+Inf\"} %d\n", m.searches.Load())
-	fmt.Fprintf(w, "oryx_search_latency_ms_sum %g\noryx_search_latency_ms_count %d\n", m.sumMs, m.searches.Load())
-	fmt.Fprintln(w, "# TYPE oryx_node_up gauge")
+	fmt.Fprintf(w, "epzero_search_latency_ms_bucket{le=\"+Inf\"} %d\n", m.searches.Load())
+	fmt.Fprintf(w, "epzero_search_latency_ms_sum %g\nepzero_search_latency_ms_count %d\n", m.sumMs, m.searches.Load())
+	fmt.Fprintln(w, "# TYPE epzero_node_up gauge")
 	for name, up := range m.up {
 		v := 0
 		if up {
 			v = 1
 		}
-		fmt.Fprintf(w, "oryx_node_up{node=%q} %d\n", name, v)
+		fmt.Fprintf(w, "epzero_node_up{node=%q} %d\n", name, v)
 	}
 }
