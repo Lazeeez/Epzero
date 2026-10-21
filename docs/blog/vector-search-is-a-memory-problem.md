@@ -2,7 +2,7 @@
 
 *What I learned making an HNSW index 31% faster, and which "obvious" optimizations did nothing.*
 
-I built [Oryx](https://lazeeez.github.io/Oryx/), a vector database, from scratch in C++20. Its
+I built [Epzero](https://epzero.dev/), a vector database, from scratch in C++20. Its
 core is HNSW: a layered graph you walk greedily toward a query, scoring each neighbour by its
 distance. On paper the hot loop is arithmetic. A 128-dimensional L2 distance is 128 subtractions,
 multiplications and additions, which AVX-512 does in a handful of instructions.
@@ -38,7 +38,7 @@ them**, the useful optimizations change.
 The textbook loop scores each neighbour as it reads the neighbour list: read an id, compute a
 distance (miss, stall), read the next id, compute (miss, stall). The misses are serialized.
 
-Instead, Oryx first filters a node's neighbours against the visited set, issues a prefetch for
+Instead, Epzero first filters a node's neighbours against the visited set, issues a prefetch for
 every surviving vector, and only then computes the distances. Up to 32 misses are now in flight
 at once instead of one at a time.
 
@@ -55,7 +55,7 @@ almost every node visit also paid for a page-table walk. Asking the kernel for 2
 
 ### 3. Move fewer bytes: 8-bit quantization (+48%)
 
-If a distance costs a cache miss per line, fewer lines means fewer misses. Oryx stores each
+If a distance costs a cache miss per line, fewer lines means fewer misses. Epzero stores each
 vector as 8-bit codes with a per-dimension scale, which shrinks a node's record from 704 bytes to
 320. The query stays in float, so the inner loop is a single uint8-times-float dot product. The
 final candidates are re-ranked with the full vectors, so recall doesn't drop.
@@ -86,12 +86,12 @@ only pays when the work you skip is what you're waiting on.
 
 ## A benchmarking trap
 
-My first comparison, on a laptop, said Oryx served **1.46× hnswlib's** queries per second at the
+My first comparison, on a laptop, said Epzero served **1.46× hnswlib's** queries per second at the
 same recall. On a dedicated server (2 × Xeon Gold 6226, clock fixed, no other jobs, search pinned
 to one socket) it was **1.13×**.
 
-The difference was huge pages. On the laptop they're opt-in: Oryx asked for them, and the other
-libraries didn't. On the server the kernel gives them to every program. Turning Oryx's request
+The difference was huge pages. On the laptop they're opt-in: Epzero asked for them, and the other
+libraries didn't. On the server the kernel gives them to every program. Turning Epzero's request
 off on the laptop brought the lead down to 1.18–1.25×.
 
 Both numbers are real, and asking for huge pages is a fair advantage on kernels where they're
@@ -109,19 +109,19 @@ would take the node from 84k to about 119k queries per second.
 
 ## Against the fastest library, and when it stops being a memory problem
 
-Then I measured Oryx against seven libraries on four more ann-benchmarks datasets, from 96 to 1,536
+Then I measured Epzero against five other libraries on four more ann-benchmarks datasets, from 96 to 1,536
 dimensions and up to 10 million vectors. Its 8-bit mode came second on all four. First was Glass,
 from Zilliz, by 1.5–2.1×.
 
 I assumed Glass had better memory tricks, so I read its search loop. Its prefetching, once tuned,
-ends up close to what Oryx already did. Two other things weren't:
+ends up close to what Epzero already did. Two other things weren't:
 
-- **It re-scores 15 candidates with full vectors; Oryx re-scored the whole beam.** At a beam of 400
+- **It re-scores 15 candidates with full vectors; Epzero re-scored the whole beam.** At a beam of 400
   on 960-dimensional GIST, that was 400 extra reads of a 3.8 KB vector per query, and re-scoring
   only 15–30 gave exactly the same recall.
 - **Its distances are integer arithmetic.** With 8-bit codes, a 960-dimensional node is 960 bytes:
   15 cache lines instead of the 60 of the float vector. Once the bytes shrink that much, the
-  arithmetic is visible again, and Oryx's kernel spent about ten instructions per 32 dimensions
+  arithmetic is visible again, and Epzero's kernel spent about ten instructions per 32 dimensions
   turning bytes into floats before multiplying. Rounding the query's weights to 8-bit integers once
   per query lets one VNNI instruction (`vpdpbusd`) multiply and add 32 or 64 dimensions at a time.
   Recall moved by at most 0.001.
@@ -144,6 +144,6 @@ Quantization moves the bottleneck back toward the core, and then instruction cou
    each move results by more than the engineering you're trying to measure.
 
 The code, the benchmark scripts and every raw result are in the
-[Oryx repository](https://github.com/Lazeeez/Oryx). The full log of changes, including the ones
+[Epzero repository](https://github.com/Lazeeez/Epzero). The full log of changes, including the ones
 I removed, is [`docs/performance.md`](../performance.md). You can search 30,000 photos with the
-same engine, compiled to WebAssembly, [in your browser](https://lazeeez.github.io/Oryx/try).
+same engine, compiled to WebAssembly, [in your browser](https://epzero.dev/try).
