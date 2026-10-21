@@ -134,9 +134,9 @@ class Index {
 
   bool remove(std::uint64_t label) { return index_->remove(label); }
 
-  // `filter` is None, an oryx.Filter from filter(), or a sequence of allowed labels (compiled
-  // for this call; build an oryx.Filter once to reuse it across calls).
-  // A filter argument: None, an oryx.Filter, or a sequence of labels compiled into `storage`.
+  // `filter` is None, an oryxdb.Filter from filter(), or a sequence of allowed labels (compiled
+  // for this call; build an oryxdb.Filter once to reuse it across calls).
+  // A filter argument: None, an oryxdb.Filter, or a sequence of labels compiled into `storage`.
   const oryx::SearchFilter* resolve_filter(const py::object& filter, oryx::SearchFilter& storage) const {
     if (filter.is_none()) return nullptr;
     if (py::isinstance<oryx::SearchFilter>(filter)) return filter.cast<const oryx::SearchFilter*>();
@@ -371,7 +371,7 @@ class Database {
 
 }  // namespace
 
-PYBIND11_MODULE(oryx, m) {
+PYBIND11_MODULE(_core, m) {
   m.doc() = "Oryx: HNSW vector search engine";
   m.def("simd_level", [] { return std::string(oryx::to_string(oryx::active_simd_level())); },
         "SIMD instruction set used by the distance kernels on this CPU");
@@ -381,7 +381,7 @@ PYBIND11_MODULE(oryx, m) {
       .def_property_readonly("allowed", &oryx::SearchFilter::allowed, "How many live vectors pass.")
       .def_property_readonly("selectivity", &oryx::SearchFilter::selectivity, "The share of live vectors that pass.")
       .def("__repr__", [](const oryx::SearchFilter& f) {
-        return "<oryx.Filter allowing " + std::to_string(f.allowed()) + " vectors (" +
+        return "<oryxdb.Filter allowing " + std::to_string(f.allowed()) + " vectors (" +
                std::to_string(f.selectivity() * 100.0).substr(0, 5) + "%)>";
       });
 
@@ -397,11 +397,11 @@ PYBIND11_MODULE(oryx, m) {
       .def("remove", &Index::remove, py::arg("label"), "Tombstone a label; returns False if it is absent.")
       .def("search", &Index::search, py::arg("queries"), py::arg("k") = 10, py::arg("ef") = 64,
            py::arg("rerank") = 0, py::arg("threads") = 1, py::arg("filter") = py::none(), py::arg("strategy") = "auto",
-           "Returns (labels, distances), each of shape (n, k). With `filter` (an oryx.Filter or a list of\n"
+           "Returns (labels, distances), each of shape (n, k). With `filter` (an oryxdb.Filter or a list of\n"
            "allowed labels), only those labels are returned; `strategy` forces 'exact', 'inline' or\n"
            "'two-hop' instead of choosing by selectivity.")
       .def("filter", &Index::make_filter, py::arg("labels"),
-           "Compiles the allowed labels into an oryx.Filter, reusable across searches.")
+           "Compiles the allowed labels into an oryxdb.Filter, reusable across searches.")
       .def("exact_search", &Index::exact_search, py::arg("queries"), py::arg("k") = 10, py::arg("threads") = 1,
            py::arg("filter") = py::none(), "Exact (labels, distances) by scanning every live vector: the ground truth.")
       .def("explain", &Index::explain, py::arg("query"), py::arg("k"), py::arg("label"), py::arg("ef") = 64,
