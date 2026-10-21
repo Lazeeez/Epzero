@@ -87,6 +87,63 @@ def test_exact_search_explain_and_recall_guard(data):
     assert guard.search(queries[:1], k=10)[0].shape == (1, 10)
 
 
+def test_patience_prefetch_and_per_query_guard(data):
+    base, queries = data
+    index = oryx.Index(dim=24, max_elements=len(base))
+    index.add(base, threads=4)
+    plain, _ = index.search(queries, k=10, ef=200)
+    # A patience longer than any search changes nothing; a short one still finds the nearest.
+    same, _ = index.search(queries, k=10, ef=200, patience=10**6)
+    assert (same == plain).all()
+    quick, _ = index.search(queries, k=10, ef=200, patience=8)
+    assert np.mean(quick[:, 0] == plain[:, 0]) >= 0.9
+
+    # Prefetch settings change speed, never results.
+    assert index.prefetch == (None, 1)
+    index.set_prefetch(4, 2)
+    assert index.prefetch == (4, 2)
+    assert (index.search(queries, k=10, ef=200)[0] == plain).all()
+    depth, lines = index.tune_prefetch(base[:200])
+    assert lines >= 1 and (depth is None or depth >= 1)
+    assert (index.search(queries, k=10, ef=200)[0] == plain).all()
+
+    guard = oryx.RecallGuard(index, target=0.9, per_query=True, sample_rate=1.0, min_samples=20, window=100)
+    for _ in range(5):
+        guard.search(queries, k=10)
+        guard.drain()
+    (row,) = guard.report()
+    assert row["segment"] == "unfiltered" and row["samples"] > 0
+
+
+def test_text_index_and_hybrid_search(tmp_path, data):
+    base, queries = data
+    text = oryx.TextIndex()
+    text.add([10, 11, 12], ["the red car", "a red red barn", "blue sky"])
+    labels, scores = text.search("red", k=5)
+    assert list(labels) == [11, 10] and scores[0] > scores[1] > 0
+    assert len(text) == 3 and 12 in text and oryx.TextIndex.tokenize("Red-Car!") == ["red", "car"]
+    assert text.remove(12) and not text.remove(12)
+    text.save(str(tmp_path / "text.idx"))
+    again = oryx.TextIndex.load(str(tmp_path / "text.idx"))
+    assert list(again.search("red", 5)[0]) == [11, 10]
+
+    # Hybrid: the vector side alone, then a keyword-only match pulled into the results.
+    index = oryx.Index(dim=24, max_elements=len(base))
+    index.add(base, threads=4)
+    words = oryx.TextIndex()
+    words.add(None, [f"document {i}" for i in range(len(base))])
+    nearest, _ = index.search(queries[0], k=10, ef=100)
+    plain, _ = oryx.hybrid_search(index, words, queries[0], "nothing matches this", k=10)
+    assert list(plain) == list(nearest[0])
+    far = int(index.exact_search(queries[0], k=len(base))[0][0][-1])
+    words.add([far], ["invoice INV-7731 overdue"])
+    found, _ = oryx.hybrid_search(index, words, queries[0], "INV-7731", k=10)
+    assert far in found
+
+    fused, fused_scores = oryx.fuse_rankings([[1, 2, 3], [3, 4]], k=2)
+    assert list(fused) == [3, 1] and fused_scores[0] > fused_scores[1]
+
+
 def test_custom_labels_and_missing_results(data):
     base, _ = data
     index = oryx.Index(dim=24, max_elements=10)
