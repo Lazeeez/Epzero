@@ -299,11 +299,13 @@ accumulators.
 ## Python
 
 ```bash
-pip install ./engine
+pip install oryxdb                 # wheels for Linux and macOS, Python 3.10-3.13
+pip install "oryxdb[langchain]"    # plus the LangChain vector store
+pip install ./engine               # or build from this repository
 ```
 
 ```python
-import numpy as np, oryx
+import numpy as np, oryxdb as oryx
 
 index = oryx.Index(dim=128, metric="l2", max_elements=1_000_000, M=16, ef_construction=200)
 index.add(vectors, threads=12)                  # labels default to 0..n-1
@@ -316,7 +318,7 @@ sq8 = oryx.Index(dim=128, quantization="sq8")
 sq8.train(vectors[:100_000]); sq8.add(vectors, threads=12)
 
 # Filtered search: a compiled filter is reused across queries
-dogs = index.filter(dog_labels)                  # oryx.Filter: dogs.allowed, dogs.selectivity
+dogs = index.filter(dog_labels)                  # oryxdb.Filter: dogs.allowed, dogs.selectivity
 labels, _ = index.search(queries, k=10, ef=80, filter=dogs)
 
 # Recall you can see and keep
@@ -333,6 +335,21 @@ print(db.recovery())                            # what the last open() replayed 
 ```
 
 Batch calls release the GIL and run on C++ threads.
+
+**LangChain.** `oryxdb.langchain.OryxVectorStore` is a LangChain vector store: add texts or
+documents, search by similarity (with scores) or maximal marginal relevance, filter on metadata
+(compiled into an Oryx filter, so the engine picks its filtered-search strategy), delete and
+replace by id, and save and load a folder. It passes LangChain's standard vector-store
+conformance suite (`langchain-tests`) in CI, sync and async; that suite also found a real engine
+bug (new vectors were unreachable after every existing one had been deleted), now fixed.
+
+```python
+from oryxdb.langchain import OryxVectorStore
+
+store = OryxVectorStore.from_texts(texts, embeddings, metadatas=metadatas)
+docs = store.similarity_search("reset my password", k=4, filter={"source": "faq"})
+retriever = store.as_retriever(search_kwargs={"k": 8})
+```
 
 ## WebAssembly
 
