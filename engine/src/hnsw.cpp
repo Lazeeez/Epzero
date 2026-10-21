@@ -1,4 +1,4 @@
-#include "oryx/hnsw.h"
+#include "epzero/hnsw.h"
 
 #include <algorithm>
 #include <chrono>
@@ -16,14 +16,16 @@
 #include <sys/mman.h>
 #endif
 
-#include "oryx/parallel.h"
+#include "epzero/parallel.h"
 #include "rabitq.h"
 #include "visited_pool.h"
 
-namespace oryx {
+namespace epzero {
 namespace {
 
-constexpr char kMagic[8] = {'O', 'R', 'Y', 'X', 'H', 'N', 'S', 'W'};
+constexpr char kMagic[8] = {'E', 'P', 'Z', 'R', 'H', 'N', 'S', 'W'};
+// Written before the project was renamed from Oryx; still loaded.
+constexpr char kLegacyMagic[8] = {'O', 'R', 'Y', 'X', 'H', 'N', 'S', 'W'};
 constexpr std::uint32_t kFormatVersion = 2;  // v2: quantization + tombstones; v1 files still load
 constexpr int kMaxLevel = 31;
 
@@ -60,12 +62,12 @@ inline void store_link(std::uint32_t& slot, std::uint32_t value) noexcept {
 // Large blocks are backed by 2 MiB transparent huge pages: search touches nodes at random, and
 // with 4 KiB pages nearly every node visit would also be a TLB miss. Measured on SIFT1M:
 // +10-15% QPS and -16% p99 latency. The block is zeroed (every neighbor count starts at 0).
-// ORYX_NO_HUGEPAGES=1 turns the request off, so benchmarks can compare libraries on equal pages
+// EPZERO_NO_HUGEPAGES=1 turns the request off, so benchmarks can compare libraries on equal pages
 // (on a kernel where huge pages are opt-in, only a library that asks for them gets them).
 #if defined(__linux__) && !defined(__EMSCRIPTEN__)
 bool huge_pages_wanted() {
   static const bool wanted = [] {
-    const char* off = std::getenv("ORYX_NO_HUGEPAGES");
+    const char* off = std::getenv("EPZERO_NO_HUGEPAGES");
     return off == nullptr || off[0] == '\0' || std::string_view(off) == "0";
   }();
   return wanted;
@@ -319,11 +321,11 @@ void HnswIndex::AlignedFree::operator()(void* p) const noexcept { std::free(p); 
 
 namespace {
 
-// Integer SQ8 where a SIMD integer kernel exists. ORYX_SQ8_KERNEL=float keeps the float kernel
+// Integer SQ8 where a SIMD integer kernel exists. EPZERO_SQ8_KERNEL=float keeps the float kernel
 // (to compare the two on the same build).
 Sq8IntDotFn choose_sq8_int_dot(SimdLevel level) noexcept {
   if (level != SimdLevel::AVX2 && level != SimdLevel::AVX512) return nullptr;
-  if (const char* forced = std::getenv("ORYX_SQ8_KERNEL"); forced != nullptr && std::string_view(forced) == "float") {
+  if (const char* forced = std::getenv("EPZERO_SQ8_KERNEL"); forced != nullptr && std::string_view(forced) == "float") {
     return nullptr;
   }
   return get_sq8_int_dot_fn(level);
@@ -1341,7 +1343,9 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
   ChunkedReader in(path);
   char magic[sizeof(kMagic)];
   in.read(magic, sizeof(magic));
-  if (std::memcmp(magic, kMagic, sizeof(kMagic)) != 0) throw std::runtime_error(path + " is not an Oryx index");
+  if (std::memcmp(magic, kMagic, sizeof(kMagic)) != 0 && std::memcmp(magic, kLegacyMagic, sizeof(kMagic)) != 0) {
+    throw std::runtime_error(path + " is not an Epzero index");
+  }
   const auto version = in.pod<std::uint32_t>();
   if (version != 1 && version != 2) throw std::runtime_error(path + ": unsupported format version");
 
@@ -1445,7 +1449,8 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
 
 namespace {
 
-constexpr char kGraphMagic[8] = {'O', 'R', 'Y', 'X', 'G', 'R', 'P', 'H'};
+constexpr char kGraphMagic[8] = {'E', 'P', 'Z', 'R', 'G', 'R', 'P', 'H'};
+constexpr char kLegacyGraphMagic[8] = {'O', 'R', 'Y', 'X', 'G', 'R', 'P', 'H'};  // from before the rename
 constexpr std::uint32_t kGraphVersion = 1;
 
 class ByteWriter {
@@ -1514,8 +1519,10 @@ std::vector<std::uint8_t> HnswIndex::export_graph() const {
 std::unique_ptr<HnswIndex> HnswIndex::import_graph(const HnswParams& params, const float* vectors, std::size_t n,
                                                    const std::uint8_t* bytes, std::size_t size) {
   ByteReader in(bytes, size);
-  for (char c : kGraphMagic) {
-    if (in.pod<char>() != c) throw std::runtime_error("graph: not an Oryx graph");
+  char magic[sizeof(kGraphMagic)];
+  for (char& c : magic) c = in.pod<char>();
+  if (std::memcmp(magic, kGraphMagic, sizeof(magic)) != 0 && std::memcmp(magic, kLegacyGraphMagic, sizeof(magic)) != 0) {
+    throw std::runtime_error("graph: not an Epzero graph");
   }
   if (in.pod<std::uint32_t>() != kGraphVersion) throw std::runtime_error("graph: unsupported version");
   const auto dim = in.pod<std::uint64_t>();
@@ -1573,4 +1580,4 @@ std::unique_ptr<HnswIndex> HnswIndex::import_graph(const HnswParams& params, con
   return index;
 }
 
-}  // namespace oryx
+}  // namespace epzero
