@@ -1,5 +1,5 @@
 // Messages between the cluster page and the simulator worker, and the simulator's JSON shapes
-// (cluster/cmd/oryx-sim/main.go, cluster/router, cluster/sim).
+// (cluster/cmd/epzero-sim/main.go, cluster/router, cluster/sim).
 
 export type Role = "primary" | "replica" | "none";
 
