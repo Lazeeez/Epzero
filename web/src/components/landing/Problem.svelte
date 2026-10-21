@@ -41,7 +41,7 @@
         </div>
         <div class="row">
           <div class="label">
-            <strong class="accent">Oryx HNSW</strong><span class="num">{trace.distanceComputations.toLocaleString()} comparisons</span>
+            <strong class="accent">Epzero HNSW</strong><span class="num">{trace.distanceComputations.toLocaleString()} comparisons</span>
           </div>
           <div class="bar"><i class="hnsw" style:width={shown ? `${Math.max((100 * trace.micros) / trace.exactMicros, 0.6)}%` : "0%"}></i></div>
           <span class="value num">{time(trace.micros)}</span>
@@ -57,7 +57,7 @@
         </p>
       {/if}
       <footer>
-        On SIFT1M (1M × 128-D), an exact scan is 128 million multiply-adds per query. Oryx answers in about 0.1 ms per query
+        On SIFT1M (1M × 128-D), an exact scan is 128 million multiply-adds per query. Epzero answers in about 0.1 ms per query
         on one core at 97% recall.
       </footer>
     </div>
