@@ -5,19 +5,19 @@
 #include <filesystem>
 
 #include "common.h"
-#include "oryx/database.h"
+#include "epzero/database.h"
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-  using namespace oryx::fuzz;
+  using namespace epzero::fuzz;
   static const auto dir = scratch("wal");
   std::filesystem::remove_all(dir);
   std::filesystem::create_directories(dir);
   write_bytes(dir / "wal.log", data, size);
   try {
-    oryx::DatabaseOptions options;
-    options.sync = oryx::SyncMode::None;
+    epzero::DatabaseOptions options;
+    options.sync = epzero::SyncMode::None;
     options.checkpoint_bytes = 0;
-    auto db = oryx::Database::open(dir.string(), small_params(), options);
+    auto db = epzero::Database::open(dir.string(), small_params(), options);
     const float query[kDim] = {0.1f, 0.2f, 0.3f, 0.4f};
     for (const auto& hit : db->search(query, 5, {.ef = 16})) (void)hit;
     db->upsert(7, query);  // appending after recovery must still work
