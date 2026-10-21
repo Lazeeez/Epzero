@@ -17,10 +17,6 @@ import (
 	"sort"
 	"sync"
 	"time"
-
-	pb "github.com/Lazeeez/Oryx/cluster/gen/oryxv1"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // NodeConfig names a data node and where to reach it.
@@ -41,7 +37,27 @@ type Config struct {
 	DownAfter      int // consecutive failed health checks before a node is declared down
 	AllowedOrigins []string
 	Logger         *slog.Logger
+	// Dial connects to a node; nil means gRPC (DialGRPC). The simulator passes its in-memory nodes.
+	Dial func(NodeConfig) (Node, error)
+	// Consistency is the default for searches that don't choose one (default Eventual).
+	Consistency Consistency
 }
+
+// Consistency says which copies of a shard a search may read.
+type Consistency string
+
+const (
+	// Strong reads only each shard's primary. Every search sees every acknowledged write, and the
+	// read and write history is linearizable under crashes, partitions and lossy links (checked
+	// with Porcupine in package sim). A shard is unreadable while its primary is down, until the
+	// router fails it over.
+	Strong Consistency = "strong"
+	// Eventual also reads a shard's replica while both copies say it is in sync, hedging slow
+	// answers across the two: lower tail latency, but a search can miss writes the primary
+	// acknowledged without its replica (WriteResult.Replicated false) and, around a fault, lag
+	// by up to a health-check interval.
+	Eventual Consistency = "eventual"
+)
 
 // ShardMap is one shard's placement. Epoch increases on every failover.
 type ShardMap struct {
@@ -53,14 +69,14 @@ type ShardMap struct {
 
 type node struct {
 	cfg    NodeConfig
-	client pb.NodeClient
+	client Node
 
 	mu       sync.Mutex
 	up       bool
 	fails    int
 	started  uint64
 	rtt      time.Duration
-	status   *pb.StatusReply
+	status   *NodeStatus
 	lastSeen time.Time
 }
 
@@ -108,14 +124,22 @@ func New(cfg Config) (*Router, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
+	if cfg.Consistency == "" {
+		cfg.Consistency = Eventual
+	}
+	if cfg.Consistency != Strong && cfg.Consistency != Eventual {
+		return nil, fmt.Errorf("unknown consistency %q", cfg.Consistency)
+	}
+	if cfg.Dial == nil {
+		cfg.Dial = defaultDial
+	}
 	r := &Router{cfg: cfg, log: cfg.Logger, nodes: map[string]*node{}, metrics: newMetrics()}
 	for _, nc := range cfg.Nodes {
-		conn, err := grpc.NewClient(nc.Addr, grpc.WithTransportCredentials(insecure.NewCredentials()),
-			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64<<20), grpc.MaxCallSendMsgSize(256<<20)))
+		client, err := cfg.Dial(nc)
 		if err != nil {
 			return nil, fmt.Errorf("node %s: %w", nc.Name, err)
 		}
-		r.nodes[nc.Name] = &node{cfg: nc, client: pb.NewNodeClient(conn)}
+		r.nodes[nc.Name] = &node{cfg: nc, client: client}
 		r.names = append(r.names, nc.Name)
 	}
 	if err := r.loadState(); err != nil {
@@ -235,7 +259,7 @@ func (r *Router) check(ctx context.Context, n *node) {
 	cctx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	status, err := n.client.Status(cctx, &pb.StatusRequest{})
+	status, err := n.client.Status(cctx)
 	rtt := time.Since(start)
 
 	n.mu.Lock()
@@ -260,6 +284,7 @@ func (r *Router) check(ctx context.Context, n *node) {
 	n.mu.Unlock()
 
 	r.metrics.nodeUp(n.cfg.Name, true)
+	r.repairReplicas(ctx, n.cfg.Name, status)
 	if cameUp || restarted {
 		if restarted && !cameUp {
 			r.event("node-up", "%s restarted", n.cfg.Name)
@@ -271,10 +296,33 @@ func (r *Router) check(ctx context.Context, n *node) {
 	}
 	// A node that lost its assignment (e.g. restarted between two health checks) reports no role.
 	for _, s := range status.Shards {
-		if s.Role == pb.Role_ROLE_UNSPECIFIED {
+		if s.Role == RoleNone {
 			r.reconcile(ctx, n.cfg.Name)
 			return
 		}
+	}
+}
+
+// repairReplicas re-assigns the replica of each shard whose primary (`name`) has stopped
+// forwarding to it while the replica still reports itself in sync. That happens when a forward is
+// lost: the primary marks the replica out of sync, but the replica never hears of it, so it would
+// neither fetch what it missed nor stop answering reads. Assigning it again makes it catch up.
+func (r *Router) repairReplicas(ctx context.Context, name string, status *NodeStatus) {
+	for _, st := range status.Shards {
+		if st.Role != RolePrimary || st.InSync {
+			continue
+		}
+		r.mu.RLock()
+		var s ShardMap
+		if st.Shard >= 0 && st.Shard < len(r.shards) {
+			s = r.shards[st.Shard]
+		}
+		r.mu.RUnlock()
+		if s.Primary != name || s.Epoch != st.Epoch || !r.isUp(s.Replica) || !r.reportsInSync(s.Replica, s.ID) {
+			continue
+		}
+		r.event("repair", "shard %d: %s stopped forwarding to %s; re-assigning the replica to catch up", s.ID, name, s.Replica)
+		go r.assign(ctx, s.Replica, s, RoleReplica, r.nodes[s.Primary].cfg.Addr)
 	}
 }
 
@@ -310,7 +358,7 @@ func (r *Router) failoverFrom(ctx context.Context, name string) {
 	r.mu.Unlock()
 	for _, s := range promoted {
 		// Its replica (the failed node) gets its role back when it returns.
-		r.assign(ctx, s.Primary, s, pb.Role_ROLE_PRIMARY, r.nodes[s.Replica].cfg.Addr)
+		r.assign(ctx, s.Primary, s, RolePrimary, r.nodes[s.Replica].cfg.Addr)
 	}
 }
 
@@ -328,20 +376,20 @@ func (r *Router) reconcile(ctx context.Context, name string) {
 	r.mu.RUnlock()
 	for _, s := range involved {
 		if r.isUp(s.Primary) {
-			r.assign(ctx, s.Primary, s, pb.Role_ROLE_PRIMARY, r.nodes[s.Replica].cfg.Addr)
+			r.assign(ctx, s.Primary, s, RolePrimary, r.nodes[s.Replica].cfg.Addr)
 		}
 	}
 	for _, s := range involved {
 		if r.isUp(s.Replica) {
-			r.assign(ctx, s.Replica, s, pb.Role_ROLE_REPLICA, r.nodes[s.Primary].cfg.Addr)
+			r.assign(ctx, s.Replica, s, RoleReplica, r.nodes[s.Primary].cfg.Addr)
 		}
 	}
 }
 
-func (r *Router) assign(ctx context.Context, name string, s ShardMap, role pb.Role, peer string) {
+func (r *Router) assign(ctx context.Context, name string, s ShardMap, role Role, peer string) {
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := r.nodes[name].client.Assign(cctx, &pb.AssignRequest{Shard: uint32(s.ID), Epoch: s.Epoch, Role: role, Peer: peer})
+	err := r.nodes[name].client.Assign(cctx, Assignment{Shard: s.ID, Epoch: s.Epoch, Role: role, Peer: peer})
 	if err != nil {
 		r.log.Warn("assign failed", "node", name, "shard", s.ID, "role", role.String(), "err", err)
 	}
@@ -379,15 +427,15 @@ type ShardView struct {
 // View snapshots the cluster for the API and UI.
 func (r *Router) View() ClusterView {
 	var v ClusterView
-	copies := map[string]map[uint32]*pb.ShardStatus{}
+	copies := map[string]map[int]ShardStatus{}
 	for _, name := range r.names {
 		n := r.nodes[name]
 		n.mu.Lock()
 		nv := NodeView{Name: name, Up: n.up, RTTMs: float64(n.rtt.Microseconds()) / 1000}
 		if n.status != nil {
-			nv.SIMD = n.status.Simd
+			nv.SIMD = n.status.SIMD
 			nv.UptimeS = time.Since(time.UnixMilli(int64(n.status.StartedUnixMs))).Seconds()
-			copies[name] = map[uint32]*pb.ShardStatus{}
+			copies[name] = map[int]ShardStatus{}
 			if n.up {
 				for _, s := range n.status.Shards {
 					copies[name][s.Shard] = s
@@ -403,11 +451,11 @@ func (r *Router) View() ClusterView {
 	r.mu.RLock()
 	for _, s := range r.shards {
 		sv := ShardView{ShardMap: s}
-		if p := copies[s.Primary][uint32(s.ID)]; p != nil {
-			sv.PrimaryLSN, sv.Vectors = p.Lsn, p.Vectors
+		if p, ok := copies[s.Primary][s.ID]; ok {
+			sv.PrimaryLSN, sv.Vectors = p.LSN, p.Vectors
 		}
-		if rep := copies[s.Replica][uint32(s.ID)]; rep != nil {
-			sv.ReplicaLSN, sv.ReplicaInSync = rep.Lsn, rep.InSync
+		if rep, ok := copies[s.Replica][s.ID]; ok {
+			sv.ReplicaLSN, sv.ReplicaInSync = rep.LSN, rep.InSync
 		}
 		v.Shards = append(v.Shards, sv)
 	}
