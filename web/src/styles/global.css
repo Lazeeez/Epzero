@@ -54,6 +54,7 @@
   --ambient-strength: 0.55;
   --spot: rgba(91, 157, 255, 0.1);
   --spot-edge: rgba(156, 195, 255, 0.35);
+  --glass-fill: rgba(16, 18, 25, 0.86);
 
   --font: "Inter Variable", "Inter Fallback", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "JetBrains Mono Variable", "JetBrains Mono Fallback", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -97,6 +98,7 @@
   --ambient-strength: 0.7;
   --spot: rgba(42, 111, 214, 0.07);
   --spot-edge: rgba(42, 111, 214, 0.35);
+  --glass-fill: rgba(255, 255, 255, 0.9);
 }
 
 *,
@@ -237,9 +239,8 @@ h3 {
 }
 .btn-ghost {
   border-color: var(--border-strong);
-  background: var(--surface);
+  background: var(--glass-fill);
   color: var(--text);
-  backdrop-filter: blur(12px);
 }
 .btn-ghost:hover {
   border-color: var(--text-2);
@@ -249,13 +250,14 @@ h3 {
   cursor: not-allowed;
 }
 
-/* Glass card */
+/* Glass card. A nearly opaque fill, not a backdrop blur: blurring what's behind (the animated
+   backdrop, the live 3D graph) made the browser re-blur every card on every frame, which halved
+   the frame rate while scrolling (measured: 34 fps -> 60 fps on the Benchmarks page). */
 .card {
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--glass-fill);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(18px) saturate(1.2);
 }
 
 /* Page transitions (View Transitions API) */
