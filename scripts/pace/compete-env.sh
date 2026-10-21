@@ -8,7 +8,7 @@
 # own node. It needs pybind11 2.x (it does not compile against pybind11 3).
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
-VENV="$ORYX_ROOT/.pace-bench"
+VENV="$EPZERO_ROOT/.pace-bench"
 [ -x "$VENV/bin/python" ] || { echo "run scripts/pace/bench-env.sh first"; exit 1; }
 
 "$VENV/bin/pip" install --quiet h5py usearch pyvsag pyarrow huggingface_hub "pybind11<3" setuptools wheel
