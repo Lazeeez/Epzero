@@ -70,7 +70,7 @@ for (const theme of ["dark", "light"]) {
     await scan(page, "benchmarks");
 
     await page.goto("cluster");
-    await expect(page.locator(".node")).toHaveCount(4, { timeout: 60_000 });
+    await expect(page.locator(".copies li.primary")).toHaveCount(4, { timeout: 60_000 });
     await page.evaluate(() => document.querySelectorAll("[data-reveal]").forEach((el) => el.classList.add("revealed")));
     await page.getByRole("button", { name: "Check linearizability" }).click();
     await expect(page.locator(".verdict")).toBeVisible({ timeout: 30_000 });
