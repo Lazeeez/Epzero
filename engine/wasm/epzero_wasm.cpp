@@ -15,11 +15,11 @@
 #include <string>
 #include <vector>
 
-#include "oryx/brute_force.h"
-#include "oryx/dataset.h"
-#include "oryx/hnsw.h"
-#include "oryx/parallel.h"
-#include "oryx/text.h"
+#include "epzero/brute_force.h"
+#include "epzero/dataset.h"
+#include "epzero/hnsw.h"
+#include "epzero/parallel.h"
+#include "epzero/text.h"
 
 using emscripten::val;
 using Clock = std::chrono::steady_clock;
@@ -48,7 +48,7 @@ class Lab {
   // Clustered synthetic vectors, generated inside WASM (no download).
   double generate(std::size_t n, std::size_t num_queries, std::size_t dim, std::size_t clusters, double seed) {
     const auto start = Clock::now();
-    auto data = oryx::make_clustered(n, num_queries, dim, clusters, static_cast<std::uint64_t>(seed));
+    auto data = epzero::make_clustered(n, num_queries, dim, clusters, static_cast<std::uint64_t>(seed));
     base_ = std::move(data.base);
     queries_ = std::move(data.queries);
     truth_.clear();
@@ -59,16 +59,16 @@ class Lab {
   double compute_truth(std::size_t k, std::size_t threads) {
     require_data();
     const auto start = Clock::now();
-    truth_ = oryx::compute_ground_truth(base_.data.data(), base_.n, base_.dim, queries_.data.data(), queries_.n, k,
-                                        oryx::Metric::L2, threads);
+    truth_ = epzero::compute_ground_truth(base_.data.data(), base_.n, base_.dim, queries_.data.data(), queries_.n, k,
+                                        epzero::Metric::L2, threads);
     truth_k_ = k;
     return ms_since(start);
   }
 
   void begin_build(std::size_t M, std::size_t ef_construction) {
     require_data();
-    index_ = std::make_unique<oryx::HnswIndex>(oryx::HnswParams{
-        .dim = base_.dim, .metric = oryx::Metric::L2, .max_elements = base_.n, .M = M,
+    index_ = std::make_unique<epzero::HnswIndex>(epzero::HnswParams{
+        .dim = base_.dim, .metric = epzero::Metric::L2, .max_elements = base_.n, .M = M,
         .ef_construction = ef_construction});
     built_ = 0;
     build_ms_ = 0.0;
@@ -80,7 +80,7 @@ class Lab {
     require_index();
     const std::size_t end = std::min(base_.n, built_ + count);
     const auto start = Clock::now();
-    oryx::parallel_for(built_, end, threads, [&](std::size_t i) { index_->add(i, base_.row(i)); });
+    epzero::parallel_for(built_, end, threads, [&](std::size_t i) { index_->add(i, base_.row(i)); });
     build_ms_ += ms_since(start);
     built_ = end;
     return built_;
@@ -90,11 +90,11 @@ class Lab {
   val sweep(std::size_t ef, std::size_t k) const {
     require_index();
     std::vector<double> latencies(queries_.n);
-    std::vector<std::vector<oryx::SearchResult>> results(queries_.n);
+    std::vector<std::vector<epzero::SearchResult>> results(queries_.n);
     std::size_t distances = 0;
     const auto start = Clock::now();
     for (std::size_t q = 0; q < queries_.n; ++q) {
-      oryx::SearchStats stats;
+      epzero::SearchStats stats;
       const auto t0 = Clock::now();
       results[q] = index_->search(queries_.row(q), k, {.ef = ef, .stats = &stats});
       latencies[q] = std::chrono::duration<double, std::micro>(Clock::now() - t0).count();
@@ -103,7 +103,7 @@ class Lab {
     const double total_ms = ms_since(start);
     val out = val::object();
     out.set("ef", ef);
-    out.set("recall", truth_.empty() ? -1.0 : oryx::recall_at_k(results, truth_, std::min(k, truth_k_)));
+    out.set("recall", truth_.empty() ? -1.0 : epzero::recall_at_k(results, truth_, std::min(k, truth_k_)));
     out.set("qps", 1000.0 * static_cast<double>(queries_.n) / total_ms);
     out.set("p50Us", percentile(latencies, 0.5));
     out.set("p99Us", percentile(latencies, 0.99));
@@ -117,7 +117,7 @@ class Lab {
     const std::size_t n = std::min(max_queries, queries_.n);
     const auto start = Clock::now();
     for (std::size_t q = 0; q < n; ++q) {
-      (void)oryx::brute_force_search(base_.data.data(), base_.n, base_.dim, queries_.row(q), k, oryx::Metric::L2);
+      (void)epzero::brute_force_search(base_.data.data(), base_.n, base_.dim, queries_.row(q), k, epzero::Metric::L2);
     }
     return 1000.0 * static_cast<double>(n) / ms_since(start);
   }
@@ -130,7 +130,7 @@ class Lab {
     constexpr std::size_t kCalls = 400'000;
     std::vector<float> data(kRows * dim);
     for (float& x : data) x = uniform(rng);
-    auto time = [&](oryx::DistanceFn fn) {
+    auto time = [&](epzero::DistanceFn fn) {
       volatile float sink = 0.0f;
       float acc = 0.0f;
       const auto start = Clock::now();
@@ -144,14 +144,14 @@ class Lab {
     };
     val out = val::object();
     out.set("dim", dim);
-    out.set("scalarNs", time(oryx::get_distance_fn(oryx::Metric::L2, oryx::SimdLevel::Scalar)));
-    out.set("simdNs", time(oryx::get_distance_fn(oryx::Metric::L2)));
+    out.set("scalarNs", time(epzero::get_distance_fn(epzero::Metric::L2, epzero::SimdLevel::Scalar)));
+    out.set("simdNs", time(epzero::get_distance_fn(epzero::Metric::L2)));
     return out;
   }
 
   val info() const {
     val out = val::object();
-    out.set("simd", std::string(oryx::to_string(oryx::active_simd_level())));
+    out.set("simd", std::string(epzero::to_string(epzero::active_simd_level())));
     out.set("threads", std::thread::hardware_concurrency());
     out.set("n", base_.n);
     out.set("dim", base_.dim);
@@ -173,18 +173,18 @@ class Lab {
     if (!index_) throw std::logic_error("begin_build() first");
   }
 
-  oryx::Dataset base_;
-  oryx::Dataset queries_;
+  epzero::Dataset base_;
+  epzero::Dataset queries_;
   std::vector<std::vector<std::uint32_t>> truth_;
   std::size_t truth_k_ = 0;
-  std::unique_ptr<oryx::HnswIndex> index_;
+  std::unique_ptr<epzero::HnswIndex> index_;
   std::size_t built_ = 0;
   double build_ms_ = 0.0;
 };
 
 // Converts a search trace into columns (struct of arrays) plus results, for cheap transfer to JS.
-val trace_to_js(const oryx::SearchTrace& trace, const std::vector<oryx::SearchResult>& results,
-                const oryx::SearchStats& stats, double micros) {
+val trace_to_js(const epzero::SearchTrace& trace, const std::vector<epzero::SearchResult>& results,
+                const epzero::SearchStats& stats, double micros) {
   const std::size_t n = trace.events.size();
   std::vector<std::uint8_t> layer(n), accepted(n);
   std::vector<std::uint32_t> from(n), to(n);
@@ -220,13 +220,13 @@ val trace_to_js(const oryx::SearchTrace& trace, const std::vector<oryx::SearchRe
 
 // Top level of every node (0 = base layer only) and each layer's links as a flat
 // [a0, b0, a1, b1, ...] list with every undirected edge once.
-val levels_of(const oryx::HnswIndex& index, std::size_t n) {
+val levels_of(const epzero::HnswIndex& index, std::size_t n) {
   std::vector<std::uint8_t> out(n);
   for (std::size_t i = 0; i < n; ++i) out[i] = static_cast<std::uint8_t>(index.level_of(i));
   return copy_to_js("Uint8Array", out);
 }
 
-val edges_of(const oryx::HnswIndex& index, std::size_t n, int layer) {
+val edges_of(const epzero::HnswIndex& index, std::size_t n, int layer) {
   std::vector<std::uint32_t> pairs;
   for (std::size_t i = 0; i < n; ++i) {
     if (index.level_of(i) < layer) continue;
@@ -253,7 +253,7 @@ class Keywords {
  public:
   // One caption per photo, newline-separated, line i belonging to photo i.
   std::size_t set(const std::string& texts) {
-    index_ = oryx::TextIndex();
+    index_ = epzero::TextIndex();
     std::size_t label = 0, start = 0;
     while (start <= texts.size()) {
       const std::size_t end = std::min(texts.find('\n', start), texts.size());
@@ -263,10 +263,10 @@ class Keywords {
     }
     return index_.size();
   }
-  const oryx::TextIndex& index() const noexcept { return index_; }
+  const epzero::TextIndex& index() const noexcept { return index_; }
 
  private:
-  oryx::TextIndex index_;
+  epzero::TextIndex index_;
 };
 
 class Collection {
@@ -279,7 +279,7 @@ class Collection {
     n_ = codes.size() / dim;
     floats_.resize(codes.size());
     for (std::size_t i = 0; i < codes.size(); ++i) floats_[i] = codes[i] * (scale[i % dim] / 127.0f);
-    for (std::size_t i = 0; i < n_; ++i) oryx::normalize(floats_.data() + i * dim_, dim_);
+    for (std::size_t i = 0; i < n_; ++i) epzero::normalize(floats_.data() + i * dim_, dim_);
     index_.reset();
     built_ = 0;
     clear_filter();
@@ -287,8 +287,8 @@ class Collection {
 
   void begin_build(std::size_t M, std::size_t ef_construction) {
     if (n_ == 0) throw std::logic_error("load() first");
-    index_ = std::make_unique<oryx::HnswIndex>(oryx::HnswParams{
-        .dim = dim_, .metric = oryx::Metric::Cosine, .max_elements = n_, .M = M, .ef_construction = ef_construction});
+    index_ = std::make_unique<epzero::HnswIndex>(epzero::HnswParams{
+        .dim = dim_, .metric = epzero::Metric::Cosine, .max_elements = n_, .M = M, .ef_construction = ef_construction});
     built_ = 0;
     clear_filter();
   }
@@ -298,8 +298,8 @@ class Collection {
   void load_graph(const val& bytes, std::size_t M, std::size_t ef_construction) {
     if (n_ == 0) throw std::logic_error("load() first");
     const auto data = emscripten::convertJSArrayToNumberVector<std::uint8_t>(bytes);
-    index_ = oryx::HnswIndex::import_graph(
-        oryx::HnswParams{.dim = dim_, .metric = oryx::Metric::Cosine, .max_elements = n_, .M = M,
+    index_ = epzero::HnswIndex::import_graph(
+        epzero::HnswParams{.dim = dim_, .metric = epzero::Metric::Cosine, .max_elements = n_, .M = M,
                          .ef_construction = ef_construction},
         floats_.data(), n_, data.data(), data.size());
     built_ = index_->size();
@@ -309,7 +309,7 @@ class Collection {
   std::size_t build_step(std::size_t count, std::size_t threads) {
     if (!index_) throw std::logic_error("begin_build() first");
     const std::size_t end = std::min(n_, built_ + count);
-    oryx::parallel_for(built_, end, threads, [&](std::size_t i) { index_->add(i, vector(i)); });
+    epzero::parallel_for(built_, end, threads, [&](std::size_t i) { index_->add(i, vector(i)); });
     built_ = end;
     return built_;
   }
@@ -374,22 +374,22 @@ class Collection {
 
     const auto start = Clock::now();
     const std::size_t candidates = std::max<std::size_t>(k, 30);
-    const oryx::SearchFilter* filter = filter_ ? &*filter_ : nullptr;
+    const epzero::SearchFilter* filter = filter_ ? &*filter_ : nullptr;
     const auto by_vector = index_->search(q.data(), candidates, {.ef = std::max(ef, candidates), .filter = filter});
     // Keyword matches honor the same filter (and only photos already in the index).
-    std::vector<oryx::SearchResult> by_words;
+    std::vector<epzero::SearchResult> by_words;
     for (const auto& r : keywords.index().search(words, filter ? 4 * candidates : candidates)) {
       if (r.label >= built_) continue;
       if (filter && !std::binary_search(allowed_.begin(), allowed_.end(), static_cast<std::uint32_t>(r.label))) continue;
       by_words.push_back(r);
       if (by_words.size() == candidates) break;
     }
-    const auto fused = oryx::fuse_rankings({by_vector, by_words}, k);
+    const auto fused = epzero::fuse_rankings({by_vector, by_words}, k);
     const double micros = std::chrono::duration<double, std::micro>(Clock::now() - start).count();
 
-    static const oryx::DistanceFn dist = oryx::get_distance_fn(oryx::Metric::Cosine);
-    const auto in = [](const std::vector<oryx::SearchResult>& list, std::uint64_t label) {
-      return std::any_of(list.begin(), list.end(), [&](const oryx::SearchResult& r) { return r.label == label; });
+    static const epzero::DistanceFn dist = epzero::get_distance_fn(epzero::Metric::Cosine);
+    const auto in = [](const std::vector<epzero::SearchResult>& list, std::uint64_t label) {
+      return std::any_of(list.begin(), list.end(), [&](const epzero::SearchResult& r) { return r.label == label; });
     };
     std::vector<std::uint32_t> labels;
     std::vector<float> distances;
@@ -430,18 +430,18 @@ class Collection {
       const float* b = vector(pick(rng));
       float* q = queries.data() + s * dim_;
       for (std::size_t d = 0; d < dim_; ++d) q[d] = a[d] + b[d];
-      oryx::normalize(q, dim_);
+      epzero::normalize(q, dim_);
     }
-    std::vector<std::vector<oryx::SearchResult>> truth(samples);
-    oryx::parallel_for(0, samples, threads, [&](std::size_t s) {
-      truth[s] = oryx::brute_force_search(floats_.data(), built_, dim_, queries.data() + s * dim_, k, oryx::Metric::Cosine);
+    std::vector<std::vector<epzero::SearchResult>> truth(samples);
+    epzero::parallel_for(0, samples, threads, [&](std::size_t s) {
+      truth[s] = epzero::brute_force_search(floats_.data(), built_, dim_, queries.data() + s * dim_, k, epzero::Metric::Cosine);
     });
 
     std::size_t hits = 0;
     double distances = 0;
     const auto start = Clock::now();
     for (std::size_t s = 0; s < samples; ++s) {
-      oryx::SearchStats stats;
+      epzero::SearchStats stats;
       const auto found = index_->search(queries.data() + s * dim_, k, {.ef = ef, .stats = &stats});
       distances += static_cast<double>(stats.distance_computations);
       for (const auto& r : found) {
@@ -485,7 +485,7 @@ class Collection {
     require_index();
     const auto why = index_->explain(query, k, label, {.ef = ef, .filter = filter_ ? &*filter_ : nullptr});
     val out = val::object();
-    out.set("cause", std::string(oryx::to_string(why.cause)));
+    out.set("cause", std::string(epzero::to_string(why.cause)));
     out.set("exactRank", why.exact_rank);
     out.set("distance", why.distance);
     out.set("kthDistance", why.kth_distance);
@@ -495,11 +495,11 @@ class Collection {
   }
 
   // The exact answer, over the allowed photos only when a filter is set.
-  std::vector<oryx::SearchResult> exact_search(const float* query, std::size_t k) const {
-    if (!filter_) return oryx::brute_force_search(floats_.data(), built_, dim_, query, k, oryx::Metric::Cosine);
-    static const oryx::DistanceFn dist = oryx::get_distance_fn(oryx::Metric::Cosine);
-    const auto farther = [](const oryx::SearchResult& a, const oryx::SearchResult& b) { return a.distance < b.distance; };
-    std::priority_queue<oryx::SearchResult, std::vector<oryx::SearchResult>, decltype(farther)> best(farther);
+  std::vector<epzero::SearchResult> exact_search(const float* query, std::size_t k) const {
+    if (!filter_) return epzero::brute_force_search(floats_.data(), built_, dim_, query, k, epzero::Metric::Cosine);
+    static const epzero::DistanceFn dist = epzero::get_distance_fn(epzero::Metric::Cosine);
+    const auto farther = [](const epzero::SearchResult& a, const epzero::SearchResult& b) { return a.distance < b.distance; };
+    std::priority_queue<epzero::SearchResult, std::vector<epzero::SearchResult>, decltype(farther)> best(farther);
     for (const std::uint32_t label : allowed_) {
       if (label >= built_) continue;
       const float d = dist(query, vector(label), dim_);
@@ -510,7 +510,7 @@ class Collection {
         best.push({label, d});
       }
     }
-    std::vector<oryx::SearchResult> out(best.size());
+    std::vector<epzero::SearchResult> out(best.size());
     for (std::size_t i = out.size(); i-- > 0;) {
       out[i] = best.top();
       best.pop();
@@ -522,24 +522,24 @@ class Collection {
     require_index();
     // Time the search without tracing (recording every hop costs more than the search itself),
     // taking the best of a few runs because a single query is near the timer's resolution.
-    const oryx::SearchFilter* filter = filter_ ? &*filter_ : nullptr;
+    const epzero::SearchFilter* filter = filter_ ? &*filter_ : nullptr;
     double micros = 1e18;
     for (int run = 0; run < 5; ++run) {
       const auto start = Clock::now();
       (void)index_->search(query, k, {.ef = ef, .filter = filter});
       micros = std::min(micros, std::chrono::duration<double, std::micro>(Clock::now() - start).count());
     }
-    oryx::SearchTrace trace;
-    oryx::SearchStats stats;
+    epzero::SearchTrace trace;
+    epzero::SearchStats stats;
     const auto results = index_->search(query, k, {.ef = ef, .stats = &stats, .trace = &trace, .filter = filter});
     val out = trace_to_js(trace, results, stats, micros);
     if (filter != nullptr) {
-      out.set("strategy", std::string(oryx::to_string(stats.strategy)));
+      out.set("strategy", std::string(epzero::to_string(stats.strategy)));
       out.set("allowed", filter->allowed());
     }
 
     // The same query as an exact scan over every vector, for recall and speedup.
-    std::vector<oryx::SearchResult> exact;
+    std::vector<epzero::SearchResult> exact;
     double exact_micros = 1e18;
     for (int run = 0; run < 3; ++run) {  // best of 3, like the HNSW timing above
       const auto exact_start = Clock::now();
@@ -560,9 +560,9 @@ class Collection {
   std::vector<float> floats_;  // n x dim, dequantized and normalized
   std::size_t dim_ = 0;
   std::size_t n_ = 0;
-  std::unique_ptr<oryx::HnswIndex> index_;
+  std::unique_ptr<epzero::HnswIndex> index_;
   std::size_t built_ = 0;
-  std::optional<oryx::SearchFilter> filter_;
+  std::optional<epzero::SearchFilter> filter_;
   std::vector<std::uint32_t> allowed_;  // sorted labels the filter allows, for the exact comparison
 };
 
@@ -575,7 +575,7 @@ class Toy {
     if (dim == 0 || data_.size() % dim != 0) throw std::invalid_argument("bad points");
     dim_ = dim;
     n_ = data_.size() / dim;
-    index_ = std::make_unique<oryx::HnswIndex>(oryx::HnswParams{.dim = dim, .metric = oryx::Metric::L2, .max_elements = n_,
+    index_ = std::make_unique<epzero::HnswIndex>(epzero::HnswParams{.dim = dim, .metric = epzero::Metric::L2, .max_elements = n_,
                                                                 .M = M, .ef_construction = ef_construction,
                                                                 .seed = static_cast<std::uint64_t>(seed)});
     for (std::size_t i = 0; i < n_; ++i) index_->add(i, data_.data() + i * dim);
@@ -588,12 +588,12 @@ class Toy {
   val trace(const val& query, std::size_t k, std::size_t ef) const {
     const auto q = emscripten::convertJSArrayToNumberVector<float>(query);
     if (q.size() != dim_) throw std::invalid_argument("query has the wrong dimension");
-    oryx::SearchTrace trace;
-    oryx::SearchStats stats;
+    epzero::SearchTrace trace;
+    epzero::SearchStats stats;
     const auto results = index_->search(q.data(), k, {.ef = ef, .stats = &stats, .trace = &trace});
     val out = trace_to_js(trace, results, stats, 0);
     std::vector<std::uint32_t> exact;
-    for (const auto& r : oryx::brute_force_search(data_.data(), n_, dim_, q.data(), k, oryx::Metric::L2)) {
+    for (const auto& r : epzero::brute_force_search(data_.data(), n_, dim_, q.data(), k, epzero::Metric::L2)) {
       exact.push_back(static_cast<std::uint32_t>(r.label));
     }
     out.set("exact", copy_to_js("Uint32Array", exact));
@@ -605,12 +605,12 @@ class Toy {
   std::vector<float> data_;
   std::size_t dim_ = 0;
   std::size_t n_ = 0;
-  std::unique_ptr<oryx::HnswIndex> index_;
+  std::unique_ptr<epzero::HnswIndex> index_;
 };
 
 }  // namespace
 
-EMSCRIPTEN_BINDINGS(oryx) {
+EMSCRIPTEN_BINDINGS(epzero) {
   emscripten::class_<Keywords>("Keywords").constructor<>().function("set", &Keywords::set);
   emscripten::class_<Toy>("Toy")
       .constructor<>()
