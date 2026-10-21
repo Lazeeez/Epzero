@@ -28,7 +28,7 @@
 
   const libs = compare.libraries;
   const series: Series[] = [
-    { name: "Oryx", color: "var(--accent)", points: libs.oryx.sweep },
+    { name: "Epzero", color: "var(--accent)", points: libs.epzero.sweep },
     { name: "FAISS", color: "var(--series-3)", points: libs.faiss.sweep },
     { name: "hnswlib", color: "var(--series-2)", points: libs.hnswlib.sweep },
   ];
@@ -36,7 +36,7 @@
   const vsHnswlib = speedup("hnswlib");
   const vsFaiss = speedup("faiss");
   const builds = [
-    { name: "Oryx", s: libs.oryx.build_seconds, accent: true },
+    { name: "Epzero", s: libs.epzero.build_seconds, accent: true },
     { name: "hnswlib", s: libs.hnswlib.build_seconds },
     { name: "FAISS", s: libs.faiss.build_seconds },
   ];
@@ -75,14 +75,14 @@
       <HeroRace
         recall={operating.recall}
         lanes={[
-          { name: "Oryx", qps: operating.qps, lead: true },
+          { name: "Epzero", qps: operating.qps, lead: true },
           { name: "FAISS", qps: operating.qps / vsFaiss },
           { name: "hnswlib", qps: operating.qps / vsHnswlib },
         ].sort((a, b) => b.qps - a.qps)}
       />
     </div>
     <p class="eyebrow">Benchmarks</p>
-    <h1><span class="gradient-text">Faster than hnswlib and FAISS.</span><br />Measured against seven libraries.</h1>
+    <h1><span class="gradient-text">Faster than hnswlib and FAISS.</span><br />Measured against the field.</h1>
     <p class="section-lede">
       SIFT1M, the standard ANN benchmark: {compare.n.toLocaleString()} × {compare.dim}-D vectors, {compare.queries.toLocaleString()}
       queries, exact ground truth. Every library builds the same graph (M = {compare.M}, efConstruction = {compare.ef_construction}) and
@@ -92,7 +92,7 @@
       <div use:spotlight><dt>vs hnswlib</dt><dd class="num" use:countUp>{vsHnswlib.toFixed(2)}×</dd><dd class="note">QPS at equal recall ({operating.recall.toFixed(3)})</dd></div>
       <div use:spotlight><dt>vs FAISS HNSW</dt><dd class="num" use:countUp>{vsFaiss.toFixed(2)}×</dd><dd class="note">QPS at equal recall ({operating.recall.toFixed(3)})</dd></div>
       <div use:spotlight><dt>SQ8 + re-rank</dt><dd class="num" use:countUp>+48%</dd><dd class="note">QPS, identical recall</dd></div>
-      <div use:spotlight><dt>Graph build</dt><dd class="num" use:countUp>{libs.oryx.build_seconds.toFixed(1)} s</dd><dd class="note">on {compare.build_threads} threads</dd></div>
+      <div use:spotlight><dt>Graph build</dt><dd class="num" use:countUp>{libs.epzero.build_seconds.toFixed(1)} s</dd><dd class="note">on {compare.build_threads} threads</dd></div>
     </dl>
   </header>
 
@@ -104,7 +104,7 @@
           <p>Up and to the right is better. Hover a point to compare libraries at the same <code>ef</code>.</p>
         </div>
       </div>
-      <RecallChart {series} label="Recall versus queries per second on SIFT1M for Oryx, FAISS and hnswlib; Oryx is highest at every recall" />
+      <RecallChart {series} label="Recall versus queries per second on SIFT1M for Epzero, FAISS and hnswlib; Epzero is highest at every recall" />
       <details>
         <summary>Show the data</summary>
         <div class="table-wrap">
@@ -113,7 +113,7 @@
               <tr><th>ef</th>{#each series as s (s.name)}<th>{s.name} recall</th><th>{s.name} QPS</th>{/each}</tr>
             </thead>
             <tbody>
-              {#each libs.oryx.sweep as row, i (row.ef)}
+              {#each libs.epzero.sweep as row, i (row.ef)}
                 <tr>
                   <td>{row.ef}</td>
                   {#each series as s (s.name)}
@@ -130,14 +130,14 @@
       All three implement the same algorithm, and graph quality is essentially identical: recall matches at every <code>ef</code>. The
       difference is memory-system engineering: batched prefetching, the node layout and the visited set. On this server every library
       gets 2 MiB huge pages, because the kernel enables them for all programs. Where huge pages are opt-in, as on many desktops, only
-      Oryx asks for them, and its lead grows to about 1.46× (measured on a laptop).
+      Epzero asks for them, and its lead grows to about 1.46× (measured on a laptop).
     </p>
   </section>
 
   <section class="container block" aria-labelledby="field-title">
     <h2 id="field-title" class="block-title" use:reveal>Against the field</h2>
     <p class="caption lead" use:reveal>
-      Four more ann-benchmarks datasets, from 96 to 1,536 dimensions and up to 10 million vectors, against seven libraries: hnswlib,
+      Four more ann-benchmarks datasets, from 96 to 1,536 dimensions and up to 10 million vectors, against five other libraries: hnswlib,
       FAISS (HNSW and a tuned IVF-PQ), USearch, VSAG and Glass. Same rules as above: the same graph degree (M = 16) and build beam
       (200), one process, one search thread, the median of three interleaved rounds, on the same server.
     </p>
@@ -169,9 +169,9 @@
       </details>
     </div>
     <p class="caption" use:reveal>
-      Glass is the fastest on every dataset, by 1.5–2.1× over Oryx SQ8. Like Oryx SQ8 and VSAG, it walks the graph on 8-bit codes
-      and re-ranks with the full vectors; it also tunes its prefetch distance to the machine before searching. Oryx SQ8 is second on
-      all four. Uncompressed, Oryx is level with
+      Glass is the fastest on every dataset, by 1.5–2.1× over Epzero SQ8. Like Epzero SQ8 and VSAG, it walks the graph on 8-bit codes
+      and re-ranks with the full vectors; it also tunes its prefetch distance to the machine before searching. Epzero SQ8 is second on
+      all four. Uncompressed, Epzero is level with
       hnswlib on the high-dimensional sets (GIST, DBpedia: within 2%) and ahead on the low-dimensional ones (DEEP10M, GloVe: 3–16%),
       where the memory work around each distance matters most. On DBpedia's 1,536-D vectors, FAISS HNSW is 14% ahead of it. GloVe is compared at recall 0.90: at M = 16 no library but VSAG reaches
       0.95 by <code>ef</code> = 800.
@@ -351,7 +351,7 @@
   <section class="container block" id="lab" aria-labelledby="lab-title">
     <div use:reveal>
       <p class="eyebrow">Run it yourself</p>
-      <h2 id="lab-title" class="block-title">Benchmark Oryx on your device.</h2>
+      <h2 id="lab-title" class="block-title">Benchmark Epzero on your device.</h2>
       <p class="caption lead">
         The same C++ engine, compiled to WebAssembly with threads and SIMD, generates a clustered dataset, computes exact ground truth,
         builds the graph on every core and sweeps <code>ef</code>. Nothing leaves your browser.
@@ -381,6 +381,14 @@
   @media (max-width: 1240px) {
     .hero-art {
       display: none;
+    }
+  }
+  /* Beside the race, the headline and intro keep to their own column (the race is positioned out
+     of the flow, so nothing else stops a longer headline running under it). */
+  @media (min-width: 1241px) {
+    .head h1,
+    .head .section-lede {
+      max-width: calc(100% - 340px - 56px);
     }
   }
   .head h1 {
