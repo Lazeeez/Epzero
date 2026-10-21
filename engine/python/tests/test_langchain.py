@@ -62,6 +62,21 @@ def test_retriever(store):
     assert docs[0].page_content == TEXTS[10] and len(docs) == 2
 
 
+def test_hybrid_search_finds_keywords_the_embedding_misses(store):
+    # The fake embedding carries no meaning, so only the keyword side knows which documents are
+    # about trains; fused, all ten come first.
+    docs = store.hybrid_search("trains", k=10)
+    assert len(docs) == 10 and all(d.metadata["topic"] == "trains" for d in docs)
+    # Filters apply to both sides; deleted documents are gone from both.
+    assert all(d.metadata["n"] < 20 for d in store.hybrid_search("trains", k=5, filter=lambda m: m["n"] < 20))
+    gone = docs[0]
+    store.delete([gone.id])
+    assert gone.id not in {d.id for d in store.hybrid_search("trains", k=40)}
+    # Keyword weight 0: the plain vector ranking.
+    plain = [d.id for d in store.similarity_search("trains", k=5)]
+    assert [d.id for d in store.hybrid_search("trains", k=5, text_weight=0.0)] == plain
+
+
 def test_save_and_load(store, tmp_path):
     store.delete([store.similarity_search(TEXTS[1], k=1)[0].id])
     store.save_local(str(tmp_path))
@@ -72,6 +87,7 @@ def test_save_and_load(store, tmp_path):
     assert loaded.similarity_search(TEXTS[1], k=1)[0].page_content != TEXTS[1]
     loaded.add_texts(["after loading"])
     assert loaded.similarity_search("after loading", k=1)[0].page_content == "after loading"
+    assert {d.metadata["topic"] for d in loaded.hybrid_search("boats", k=10)} == {"boats"}
 
 
 def test_rejects_bad_input():
