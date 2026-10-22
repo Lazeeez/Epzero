@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { FREE_LOOK_TOGGLE, freeLook } from "../lib/free-look.svelte";
+  import { FREE_LOOK_TOGGLE, freeLook, setFreeLook } from "../lib/free-look.svelte";
   import { untrack } from "svelte";
   import { router } from "../lib/router.svelte";
   import { isDark, toggleTheme } from "../lib/theme";
@@ -52,22 +52,18 @@
       <a href={router.href("benchmarks")} class="link" aria-current={router.route === "benchmarks" ? "page" : undefined}>Benchmarks</a>
     </nav>
     <div class="right">
-      {#if router.route === "try"}
+      {#if router.route === "try" && freeLook.on}
         <!-- Free look hides everything on the playground but this bar, so the way back lives here. -->
         <button
           id={FREE_LOOK_TOGGLE}
-          class="look"
-          class:on={freeLook.on}
+          class="look on"
           type="button"
-          onclick={() => (freeLook.on = !freeLook.on)}
-          aria-pressed={freeLook.on}
-          aria-label={freeLook.on ? "Show the panels" : "Free look"}
-          title={freeLook.on ? "Show the panels again (H or Esc)" : "Free look: hide everything and explore the graph (H)"}
+          onclick={() => setFreeLook(false)}
+          aria-label="Show the panels"
+          title="Show the panels again (H or Esc)"
         >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            {#if freeLook.on}<path d="M4 5h16v14H4zM10 5v14" />{:else}<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />{/if}
-          </svg>
-          <span>{freeLook.on ? "Show panels" : "Free look"}</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM10 5v14" /></svg>
+          <span>Show panels</span>
         </button>
       {/if}
       <button class="icon" type="button" onclick={theme} aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}>
