@@ -92,6 +92,68 @@ void* allocate_block(std::size_t bytes) {
   return block;
 }
 
+// The beam of a layer search: the best `capacity` nodes found so far, sorted by distance, each
+// marked once expanded, with a cursor at the closest one not yet expanded. It replaces a pair of
+// binary heaps (candidates to expand, and the best found): one sorted array, mostly in L1, where
+// an insert is a binary search and a short memmove and taking the next node is a cursor step,
+// instead of two heaps whose pushes and pops branch unpredictably at every level (measured: a
+// heap's pop alone was 13% of GloVe-100 search time). It also tells for free where a node
+// landed, which is what patience needs ("did the best k change?").
+class Beam {
+ public:
+  static constexpr std::size_t kRejected = std::numeric_limits<std::size_t>::max();
+  struct Item {
+    float distance;
+    std::uint32_t id;
+    bool expanded;
+  };
+
+  explicit Beam(std::size_t capacity) : items_(std::max<std::size_t>(capacity, 1) + 1), capacity_(std::max<std::size_t>(capacity, 1)) {}
+
+  bool full() const noexcept { return size_ == capacity_; }
+  std::size_t size() const noexcept { return size_; }
+  const Item& operator[](std::size_t i) const noexcept { return items_[i]; }
+  // Distances at least this far can't enter (infinite while there is room).
+  float bound() const noexcept { return full() ? items_[size_ - 1].distance : std::numeric_limits<float>::infinity(); }
+
+  // Inserts `id` unless the beam is full and `distance` is no better than its worst; returns the
+  // position it took, or kRejected. Equal distances keep the earlier-found node first.
+  std::size_t insert(float distance, std::uint32_t id) noexcept {
+    if (full() && distance >= items_[size_ - 1].distance) return kRejected;
+    std::size_t lo = 0;
+    for (std::size_t n = size_; n > 0;) {
+      const std::size_t half = n / 2;
+      if (items_[lo + half].distance <= distance) {
+        lo += half + 1;
+        n -= half + 1;
+      } else {
+        n = half;
+      }
+    }
+    std::memmove(&items_[lo + 1], &items_[lo], (size_ - lo) * sizeof(Item));  // the last falls off when full
+    items_[lo] = {distance, id, false};
+    if (size_ < capacity_) ++size_;
+    if (lo < cursor_) cursor_ = lo;
+    return lo;
+  }
+
+  bool has_next() const noexcept { return cursor_ < size_; }
+  // The closest node not yet expanded, now marked expanded.
+  std::uint32_t next() noexcept {
+    Item& item = items_[cursor_];
+    item.expanded = true;
+    while (cursor_ < size_ && items_[cursor_].expanded) ++cursor_;
+    return item.id;
+  }
+  float next_distance() const noexcept { return items_[cursor_].distance; }
+
+ private:
+  std::vector<Item> items_;  // one spare slot: an insert into a full beam shifts the last into it
+  std::size_t capacity_;
+  std::size_t size_ = 0;
+  std::size_t cursor_ = 0;
+};
+
 // Snapshot I/O goes through 8 MiB chunks and memcpy. A 1M-node index is millions of small
 // fields; per-call iostream overhead made loading several times slower than the disk.
 constexpr std::size_t kIoChunk = std::size_t{8} << 20;
@@ -570,6 +632,9 @@ HnswIndex::id_t HnswIndex::greedy_descend(const Scorer& scorer, id_t entry, int 
       const id_t* links = links_of(expanding, layer);
       const id_t count = load_link(links[0]);
       ++stats.nodes_expanded;
+      // Upper-layer nodes are scattered through memory: request them all before scoring any, so
+      // their cache misses overlap instead of being paid one after another.
+      for (id_t i = 0; i < count; ++i) prefetch_lines(scorer.address(load_link(links[1 + i])), prefetch_lines_);
       for (id_t i = 0; i < count; ++i) {
         const id_t neighbor = load_link(links[1 + i]);
         const float d = scorer(neighbor);
@@ -632,12 +697,75 @@ std::pair<std::size_t, std::size_t> HnswIndex::tune_prefetch(const float* querie
 std::vector<HnswIndex::Candidate> HnswIndex::search_layer(const Scorer& scorer, id_t entry, std::size_t ef,
                                                           int layer, SearchStats& stats, SearchTrace* trace,
                                                           bool keep_deleted, std::size_t k, std::size_t patience) const {
+  // Tombstoned nodes are explored (they keep the graph connected) but never kept as results, so
+  // with deletions the beam must fill up with live nodes before it may stop: that bookkeeping
+  // lives in search_layer_tombstones.
+  if (!keep_deleted && deleted_count_.load(std::memory_order_relaxed) > 0) {
+    return search_layer_tombstones(scorer, entry, ef, layer, stats, trace, k, patience);
+  }
+  constexpr float kInfinity = std::numeric_limits<float>::infinity();
+  auto visited = visited_pool_->acquire();
+  Beam beam(ef);
+
+  bool exact = true;
+  const float entry_dist = scorer.bounded(entry, kInfinity, exact);
+  ++stats.distance_computations;
+  stats.full_distance_computations += exact;
+  visited->test_and_set(entry);
+  beam.insert(entry_dist, entry);
+
+  // Patience: how many expansions in a row have left the best k unchanged (an insert into the
+  // first k places changes them).
+  std::size_t unchanged = 0;
+  std::vector<id_t> batch(max_links0_);  // one node's unvisited neighbors (layer 0's lists are the longest)
+
+  // Expand the closest unexpanded node until every node in the beam has been expanded, which is
+  // when the closest remaining candidate is farther than the beam's worst.
+  while (beam.has_next()) {
+    if (patience > 0 && unchanged >= patience) break;
+    const id_t current = beam.next();
+    bool improved = false;
+
+    const id_t* links = links_of(current, layer);
+    const id_t count = load_link(links[0]);
+    ++stats.nodes_expanded;
+
+    // Visited neighbors are dropped first and the rest prefetched, as in search_layer_tombstones.
+    std::size_t pending = 0;
+    for (id_t i = 0; i < count; ++i) {
+      const id_t neighbor = load_link(links[1 + i]);
+      if (visited->test_and_set(neighbor)) continue;
+      batch[pending++] = neighbor;
+      if (pending <= prefetch_depth_) prefetch_lines(scorer.address(neighbor), prefetch_lines_);
+    }
+
+    for (std::size_t j = 0; j < pending; ++j) {
+      if (pending - j > prefetch_depth_) prefetch_lines(scorer.address(batch[j + prefetch_depth_]), prefetch_lines_);
+      const id_t neighbor = batch[j];
+      const float d = scorer.bounded(neighbor, beam.bound(), exact);
+      ++stats.distance_computations;
+      stats.full_distance_computations += exact;
+      const std::size_t at = beam.insert(d, neighbor);
+      if (trace != nullptr) {
+        trace->events.push_back({static_cast<std::uint32_t>(layer), labels_[current], labels_[neighbor], d, at != Beam::kRejected});
+      }
+      improved |= at < k;
+    }
+    unchanged = improved ? 0 : unchanged + 1;
+  }
+
+  std::vector<Candidate> result(beam.size());
+  for (std::size_t i = 0; i < result.size(); ++i) result[i] = {beam[i].distance, beam[i].id};
+  return result;  // closest first
+}
+
+std::vector<HnswIndex::Candidate> HnswIndex::search_layer_tombstones(const Scorer& scorer, id_t entry, std::size_t ef,
+                                                                     int layer, SearchStats& stats, SearchTrace* trace,
+                                                                     std::size_t k, std::size_t patience) const {
   auto visited = visited_pool_->acquire();
   std::priority_queue<Candidate, std::vector<Candidate>, CloserFirst> candidates;  // closest on top
   std::priority_queue<Candidate, std::vector<Candidate>, FartherFirst> best;       // farthest on top
-  // Tombstoned nodes are explored (they keep the graph connected) but never kept as results, so
-  // with deletions the beam must fill up before it may stop.
-  const bool has_deletions = !keep_deleted && deleted_count_.load(std::memory_order_relaxed) > 0;
+  const bool has_deletions = true;
   constexpr float kInfinity = std::numeric_limits<float>::infinity();
 
   bool exact = true;
