@@ -4,6 +4,7 @@
   import Nav from "./components/Nav.svelte";
   import { engine } from "./lib/engine/engine.svelte";
   import { warmUpEncoders } from "./lib/engine/encoders.svelte";
+  import { PAGES, SITE } from "./lib/pages";
   import { router } from "./lib/router.svelte";
   import { sceneController, type SceneMode } from "./lib/scene/scene.svelte";
   import Benchmarks from "./pages/Benchmarks.svelte";
@@ -48,20 +49,19 @@
     sceneController.sync();
   });
 
-  const titles = {
-    home: "Epzero · A vector database, running in your browser",
-    try: "Try it · Epzero",
-    play: "Out-navigate Epzero · Epzero",
-    cluster: "Cluster · Epzero",
-    benchmarks: "Benchmarks · Epzero",
-    notfound: "Page not found · Epzero",
-  };
-  // Per-page title and canonical URL (search engines index each page on its own address; a
-  // not-found page points back to the home page).
+  // Per-page title, description, link-preview tags and canonical URL, kept in step with the
+  // static HTML the build wrote for each page (src/lib/pages.ts), as the visitor moves between
+  // pages. A not-found page points back to the home page.
+  const setMeta = (selector: string, value: string) => document.querySelector(selector)?.setAttribute("content", value);
   $effect(() => {
-    document.title = titles[router.route];
+    const page = PAGES[router.route];
+    document.title = page.title;
+    setMeta('meta[name="description"]', page.description);
+    setMeta('meta[property="og:title"]', page.title);
+    setMeta('meta[property="og:description"]', page.description);
+    setMeta('meta[property="og:url"]', SITE + page.path);
     const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
-    if (canonical) canonical.href = new URL(router.href(router.route === "notfound" ? "home" : router.route), "https://epzero.dev").href;
+    if (canonical) canonical.href = SITE + page.path;
   });
 </script>
 
