@@ -354,10 +354,12 @@
         <button onclick={() => searchText(example)} disabled={disabled || textEncoder.status !== "ready"}>{example}</button>
       {/each}
     </div>
+    {#if engine.source !== "mine"}
     <label class="hybrid" title="Hybrid search: the words are also matched against the photos' captions (BM25), and the two rankings are merged">
       <input type="checkbox" role="switch" checked={engine.hybrid} onchange={(e) => toggleHybrid(e.currentTarget.checked)} />
       <span>Match words in captions too <small>hybrid search</small></span>
     </label>
+    {/if}
   {:else if mode === "photo"}
     <label
       class="drop"
