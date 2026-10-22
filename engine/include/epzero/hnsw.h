@@ -296,6 +296,10 @@ class HnswIndex {
   std::vector<Candidate> search_layer(const Scorer& scorer, id_t entry, std::size_t ef, int layer,
                                       SearchStats& stats, SearchTrace* trace, bool keep_deleted = false,
                                       std::size_t k = 0, std::size_t patience = 0) const;
+  // search_layer on an index with deletions: tombstones route the search but don't count as results.
+  std::vector<Candidate> search_layer_tombstones(const Scorer& scorer, id_t entry, std::size_t ef, int layer,
+                                                 SearchStats& stats, SearchTrace* trace, std::size_t k,
+                                                 std::size_t patience) const;
   // Layer-0 beam search that only returns nodes the filter allows (Inline or TwoHop).
   std::vector<Candidate> search_layer_filtered(const Scorer& scorer, id_t entry, std::size_t ef,
                                                const SearchFilter& filter, bool two_hop, SearchStats& stats,
