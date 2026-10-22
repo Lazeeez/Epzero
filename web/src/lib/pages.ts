@@ -20,14 +20,14 @@ export const PAGES = {
     path: "",
     title: "Epzero · A vector database, running in your browser",
     description:
-      "Epzero is an HNSW vector database built from scratch in C++20. It runs here as WebAssembly, searching 29,825 photos on your own CPU.",
+      "Epzero is a vector database for fast similarity search, built from scratch in C++20 on HNSW. Try semantic photo search and live benchmarks in your browser.",
     heading: "A vector database, built from scratch.",
   },
   try: {
     path: "try",
-    title: "Search 29,825 photos in your browser · Epzero",
+    title: "Semantic photo search in your browser · Epzero",
     description:
-      "Search photos by words, image or webcam with an HNSW index running in your browser, then step through every hop the graph search takes.",
+      "Search 29,825 photos, or your own privately, by words, image or webcam with a vector database running in your browser, and step through every HNSW hop.",
     heading: "Search 29,825 photos, locally.",
   },
   play: {
@@ -46,10 +46,17 @@ export const PAGES = {
   },
   benchmarks: {
     path: "benchmarks",
-    title: "Benchmarks: Epzero vs hnswlib, FAISS and Glass",
+    title: "Vector search benchmarks: Epzero vs FAISS, hnswlib, Glass",
     description:
-      "Epzero against hnswlib, FAISS, USearch, VSAG and Glass on SIFT1M, GIST1M, GloVe, OpenAI embeddings and DEEP10M, with recall under drift and filters.",
+      "Recall vs queries per second for Epzero, hnswlib, FAISS, USearch, VSAG and Glass on SIFT1M, GIST1M, GloVe, OpenAI embeddings and DEEP10M, plus a lab.",
     heading: "Faster than hnswlib and FAISS. Measured against the field.",
+  },
+  blog: {
+    path: "blog",
+    title: "Vector search is a memory problem · Epzero",
+    description:
+      "How an HNSW vector index got 31% faster from memory work, which obvious optimizations did nothing, and where it stands against FAISS, hnswlib and Glass.",
+    heading: "Vector search is a memory problem",
   },
   notfound: {
     path: "",
