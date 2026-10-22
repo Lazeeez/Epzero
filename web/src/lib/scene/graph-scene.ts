@@ -711,7 +711,7 @@ export class GraphScene {
         new THREE.LineBasicMaterial({ color: this.palette.plane, transparent: true, opacity: this.palette.dark ? 0.22 : 0.28 }),
       );
       graduations.position.y = layer * LAYER_GAP;
-      const label = this.label(`Layer ${layer} · ${counts[layer].toLocaleString()} nodes`, layer, radius);
+      const label = this.label(`Layer ${layer} · ${counts[layer].toLocaleString()} ${counts[layer] === 1 ? "node" : "nodes"}`, layer, radius);
       for (const object of [disc, ring, graduations, label]) object.userData.layer = layer;
       this.planes.add(disc, ring, graduations, label);
     }
