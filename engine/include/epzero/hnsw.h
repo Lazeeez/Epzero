@@ -110,8 +110,9 @@ struct SearchOptions {
   // searches on, up to `ef`, which then only caps the beam. Unfiltered searches only.
   std::size_t patience = 0;
   // SQ8 with kept vectors: how many of the best approximate candidates to re-score exactly
-  // (0 = 3 x k: on SIFT1M, GloVe-100 and GIST1M, re-scoring all ef of them gave the same recall to
-  // within 0.0002, at up to ef full-vector reads per query). Ignored otherwise.
+  // (0 = 2 x k: on SIFT1M, GloVe-100, GIST1M and OpenAI embeddings it gave the same recall as 3 x k
+  // and as re-scoring all ef of them, to within 0.0003, and 3-13% more queries per second than 3 x k
+  // where full vectors are large). Ignored otherwise.
   std::size_t rerank = 0;
   SearchStats* stats = nullptr;     // optional
   SearchTrace* trace = nullptr;     // optional; costs nothing when null
@@ -332,6 +333,7 @@ class HnswIndex {
   // node touches adjacent cache lines.
   std::size_t links0_offset_;
   std::size_t node_stride_;
+  std::size_t sq8_span_ = 0;  // bytes of codes the integer SQ8 kernels read (dim, rounded up to 64 when it fits)
   struct AlignedFree {
     void operator()(void* p) const noexcept;
   };
