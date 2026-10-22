@@ -1,9 +1,17 @@
 <script lang="ts">
   import { FREE_LOOK_TOGGLE, freeLook, setFreeLook } from "../lib/free-look.svelte";
-  import { untrack } from "svelte";
-  import { router } from "../lib/router.svelte";
+  import { tick, untrack } from "svelte";
+  import { router, type Route } from "../lib/router.svelte";
   import { isDark, toggleTheme } from "../lib/theme";
   import Logo from "./Logo.svelte";
+
+  const PAGES: [Route, string][] = [
+    ["try", "Try it"],
+    ["play", "Play"],
+    ["cluster", "Cluster"],
+    ["benchmarks", "Benchmarks"],
+    ["blog", "Blog"],
+  ];
 
   let scrolled = $state(false);
   let dark = $state(isDark());
@@ -36,20 +44,50 @@
     toggleTheme();
     dark = isDark();
   }
+
+  // Phones: the pages live in a menu behind the top-right button.
+  let menuOpen = $state(false);
+  let menuButton: HTMLButtonElement | undefined = $state();
+  let menu: HTMLElement | undefined = $state();
+  async function openMenu() {
+    menuOpen = true;
+    await tick();
+    menu?.querySelector<HTMLElement>("a")?.focus();
+  }
+  function closeMenu(returnFocus = false) {
+    menuOpen = false;
+    if (returnFocus) menuButton?.focus();
+  }
+  // A page change closes it (the link was followed), and so does growing past the phone layout.
+  $effect(() => {
+    void router.route;
+    untrack(() => closeMenu());
+  });
+  $effect(() => {
+    if (!menuOpen) return;
+    const wide = matchMedia("(min-width: 721px)");
+    const onKey = (event: KeyboardEvent) => event.key === "Escape" && closeMenu(true);
+    const onWide = () => wide.matches && closeMenu();
+    addEventListener("keydown", onKey);
+    wide.addEventListener("change", onWide);
+    return () => {
+      removeEventListener("keydown", onKey);
+      wide.removeEventListener("change", onWide);
+    };
+  });
 </script>
 
-<header class="nav" class:scrolled class:overlay={router.route === "try"}>
+<header class="nav" class:scrolled class:overlay={router.route === "try"} class:open={menuOpen}>
   <div class="inner">
     <a class="brand" href={router.href("home")} aria-label="Epzero, home">
       <Logo size={24} />
       <span>Epzero</span>
     </a>
-    <nav aria-label="Main" bind:this={links}>
+    <nav class="tabs" aria-label="Main" bind:this={links}>
       <span class="pill" class:on={pill.on} style:transform="translateX({pill.x}px)" style:width="{pill.w}px" aria-hidden="true"></span>
-      <a href={router.href("try")} class="link" aria-current={router.route === "try" ? "page" : undefined}>Try it</a>
-      <a href={router.href("play")} class="link" aria-current={router.route === "play" ? "page" : undefined}>Play</a>
-      <a href={router.href("cluster")} class="link" aria-current={router.route === "cluster" ? "page" : undefined}>Cluster</a>
-      <a href={router.href("benchmarks")} class="link" aria-current={router.route === "benchmarks" ? "page" : undefined}>Benchmarks</a>
+      {#each PAGES as [route, label] (route)}
+        <a href={router.href(route)} class="link" aria-current={router.route === route ? "page" : undefined}>{label}</a>
+      {/each}
     </nav>
     <div class="right">
       {#if router.route === "try" && freeLook.on}
@@ -76,9 +114,40 @@
       {#if router.route !== "try"}
         <a class="cta" href={router.href("try")}>Try it <span aria-hidden="true">→</span></a>
       {/if}
+      <button
+        class="icon menu-button"
+        type="button"
+        bind:this={menuButton}
+        onclick={() => (menuOpen ? closeMenu() : openMenu())}
+        aria-label={menuOpen ? "Close the menu" : "Open the menu"}
+        aria-expanded={menuOpen}
+        aria-controls="site-menu"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path class="bar top" d="M4 7h16" />
+          <path class="bar middle" d="M4 12h16" />
+          <path class="bar bottom" d="M4 17h16" />
+        </svg>
+      </button>
     </div>
   </div>
 </header>
+
+{#if menuOpen}
+  <!-- A tap anywhere outside the menu closes it. -->
+  <button class="scrim" type="button" tabindex="-1" aria-hidden="true" onclick={() => closeMenu()}></button>
+  <nav id="site-menu" class="menu card" aria-label="Menu" bind:this={menu}>
+    {#each PAGES as [route, label] (route)}
+      <a href={router.href(route)} aria-current={router.route === route ? "page" : undefined}>
+        {label}
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+      </a>
+    {/each}
+    {#if router.route !== "try"}
+      <a class="menu-cta" href={router.href("try")}>Search photos in your browser <span aria-hidden="true">→</span></a>
+    {/if}
+  </nav>
+{/if}
 
 <style>
   .nav {
@@ -91,7 +160,8 @@
     border-bottom: 1px solid transparent;
   }
   .nav.scrolled,
-  .nav.overlay {
+  .nav.overlay,
+  .nav.open {
     background: var(--glass);
     border-bottom-color: var(--border);
     backdrop-filter: blur(16px) saturate(1.4);
@@ -116,7 +186,7 @@
     font-size: 17px;
     letter-spacing: -0.02em;
   }
-  nav {
+  .tabs {
     position: relative;
     display: flex;
     gap: 4px;
@@ -242,21 +312,125 @@
   .cta:hover {
     transform: translateY(-1px);
   }
-  @media (max-width: 720px) {
-    nav {
-      margin-left: 0;
+
+  /* The menu button and its menu exist on phones only. */
+  .menu-button {
+    display: none;
+  }
+  .menu-button .bar {
+    transform-box: fill-box;
+    transform-origin: center;
+    transition:
+      transform 0.3s var(--ease),
+      opacity 0.2s;
+  }
+  .open .menu-button .top {
+    transform: translateY(5px) rotate(45deg);
+  }
+  .open .menu-button .middle {
+    opacity: 0;
+  }
+  .open .menu-button .bottom {
+    transform: translateY(-5px) rotate(-45deg);
+  }
+  .open .menu-button {
+    border-color: var(--border-strong);
+    color: var(--text);
+  }
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 48;
+    border: 0;
+    background: rgba(0, 0, 0, 0.35);
+    animation: fade 0.2s var(--ease);
+  }
+  .menu {
+    position: fixed;
+    z-index: 49;
+    top: calc(var(--nav-h) + 8px);
+    right: max(12px, env(safe-area-inset-right, 0px));
+    width: min(300px, calc(100% - 24px));
+    display: grid;
+    gap: 2px;
+    padding: 8px;
+    background: var(--surface-solid);
+    transform-origin: top right;
+    animation: drop 0.25s var(--ease);
+  }
+  .menu a {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 48px; /* a comfortable tap target */
+    padding: 0 14px;
+    border-radius: 10px;
+    color: var(--text-2);
+    font-size: 16px;
+    font-weight: 500;
+  }
+  .menu a:hover,
+  .menu a:focus-visible {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+  .menu a[aria-current="page"] {
+    background: var(--surface-3);
+    color: var(--text);
+  }
+  .menu svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: var(--muted);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .menu a[aria-current="page"] svg {
+    stroke: var(--accent-strong);
+  }
+  .menu .menu-cta {
+    justify-content: center;
+    gap: 6px;
+    margin-top: 6px;
+    background: var(--text);
+    color: var(--page);
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .menu .menu-cta:hover,
+  .menu .menu-cta:focus-visible {
+    background: var(--text);
+    color: var(--page);
+  }
+  @keyframes drop {
+    from {
+      opacity: 0;
+      transform: translateY(-6px) scale(0.97);
     }
+  }
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .tabs,
     .cta {
       display: none;
+    }
+    .menu-button {
+      display: grid;
     }
     .inner,
     .overlay .inner {
       width: calc(100% - 32px);
       gap: 12px;
     }
-  }
-  /* Narrow bars: the free-look toggle is just its icon. */
-  @media (max-width: 720px) {
+    /* Narrow bars: the free-look toggle is just its icon, and while it's on it takes the theme
+       toggle's place. */
     .look {
       width: 36px;
       padding: 0;
@@ -265,39 +439,14 @@
     .look span {
       display: none;
     }
-  }
-  /* Phones have no room for one more button: free look starts from the panel's own Hide button,
-     and while it's on, the way back takes the theme toggle's place. */
-  @media (max-width: 520px) {
-    .look:not(.on),
     .look.on + .icon {
       display: none;
     }
   }
-  /* Four links, the logo and the theme toggle share a phone's width: the links tighten and the
-     logo drops its name. */
-  @media (max-width: 520px) {
-    nav {
-      gap: 0;
-    }
-    .link {
-      padding: 7px 8px;
-      font-size: 13.5px;
-    }
-  }
-  @media (max-width: 400px) {
-    .brand span {
-      display: none;
-    }
-  }
-  @media (max-width: 359px) {
-    .link {
-      padding: 7px 5px;
-      font-size: 13px;
-    }
-    .inner,
-    .overlay .inner {
-      gap: 6px;
+  @media (prefers-reduced-motion: reduce) {
+    .menu,
+    .scrim {
+      animation: none;
     }
   }
 </style>
