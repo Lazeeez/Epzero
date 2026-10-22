@@ -30,6 +30,12 @@
     if (router.route === "play") engine.start(); // the game needs the index, not the 3D scene
   });
 
+  // The landing hero and the game are built around the demo photos: they switch back to it (the
+  // playground returns to the visitor's own photos when it's opened again).
+  $effect(() => {
+    if ((router.route === "home" || router.route === "play") && engine.source === "mine") void engine.useDemo();
+  });
+
   // Once the index is ready, warm the CLIP models in the background (not on the benchmarks page,
   // which doesn't use them): the first text or photo search then answers without a download.
   let warmed = false;
