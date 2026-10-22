@@ -437,12 +437,12 @@ namespace {
 
 // Integer SQ8 where a SIMD integer kernel exists. EPZERO_SQ8_KERNEL=float keeps the float kernel
 // (to compare the two on the same build).
-Sq8IntDotFn choose_sq8_int_dot(SimdLevel level) noexcept {
+Sq8IntDotFn choose_sq8_int_dot(SimdLevel level, std::size_t dim) noexcept {
   if (level != SimdLevel::AVX2 && level != SimdLevel::AVX512) return nullptr;
   if (const char* forced = std::getenv("EPZERO_SQ8_KERNEL"); forced != nullptr && std::string_view(forced) == "float") {
     return nullptr;
   }
-  return get_sq8_int_dot_fn(level);
+  return get_sq8_int_dot_fn(level, dim);
 }
 
 }  // namespace
@@ -452,7 +452,7 @@ HnswIndex::HnswIndex(const HnswParams& params)
       simd_level_(active_simd_level()),
       dist_(get_distance_fn(params.metric, simd_level_)),
       sq8_dot_(get_sq8_dot_fn(simd_level_)),
-      sq8_int_dot_(choose_sq8_int_dot(simd_level_)),
+      sq8_int_dot_(choose_sq8_int_dot(simd_level_, params.dim)),
       rabitq_ip_(get_rabitq_ip_fn(simd_level_)),
       max_links0_(2 * params.M),
       level_mult_(params.M > 1 ? 1.0 / std::log(static_cast<double>(params.M)) : 1.0),
