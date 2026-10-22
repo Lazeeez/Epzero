@@ -333,7 +333,6 @@ class HnswIndex {
   // node touches adjacent cache lines.
   std::size_t links0_offset_;
   std::size_t node_stride_;
-  std::size_t sq8_span_ = 0;  // bytes of codes the integer SQ8 kernels read (dim, rounded up to 64 when it fits)
   struct AlignedFree {
     void operator()(void* p) const noexcept;
   };
