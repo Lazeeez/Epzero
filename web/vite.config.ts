@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
+import { loadArticle, type Article } from "./scripts/article";
 import { PAGES, SITE, type Page } from "./src/lib/pages";
 import { defineConfig, type Plugin } from "vite";
 
@@ -19,11 +20,11 @@ const isolation = {
 // engines index every page on its own, without running the app), plus a no-JavaScript fallback
 // with its heading and links to the others; the 404 page asks not to be indexed. The sitemap is
 // written from the same list (src/lib/pages.ts).
-const ROUTES = ["try", "play", "cluster", "benchmarks"] as const;
+const ROUTES = ["try", "play", "cluster", "benchmarks", "blog"] as const;
 const escapeHtml = (text: string) =>
   text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-function pageHtml(html: string, page: Page, indexed: boolean): string {
+function pageHtml(html: string, page: Page, indexed: boolean, article?: Article): string {
   const url = SITE + page.path;
   const title = escapeHtml(page.title);
   const description = escapeHtml(page.description);
@@ -37,8 +38,11 @@ function pageHtml(html: string, page: Page, indexed: boolean): string {
       /<link rel="canonical" href="[^"]*" \/>/,
       indexed ? `<link rel="canonical" href="${url}" />` : `<meta name="robots" content="noindex" />`,
     ],
-    [/<noscript>[\s\S]*?<\/noscript>/, `<noscript>${fallback(page)}</noscript>`],
+    [/<noscript>[\s\S]*?<\/noscript>/, `<noscript>${fallback(page, article)}</noscript>`],
   ];
+  // The article page: its text for crawlers that don't run the app, and its structured data.
+  if (article) swaps.push([/<\/head>/, `${articleData(page, article)}
+  </head>`]);
   for (const [pattern, replacement] of swaps) {
     if (!pattern.test(html)) throw new Error(`index.html: ${pattern} not found`);
     html = html.replace(pattern, () => replacement);
@@ -47,15 +51,51 @@ function pageHtml(html: string, page: Page, indexed: boolean): string {
 }
 
 // What a visitor (or crawler) without JavaScript gets: the page's heading and summary, and links.
-function fallback(page: Page): string {
+function fallback(page: Page, article?: Article): string {
   const links = (["home", ...ROUTES] as const)
     .map((name) => `<a href="/${PAGES[name].path}">${escapeHtml(name === "home" ? "Home" : PAGES[name].title.split(" · ")[0])}</a>`)
     .join(" · ");
   return (
     `<main style="max-width:720px;margin:96px auto;padding:0 24px;font:16px/1.6 system-ui,sans-serif;color:#d7dae0">` +
-    `<h1>${escapeHtml(page.heading)}</h1><p>${escapeHtml(page.description)}</p>` +
-    `<p>The live demo runs a C++ search engine in your browser, so it needs JavaScript.</p><nav>${links}</nav></main>`
+    `<h1>${escapeHtml(page.heading)}</h1>` +
+    (article
+      ? `<p><em>${escapeHtml(article.subtitle)}</em></p>${article.html}`
+      : `<p>${escapeHtml(page.description)}</p><p>The live demo runs a C++ search engine in your browser, so it needs JavaScript.</p>`) +
+    `<nav>${links}</nav></main>`
   );
+}
+
+// Structured data for the article (schema.org BlogPosting), beside the site-wide block.
+function articleData(page: Page, article: Article): string {
+  const data = {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    headline: article.title,
+    description: page.description,
+    url: SITE + page.path,
+    mainEntityOfPage: SITE + page.path,
+    image: `${SITE}og.jpg`,
+    wordCount: article.words,
+    inLanguage: "en",
+    author: { "@type": "Person", name: "Lajat", url: SITE },
+    publisher: { "@type": "Person", name: "Lajat", url: SITE },
+    about: ["Vector database", "HNSW", "Approximate nearest neighbor search", "Performance engineering"],
+  };
+  return `<script type="application/ld+json">${JSON.stringify(data)}</script>`;
+}
+
+// The article as a module for the app ("virtual:article"), converted from Markdown at build time.
+function articleModule(): Plugin {
+  const id = "virtual:article";
+  return {
+    name: "epzero-article",
+    resolveId: (source) => (source === id ? "\0" + id : null),
+    async load(resolved) {
+      if (resolved !== "\0" + id) return null;
+      const { title, subtitle, html, words } = await loadArticle();
+      return `export default ${JSON.stringify({ title, subtitle, html, words })};`;
+    },
+  };
 }
 
 function staticRoutes(): Plugin {
@@ -70,9 +110,10 @@ function staticRoutes(): Plugin {
       const index = join(outDir, "index.html");
       const html = await readFile(index, "utf8");
       await writeFile(index, pageHtml(html, PAGES.home, true));
+      const article = await loadArticle();
       for (const route of ROUTES) {
         await mkdir(join(outDir, route), { recursive: true });
-        await writeFile(join(outDir, route, "index.html"), pageHtml(html, PAGES[route], true));
+        await writeFile(join(outDir, route, "index.html"), pageHtml(html, PAGES[route], true, route === "blog" ? article : undefined));
       }
       await writeFile(join(outDir, "404.html"), pageHtml(html, PAGES.notfound, false));
       const today = new Date().toISOString().slice(0, 10);
@@ -157,7 +198,7 @@ function serviceWorker(): Plugin {
 export default defineConfig({
   // The site lives at the root of epzero.dev; EPZERO_BASE serves it under a path instead.
   base: process.env.EPZERO_BASE ?? "/",
-  plugins: [svelte(), inlineBoot(), dropBundledOrt(), staticRoutes(), serviceWorker()],
+  plugins: [svelte(), articleModule(), inlineBoot(), dropBundledOrt(), staticRoutes(), serviceWorker()],
   // The benchmark pages import their numbers straight from bench/results at the repo root.
   server: { headers: isolation, fs: { allow: [".."] } },
   // EPZERO_NO_ISOLATION serves without the isolation headers, for the service worker's own tests.
