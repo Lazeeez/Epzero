@@ -41,12 +41,13 @@
   // end, where production systems operate, gets most of the width instead of a sliver.
   const miss = $derived.by(() => {
     const worst = Math.max(...all.map((p) => 1 - p.recall), 0.05);
-    const best = Math.min(...all.map((p) => 1 - p.recall), 0.01);
+    // Perfect recall (a miss rate of 0) would sit at minus infinity on a log axis: the axis ends at 1e-4.
+    const best = Math.max(Math.min(...all.map((p) => 1 - p.recall), 0.01), 1e-4);
     return scaleLog()
       .domain([worst * 1.15, best * 0.8])
       .range([m.left, Math.max(m.left + 10, width - m.right)]);
   });
-  const x = (recall: number) => miss(Math.max(1 - recall, 1e-6));
+  const x = (recall: number) => miss(Math.max(1 - recall, miss.domain()[1]));
   const y = $derived.by(() => {
     const values = all.map((p) => p.qps).concat(baseline ? [baseline] : []);
     const lo = Math.min(...values, Infinity);
