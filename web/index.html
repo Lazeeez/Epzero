@@ -4,11 +4,12 @@
     <meta charset="utf-8" />
     <!-- Only this site's own code runs (no injected scripts or eval; WebAssembly allowed). The one
          inline script, the theme bootstrap, is added to script-src by its hash at build time.
-         Photos come from Flickr. A meta tag, so the policy (with the build's script hash) travels with the
+         Photos come from Flickr; Cloudflare Web Analytics (cookie-less, added by the host) loads its
+         script and reports page views. A meta tag, so the policy (with the build's script hash) travels with the
          page on any host; frame-ancestors, which a meta tag can't carry, is a header (public/_headers). -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.staticflickr.com; media-src 'self' blob:; font-src 'self' data:; connect-src 'self' blob: data: https://*.staticflickr.com; object-src 'none'; base-uri 'self'; form-action 'self'"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.staticflickr.com; media-src 'self' blob:; font-src 'self' data:; connect-src 'self' blob: data: https://*.staticflickr.com https://cloudflareinsights.com; object-src 'none'; base-uri 'self'; form-action 'self'"
     />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
