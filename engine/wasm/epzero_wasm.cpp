@@ -51,8 +51,44 @@ class Lab {
     auto data = epzero::make_clustered(n, num_queries, dim, clusters, static_cast<std::uint64_t>(seed));
     base_ = std::move(data.base);
     queries_ = std::move(data.queries);
+    metric_ = epzero::Metric::L2;
     truth_.clear();
     index_.reset();
+    return ms_since(start);
+  }
+
+  // The visitor's own vectors. These return views of n x dim floats inside WebAssembly memory for
+  // the worker to fill: the base first, then the queries (a view dies when the heap grows, and
+  // allocating the queries can grow it). use_metric() then readies them.
+  val base_buffer(std::size_t n, std::size_t dim) {
+    queries_ = {};
+    truth_.clear();
+    index_.reset();
+    base_ = {n, dim, std::vector<float>(n * dim)};
+    return val(emscripten::typed_memory_view(base_.data.size(), base_.data.data()));
+  }
+  val query_buffer(std::size_t n) {
+    require_data();
+    queries_ = {n, base_.dim, std::vector<float>(n * base_.dim)};
+    return val(emscripten::typed_memory_view(queries_.data.size(), queries_.data.data()));
+  }
+  // "l2", "ip" (1 - dot) or "cosine": unit-normalizes every vector once, then scores 1 - dot,
+  // which ranks exactly as cosine distance does.
+  double use_metric(const std::string& metric) {
+    const auto start = Clock::now();
+    truth_.clear();
+    index_.reset();
+    if (metric == "cosine") {
+      for (std::size_t i = 0; i < base_.n; ++i) epzero::normalize(base_.data.data() + i * base_.dim, base_.dim);
+      for (std::size_t i = 0; i < queries_.n; ++i) epzero::normalize(queries_.data.data() + i * queries_.dim, queries_.dim);
+      metric_ = epzero::Metric::InnerProduct;
+    } else if (metric == "ip") {
+      metric_ = epzero::Metric::InnerProduct;
+    } else if (metric == "l2") {
+      metric_ = epzero::Metric::L2;
+    } else {
+      throw std::invalid_argument("metric must be l2, ip or cosine");
+    }
     return ms_since(start);
   }
 
@@ -60,7 +96,7 @@ class Lab {
     require_data();
     const auto start = Clock::now();
     truth_ = epzero::compute_ground_truth(base_.data.data(), base_.n, base_.dim, queries_.data.data(), queries_.n, k,
-                                        epzero::Metric::L2, threads);
+                                        metric_, threads);
     truth_k_ = k;
     return ms_since(start);
   }
@@ -68,7 +104,7 @@ class Lab {
   void begin_build(std::size_t M, std::size_t ef_construction) {
     require_data();
     index_ = std::make_unique<epzero::HnswIndex>(epzero::HnswParams{
-        .dim = base_.dim, .metric = epzero::Metric::L2, .max_elements = base_.n, .M = M,
+        .dim = base_.dim, .metric = metric_, .max_elements = base_.n, .M = M,
         .ef_construction = ef_construction});
     built_ = 0;
     build_ms_ = 0.0;
@@ -100,7 +136,8 @@ class Lab {
       latencies[q] = std::chrono::duration<double, std::micro>(Clock::now() - t0).count();
       distances += stats.distance_computations;
     }
-    const double total_ms = ms_since(start);
+    // A tiny workload can finish inside the browser's coarsened clock tick: never divide by zero.
+    const double total_ms = std::max(ms_since(start), 0.01);
     val out = val::object();
     out.set("ef", ef);
     out.set("recall", truth_.empty() ? -1.0 : epzero::recall_at_k(results, truth_, std::min(k, truth_k_)));
@@ -117,9 +154,9 @@ class Lab {
     const std::size_t n = std::min(max_queries, queries_.n);
     const auto start = Clock::now();
     for (std::size_t q = 0; q < n; ++q) {
-      (void)epzero::brute_force_search(base_.data.data(), base_.n, base_.dim, queries_.row(q), k, epzero::Metric::L2);
+      (void)epzero::brute_force_search(base_.data.data(), base_.n, base_.dim, queries_.row(q), k, metric_);
     }
-    return 1000.0 * static_cast<double>(n) / ms_since(start);
+    return 1000.0 * static_cast<double>(n) / std::max(ms_since(start), 0.01);
   }
 
   // Nanoseconds per L2 distance call for the SIMD128 kernel vs the scalar one.
@@ -175,6 +212,7 @@ class Lab {
 
   epzero::Dataset base_;
   epzero::Dataset queries_;
+  epzero::Metric metric_ = epzero::Metric::L2;
   std::vector<std::vector<std::uint32_t>> truth_;
   std::size_t truth_k_ = 0;
   std::unique_ptr<epzero::HnswIndex> index_;
@@ -639,6 +677,9 @@ EMSCRIPTEN_BINDINGS(epzero) {
   emscripten::class_<Lab>("Lab")
       .constructor<>()
       .function("generate", &Lab::generate)
+      .function("baseBuffer", &Lab::base_buffer)
+      .function("queryBuffer", &Lab::query_buffer)
+      .function("useMetric", &Lab::use_metric)
       .function("computeTruth", &Lab::compute_truth)
       .function("beginBuild", &Lab::begin_build)
       .function("buildStep", &Lab::build_step)
