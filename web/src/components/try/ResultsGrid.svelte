@@ -19,8 +19,10 @@
         {#if query.preview}<img class="query-img" src={query.preview} alt="" />{/if}
         Results for {query.source === "text" ? `“${query.text}”` : query.text}
       {:else}
-        Photos like #{query.id}
-        <a class="source" href={engine.source(query.id)} target="_blank" rel="noopener noreferrer" title="The original photo on Flickr">original ↗</a>
+        Photos like {engine.source === "mine" ? `“${engine.caption(query.id)}”` : `#${query.id}`}
+        {#if engine.original(query.id)}
+          <a class="source" href={engine.original(query.id)} target="_blank" rel="noopener noreferrer" title={engine.source === "mine" ? "Your photo, full size" : "The original photo on Flickr"}>original ↗</a>
+        {/if}
       {/if}
     </h2>
     <span class="hint">Click one to search for similar photos</span>
@@ -31,7 +33,7 @@
         <button
           class="result"
           onclick={() => onpick(id)}
-          aria-label="Result {rank + 1}: {engine.caption(id)}, by {engine.author(id)}. Search for similar photos."
+          aria-label="Result {rank + 1}: {engine.caption(id)}{engine.source === 'mine' ? '' : `, by ${engine.author(id)}`}. Search for similar photos."
         >
           <Thumb {id} size="n" alt={engine.caption(id)} eager={rank < 12} />
           <span class="rank num">{query.kind === "id" && query.id === id ? "query" : `#${rank + 1}`}</span>
@@ -42,7 +44,7 @@
           {#if !exact.has(id) && (!hybrid || hybrid.fromVector[rank])}<span class="approx" title="Not in the exact top-{shown.length}">≈</span>{/if}
           <span class="caption">
             <span>{engine.caption(id)}</span>
-            <span class="by">© {engine.author(id)}</span>
+            {#if engine.source !== "mine"}<span class="by">© {engine.author(id)}</span>{/if}
           </span>
         </button>
       </li>
