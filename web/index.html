@@ -27,7 +27,41 @@
     <meta property="og:image" content="https://epzero.dev/og.jpg" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="en_US" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="author" content="Lajat" />
+    <!-- For search engines: the site, the app it is, and who made it (a data block, not a script). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://epzero.dev/#website",
+            "name": "Epzero",
+            "url": "https://epzero.dev/",
+            "description": "An HNSW vector database built from scratch in C++20, running in the browser as WebAssembly.",
+            "inLanguage": "en",
+            "author": { "@id": "https://epzero.dev/#author" }
+          },
+          { "@type": "Person", "@id": "https://epzero.dev/#author", "name": "Lajat" },
+          {
+            "@type": "WebApplication",
+            "@id": "https://epzero.dev/#app",
+            "name": "Epzero",
+            "url": "https://epzero.dev/",
+            "image": "https://epzero.dev/og.jpg",
+            "description": "Search 29,825 photos by text, photo or webcam with an HNSW vector database compiled to WebAssembly, and watch each search traverse the graph.",
+            "applicationCategory": "DeveloperApplication",
+            "operatingSystem": "Any (runs in a web browser)",
+            "browserRequirements": "Requires JavaScript and WebAssembly SIMD",
+            "isAccessibleForFree": true,
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+            "author": { "@id": "https://epzero.dev/#author" }
+          }
+        ]
+      }
+    </script>
     <link rel="icon" href="%BASE_URL%favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="%BASE_URL%apple-touch-icon.png" />
     <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
