@@ -243,6 +243,27 @@ faster on GloVe-100 and 15-17% on DEEP10M at every recall. The pick is right, an
 cores prefer the opposite of the laptop's; Glass's lead there (1.8× on GloVe-100, 1.47× on
 DEEP10M) has another cause. Raw data: `bench/results/pace/gold6226/*-prefetch.json`.
 
+**AVX-512 on Cascade Lake: the server gap.** Glass's lead on the low-dimensional sets was 1.5-1.8× on
+the server but level on the laptop. Prefetching wasn't it (above), so the next suspect was the
+server's AVX-512: Intel's first AVX-512 cores (Skylake-SP, Cascade Lake) lower their clock while
+heavy 512-bit instructions run, and a graph search is mostly the work around its distances, which
+then runs slower too. The same saved SQ8 index searched with the AVX-512 kernels and then with the
+AVX2 ones (`EPZERO_SIMD=avx2`, [`scripts/pace/simd.sbatch`](../scripts/pace/simd.sbatch); on this CPU
+the AVX2 integer kernel is the slower `maddubs` one, as it has no 256-bit VNNI):
+
+| SQ8, queries per second | AVX-512 | AVX2 | Glass |
+|---|---|---|---|
+| GloVe-100, recall 0.86 | 2,784 | **4,378** (+57%) | 5,213 |
+| GloVe-100, recall 0.90 | 1,586 | **2,502** (+58%) | 2,915 |
+| DEEP10M, recall 0.90 | 7,527 | **12,921** (+72%) | 9,870 |
+| DEEP10M, recall 0.95 | 4,529 | **7,718** (+70%) | 6,493 |
+| DEEP10M, recall 0.98 | 2,239 | **3,700** (+65%) | 3,264 |
+
+With AVX2, Epzero SQ8 is 1.19× Glass on DEEP10M at recall 0.95, and Glass's lead on GloVe-100
+shrinks from 1.84× to 1.17×. Epzero now uses AVX-512 only on cores with VBMI2, which are the ones
+without the clock penalty (Ice Lake and later, AMD Zen 4); elsewhere it picks AVX2.
+`EPZERO_SIMD=avx512` still forces it. Raw data: `bench/results/pace/gold6226/*-simd-*.json`.
+
 ### Thread scaling
 
 Search throughput on the same server node, SIFT1M, ef = 80 (recall 0.974), median of three runs
