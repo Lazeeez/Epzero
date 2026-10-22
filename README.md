@@ -141,7 +141,7 @@ project was called Oryx until October 2026.)
   at runtime; up to 10.9× faster than scalar code.
 - **8-bit quantization** with exact re-ranking: +48% QPS at identical recall.
   Integer distance kernels (one VNNI instruction per 32–64 dimensions) and
-  re-ranking only the best 3 × k made it up to 1.95× faster again on
+  re-ranking only the best few (now 2 × k) made it up to 1.95× faster again on
   960-dimensional GIST1M (laptop; [details](docs/performance.md#what-glass-does-better-and-what-epzero-took-from-it)).
 - **Crash safety proven by fault injection:** the write-ahead log survives a
   torn write at every byte offset, mid-log corruption and random `kill -9`s.
