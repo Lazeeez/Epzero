@@ -76,5 +76,9 @@ for (const theme of ["dark", "light"]) {
     await expect(page.locator(".verdict")).toBeVisible({ timeout: 30_000 });
     await page.waitForTimeout(1200); // the reveal transitions finish
     await scan(page, "cluster");
+
+    await page.goto("blog");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Vector search is a memory problem");
+    await scan(page, "blog");
   });
 }
