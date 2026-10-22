@@ -144,6 +144,27 @@ async function load(message: Extract<ToWorker, { type: "load" }>) {
   if (!prebuilt) build(message.M, message.efConstruction);
 }
 
+// The visitor's own photos: their CLIP vectors, quantized the way the demo set's are (int8 per
+// dimension, scaled by the dimension's largest magnitude), on CLIP's own axes, then a graph built
+// here on every core.
+async function loadOwn(message: Extract<ToWorker, { type: "own" }>) {
+  const { vectors, count: n, dim: d } = message;
+  fullDim = dim = d;
+  count = n;
+  axes = new Float32Array(d * d);
+  for (let i = 0; i < d; i++) axes[i * d + i] = 1;
+  scales = new Float32Array(d);
+  for (let i = 0; i < n; i++) for (let j = 0; j < d; j++) scales[j] = Math.max(scales[j], Math.abs(vectors[i * d + j]));
+  for (let j = 0; j < d; j++) scales[j] ||= 1;
+  codes = new Int8Array(n * d);
+  for (let i = 0; i < n; i++) for (let j = 0; j < d; j++) codes[i * d + j] = Math.round((vectors[i * d + j] / scales[j]) * 127);
+  const module = await engine;
+  collection ??= new module.Collection();
+  collection.load(codes, scales, d);
+  filterIds = null;
+  build(message.M, message.efConstruction);
+}
+
 // Appends the block of dimensions [lo, hi) at `offset` in the file: its scales, its rows of the
 // rotation, and its codes, interleaved into the row-major codes of the dimensions so far.
 function addBlock(file: Uint8Array, offset: number, lo: number, hi: number) {
@@ -288,6 +309,8 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
   try {
     if (message.type === "load") {
       await load(message);
+    } else if (message.type === "own") {
+      await loadOwn(message);
     } else if (message.type === "rebuild") {
       if (!collection) throw new Error("the index is not built yet");
       if (dim < fullDim) throw new Error("the full vectors are still loading");
