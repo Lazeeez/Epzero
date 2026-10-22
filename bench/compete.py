@@ -104,6 +104,18 @@ class EpzeroSq8(Epzero):
     quantization = "sq8"
 
 
+class EpzeroSq8Default(EpzeroSq8):
+    """The same index with the default prefetching (every neighbour's first line up front) instead
+    of tune_prefetch's pick: tells whether the tuner's choice helps at the measured beam widths.
+    Not in the default comparison (scripts/pace/prefetch.sbatch runs it)."""
+
+    name = "epzero-sq8-default"
+    cache_name = "epzero-sq8"
+
+    def _tune(self, base):
+        print(f"{self.name:12s} prefetch {self.index.prefetch} (default, not tuned)")
+
+
 class Hnswlib(Library):
     name = "hnswlib"
 
@@ -276,7 +288,8 @@ class Glass(Library):
         return np.asarray(ids).reshape(len(q), k)
 
 
-LIBRARIES = {cls.name: cls for cls in (Epzero, EpzeroSq8, Hnswlib, FaissHnsw, FaissIvfPq, USearch, Vsag, Glass)}
+COMPARED = (Epzero, EpzeroSq8, Hnswlib, FaissHnsw, FaissIvfPq, USearch, Vsag, Glass)
+LIBRARIES = {cls.name: cls for cls in (*COMPARED, EpzeroSq8Default)}
 
 
 def main():
@@ -284,7 +297,7 @@ def main():
     parser.add_argument("--data", required=True, help="an ann-benchmarks .hdf5 file")
     parser.add_argument("--out", required=True)
     parser.add_argument("--cache", help="directory for built indexes")
-    parser.add_argument("--libs", default=",".join(LIBRARIES))
+    parser.add_argument("--libs", default=",".join(cls.name for cls in COMPARED))
     parser.add_argument("--rebuild", default="", help="comma-separated libraries to rebuild even if cached")
     parser.add_argument("--M", type=int, default=16)
     parser.add_argument("--efc", type=int, default=200)
@@ -308,7 +321,8 @@ def main():
             skipped[name] = f"{type(error).__name__}: {error}"
             print(f"{name:12s} skipped: {skipped[name]}")
             continue
-        path = os.path.join(args.cache, f"{dataset}-{name}-M{args.M}-efc{args.efc}.idx") if args.cache else None
+        cache_name = getattr(lib, "cache_name", name)  # variants share their library's saved index
+        path = os.path.join(args.cache, f"{dataset}-{cache_name}-M{args.M}-efc{args.efc}.idx") if args.cache else None
         cached = path is not None and os.path.exists(path + ".json") and name not in rebuild
         if cached and lib.saves and os.path.exists(path):
             lib.load(path, base)
