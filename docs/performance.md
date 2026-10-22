@@ -190,6 +190,16 @@ the same saved index for every variant, interleaved runs, median of three:
 | Integer kernel | 1,107 (+67%) | — | — |
 | **Both** | **1,291 (1.95×)** | **5,356 (+20%)** | **28,224 (+26%)** |
 
+**Outlier dimensions.** The first server run of the integer kernel on the DBpedia OpenAI embeddings
+capped Epzero SQ8's recall at 0.93 (against 0.996 before), at every beam width. The weights are
+rounded on one scale, set by the largest; OpenAI's embeddings have a few dimensions with outsized
+values, so a query's largest weight was about 300× its median one and nearly every other weight
+rounded to 0 or ±1 (a 15% error in the dot product). The fix keeps each query's largest weights
+(up to 8, one dimension in twelve on small vectors) exact, in float, and rounds only the rest: the
+error drops to 0.3% on those embeddings, and on 38,000 of them the integer kernel's recall matches
+the float kernel's within 0.003 at every beam width. It also lowers the error on SIFT1M, GloVe and
+GIST, whose largest weight was 2-4% off before.
+
 The gain grows with the dimension: at 960 dimensions the arithmetic per node is large enough that
 the instruction count matters, which is exactly where Glass's lead was. Prefetch tuning found
 +17% at full precision on GloVe-100 (8 neighbours ahead, 4 lines each) and about 6% on SIFT1M,
@@ -213,9 +223,14 @@ Search throughput on the same server node, SIFT1M, ef = 80 (recall 0.974), media
 Lock-free reads scale nearly linearly within a socket; the loss there comes from sharing the L3
 cache and memory bandwidth. Spreading the same 12 threads over both sockets costs 19%, because
 about half of the memory reads then cross to the other socket. The index is small enough (765 MB)
-to keep one copy per socket and route each socket's queries to its own copy; if each socket
-matched its 12-thread result, the node would serve about 119k QPS instead of 84k. That is an
-estimate, not yet measured.
+to keep one copy per socket and route each socket's queries to its own copy, so that was measured
+too ([`scripts/pace/sockets.sbatch`](../scripts/pace/sockets.sbatch)): two processes, each with its
+own copy in its own socket's memory and 12 threads, at the same time. The node then serves
+**109,186 QPS at `ef` 80, against 83,746 with one shared copy (+30%)**, at identical recall
+(0.974), with the three runs within 0.05% of each other. Each socket gives about 54,600, a little
+under the 59,636 one socket manages alone, so the estimate of 119k (twice that) was a little high:
+the two sockets still share some of the node, such as power and the inter-socket link.
+At `ef` 200 the node serves 49,426 QPS.
 
 ## 8-bit scalar quantization (SQ8)
 
