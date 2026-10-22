@@ -260,9 +260,18 @@ the AVX2 integer kernel is the slower `maddubs` one, as it has no 256-bit VNNI):
 | DEEP10M, recall 0.98 | 2,239 | **3,700** (+65%) | 3,264 |
 
 With AVX2, Epzero SQ8 is 1.19× Glass on DEEP10M at recall 0.95, and Glass's lead on GloVe-100
-shrinks from 1.84× to 1.17×. Epzero now uses AVX-512 only on cores with VBMI2, which are the ones
-without the clock penalty (Ice Lake and later, AMD Zen 4); elsewhere it picks AVX2.
-`EPZERO_SIMD=avx512` still forces it. Raw data: `bench/results/pace/gold6226/*-simd-*.json`.
+shrinks from 1.84× to 1.17×. Raw data: `bench/results/pace/gold6226/*-simd-*.json`.
+
+The whole comparison was then re-run with AVX2 everywhere, and it showed the cause is narrower
+than throttling ([`*-allavx2.json`](../bench/results/pace/gold6226/)). SQ8 gained only where
+vectors are short and not a multiple of 64 dimensions (DEEP10M +73%, GloVe-100 +61%), was within
+3% on GIST1M and DBpedia (960 and 1,536), and full-precision search lost ground on AVX2 (SIFT1M
+-10%: AVX-512 is the faster float kernel there). The slow piece is the AVX-512 integer SQ8 kernel
+on short vectors; its masked load for the last, partial block of 64 dimensions is the likeliest
+reason, which the laptop (no AVX-512) can't confirm. So on these first AVX-512 cores (those without
+VBMI2: Skylake-SP and Cascade Lake), Epzero keeps AVX-512 for everything but uses the AVX2 integer
+kernel for SQ8; on Ice Lake and later, and Zen 4, it uses the AVX-512 kernel throughout.
+`EPZERO_SQ8_KERNEL=avx512` forces it for A/B runs.
 
 ### Thread scaling
 
