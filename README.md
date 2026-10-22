@@ -9,7 +9,8 @@ tuning. On SIFT1M, on a dedicated server where every library gets huge pages,
 it serves **1.13× the queries per second of hnswlib and 1.17× FAISS at the same
 recall**, builds the graph fastest, and scales to 10× on a 12-core socket.
 Against five other libraries on four more datasets (up to 10M vectors and 1,536
-dimensions), its 8-bit mode is second only to Glass on every one
+dimensions), its 8-bit mode is level with Glass, the fastest, on 960-dimensional
+GIST1M, and second to it on OpenAI embeddings
 ([results](docs/performance.md#against-the-field-four-more-datasets)).
 
 **It also makes recall visible and keeps it on target.** Every approximate
@@ -210,8 +211,10 @@ and its memory. Runs agree within 0.5%. Job scripts: [`scripts/pace/`](scripts/p
 - **Against other libraries:** 1.12–1.14× hnswlib's and 1.16–1.24× FAISS's QPS
   at equal recall, from recall 0.80 to 0.995 (chart below).
 - **Against the field:** on GIST1M, GloVe-100, DBpedia OpenAI embeddings and
-  DEEP10M, Epzero SQ8 is second of eight on every dataset, behind Glass
-  (1.5–2.1× faster) and ahead of VSAG, FAISS, hnswlib and USearch
+  DEEP10M, Epzero is ahead of VSAG, FAISS, hnswlib and USearch on every one.
+  Glass is the fastest library, but on GIST1M Epzero SQ8 is level with it
+  (719 vs 705 QPS at recall 0.95); Glass leads by 1.28× on DBpedia and
+  1.7–2.2× on DEEP10M and GloVe
   ([table](docs/performance.md#against-the-field-four-more-datasets)).
 - **Build:** 1M vectors in 22.7 s on 24 threads. The index takes 765 MiB.
 - **Threads:** 59,636 QPS on 12 threads of one socket (10.0×) and 83,746 on all
@@ -537,7 +540,8 @@ dedicated-server runs are in [`scripts/pace/`](scripts/pace/).
 13. ✅ Competitive benchmarks on GIST1M, GloVe-100, OpenAI text embeddings and DEEP10M against Glass, VSAG, USearch, hnswlib and tuned FAISS (`bench/compete.py`)
 14. ✅ Per-query search effort and the per-query recall guard; integer SQ8 kernels; hybrid keyword + vector search
 15. ✅ Per-query guard and one index copy per socket measured on the server
-16. The comparison re-run with the faster SQ8 (PACE jobs ready); an ann-benchmarks submission (`ann-benchmarks/`)
+16. ✅ The comparison re-run with the integer SQ8 kernel: level with Glass on GIST1M, +34% on DBpedia
+17. DEEP10M and GloVe re-measured with the outlier split gated per query; an ann-benchmarks submission (`ann-benchmarks/`)
 
 ## License
 
