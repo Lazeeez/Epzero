@@ -1,5 +1,6 @@
 <script lang="ts">
   import { engine } from "../../lib/engine/engine.svelte";
+  import { setFreeLook, VIEW_RESET } from "../../lib/free-look.svelte";
   import { sceneController } from "../../lib/scene/scene.svelte";
   import Shortcuts from "./Shortcuts.svelte";
 
@@ -92,7 +93,15 @@
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 4 8 4-8 4-8-4zM4 12l8 4 8-4M4 16l8 4 8-4" /></svg>
     <span class="num">{sceneController.layerFocus < 0 ? "all" : `L${sceneController.layerFocus}`}</span>
   </button>
-  <button onclick={() => sceneController.scene?.overview()} aria-label="Reset the view" title="Reset the view (0)">
+  <button
+    id={VIEW_RESET}
+    onclick={() => {
+      sceneController.scene?.overview();
+      setFreeLook(true);
+    }}
+    aria-label="Reset the view and hide the panels"
+    title="Reset the view and hide the panels for a free look (H or Esc brings them back)"
+  >
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
   </button>
   <button class="help" onclick={() => (shortcutsOpen = true)} aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">?</button>
