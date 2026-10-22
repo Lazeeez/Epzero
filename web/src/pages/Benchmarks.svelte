@@ -354,8 +354,8 @@
       <p class="eyebrow">Run it yourself</p>
       <h2 id="lab-title" class="block-title">Benchmark Epzero on your device.</h2>
       <p class="caption lead">
-        The same C++ engine, compiled to WebAssembly with threads and SIMD, generates a clustered dataset, computes exact ground truth,
-        builds the graph on every core and sweeps <code>ef</code>. Nothing leaves your browser.
+        The same C++ engine, compiled to WebAssembly with threads and SIMD, takes a clustered dataset it generates or a file of your own
+        embeddings, computes exact ground truth, builds the graph on every core and sweeps <code>ef</code>. Nothing leaves your browser.
       </p>
     </div>
     <Lab />
