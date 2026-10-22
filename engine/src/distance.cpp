@@ -51,12 +51,9 @@ bool simd_level_supported(SimdLevel level) noexcept {
 
 namespace {
 
-// AVX-512 only where it doesn't slow the core down. Intel's first AVX-512 cores (Skylake-SP, Cascade
-// Lake) lower their clock while heavy 512-bit instructions run, and a graph search is mostly the
-// work around its distances, which then runs slower too: on a Xeon Gold 6226, Epzero's AVX2 kernels
-// searched 57-72% faster than its AVX-512 ones (GloVe-100 and DEEP10M, SQ8; scripts/pace/simd.sbatch).
-// Ice Lake and later, and AMD Zen 4, have no such penalty; they are also the cores with VBMI2, which
-// the older ones lack. EPZERO_SIMD=avx512 still forces it anywhere it is supported.
+// Intel's first AVX-512 cores (Skylake-SP, Cascade Lake), as against Ice Lake and later and AMD Zen 4:
+// the newer ones are also the ones with VBMI2. On the older ones the AVX-512 integer SQ8 kernel is
+// slow on short vectors (see get_sq8_int_dot_fn).
 bool avx512_runs_at_full_clock() noexcept {
 #if defined(__x86_64__) || defined(_M_X64)
   return __builtin_cpu_supports("avx512vbmi2");
@@ -74,7 +71,6 @@ SimdLevel detect_simd_level() noexcept {
     }
   }
   for (SimdLevel level : {SimdLevel::AVX512, SimdLevel::AVX2, SimdLevel::NEON, SimdLevel::WasmSimd128}) {
-    if (level == SimdLevel::AVX512 && !avx512_runs_at_full_clock()) continue;
     if (simd_level_supported(level)) return level;
   }
   return SimdLevel::Scalar;
@@ -169,7 +165,17 @@ Sq8IntDotFn get_sq8_int_dot_fn(SimdLevel level) noexcept {
 #if defined(__x86_64__) || defined(_M_X64)
     case SimdLevel::AVX512:
 #if defined(EPZERO_HAVE_AVX512VNNI)
-      if (cpu_has_avx512_vnni()) return kernels::sq8_int_dot_avx512vnni;
+      // Not on the first AVX-512 Xeons: on a Gold 6226 (Cascade Lake), SQ8 search with the AVX2
+      // integer kernel was 61% faster on GloVe-100 and 73% on DEEP10M (100 and 96 dimensions), and
+      // within 3% on GIST1M and DBpedia (960 and 1,536), while float search stayed fastest with
+      // AVX-512 (SIFT1M: -10% on AVX2). So these cores keep AVX-512 for everything else.
+      // EPZERO_SQ8_KERNEL=avx512 forces it (for A/B runs).
+      if (cpu_has_avx512_vnni()) {
+        const char* forced = std::getenv("EPZERO_SQ8_KERNEL");
+        if (avx512_runs_at_full_clock() || (forced != nullptr && std::string_view(forced) == "avx512")) {
+          return kernels::sq8_int_dot_avx512vnni;
+        }
+      }
 #endif
       [[fallthrough]];
     case SimdLevel::AVX2:
