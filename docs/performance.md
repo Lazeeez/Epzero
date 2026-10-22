@@ -276,10 +276,25 @@ beam (Glass prefetches lists on insert): within noise on SIFT1M and GloVe-100. R
 pruning (DiskANN's alpha, 1.2, at the same 32 links per node): 9-26% slower on SIFT1M and 35-39% on
 GloVe-100 at equal recall, needing 10-46% more distance computations: with the degree fixed, longer
 links displace short ones and local navigation suffers (DiskANN pairs alpha with far larger lists).
-Kept: the integer SQ8 kernels now score whole 64-byte blocks (zero weights past the last dimension,
-the bytes past the codes being the node's own neighbour list), with no masked or scalar tail:
-+1-2% on GloVe-100 on the laptop; the AVX-512 kernel on the server is measured by
-[`scripts/pace/variants.sbatch`](../scripts/pace/variants.sbatch).
+Scoring SQ8 in whole 64-byte blocks (zero weights past the last dimension, so no kernel runs a
+masked or scalar tail) was +1-2% on the laptop and **-34% on GloVe-100 and -38% on DEEP10M** on the
+server: a 96-dimension node's codes sit in bytes 4-99 of its record, two cache lines, and reading
+128 of them touched a third on every distance, a miss on these memory-bound sets. Reverted. On
+GIST1M and DBpedia (multiples of 64, nothing padded) the AVX-512 integer kernel was 3-5% faster
+than the AVX2 one, so its trouble on short vectors is the masked tail; a tail that stays inside the
+record's existing cache lines is the way to use it there.
+
+Server results from the same run ([`scripts/pace/variants.sbatch`](../scripts/pace/variants.sbatch),
+`bench/results/pace/gold6226/*-variants.json`): per-query effort (`patience` = `ef` / 3) is +5-10%
+on GloVe-100 and DBpedia at recall 0.86-0.95, and within ±3% on DEEP10M and GIST1M; re-ranking
+2 × k instead of 3 × k, +3% on DBpedia.
+
+**The search-loop changes on the server.** [`scripts/pace/ab.sbatch`](../scripts/pace/ab.sbatch)
+builds the engine at several commits and searches the saved SIFT1M index with each, interleaved,
+pinned to one socket. Full precision, `ef` 40-200, identical recall: the visited bitset alone
+-2%, with the sorted beam and the descent prefetch +2-4% over the code before them
+(`bench/results/pace/gold6226/ab-sift1m.txt`). So the 4% the library comparison lost on SIFT1M
+since its earlier run came from elsewhere.
 
 ### Thread scaling
 
