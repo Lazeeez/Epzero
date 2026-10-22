@@ -6,11 +6,11 @@ A vector database built from scratch in C++20. It implements HNSW
 (Hierarchical Navigable Small World) approximate nearest-neighbor search, with
 hand-written SIMD kernels, lock-free concurrent search and memory-system
 tuning. On SIFT1M, on a dedicated server where every library gets huge pages,
-it serves **1.13× the queries per second of hnswlib and 1.17× FAISS at the same
+it serves **1.08× the queries per second of hnswlib and 1.12× FAISS at the same
 recall**, builds the graph fastest, and scales to 10× on a 12-core socket.
 Against five other libraries on four more datasets (up to 10M vectors and 1,536
-dimensions), its 8-bit mode is level with Glass, the fastest, on 960-dimensional
-GIST1M, and second to it on OpenAI embeddings
+dimensions), its 8-bit mode is the fastest on GIST1M and DEEP10M, ahead of Glass,
+and second to Glass on GloVe and OpenAI embeddings
 ([results](docs/performance.md#against-the-field-four-more-datasets)).
 
 **It also makes recall visible and keeps it on target.** Every approximate
@@ -129,9 +129,9 @@ project was called Oryx until October 2026.)
 - **Hardened against malformed files:** libFuzzer runs on every parser of
   untrusted bytes in CI; it found four crash bugs in the index loaders, all
   fixed and kept as regression cases.
-- **Faster than the reference libraries** on SIFT1M, at every recall level: 1.13×
-  hnswlib's and 1.17× FAISS's queries per second at recall 0.95 on a dedicated
-  server, and the fastest 1M-vector build (26.1 s on 24 threads, against 27.8 s
+- **Faster than the reference libraries** on SIFT1M, at every recall level: 1.08×
+  hnswlib's and 1.12× FAISS's queries per second at recall 0.95 on a dedicated
+  server, and the fastest 1M-vector build (24.0 s on 24 threads, against 27.8 s
   and 37.8 s). Where huge pages are opt-in, Epzero asks for them and the others
   don't, and the lead grows to 1.46× ([why](docs/performance.md#why-the-laptop-showed-a-bigger-lead-huge-pages)).
 - **Near-linear multicore scaling:** lock-free reads reach 10× on the 12 cores of
@@ -217,13 +217,12 @@ and its memory. Runs agree within 0.5%. Job scripts: [`scripts/pace/`](scripts/p
 | 200 | 0.9954    | 2,651  | 392 µs      | 485 µs      | 3,085           | 109×            |
 | 400 | 0.9985    | 1,432  | 727 µs      | 911 µs      | 5,394           | 59×             |
 
-- **Against other libraries:** 1.12–1.14× hnswlib's and 1.16–1.24× FAISS's QPS
+- **Against other libraries:** 1.06–1.08× hnswlib's and 1.12–1.18× FAISS's QPS
   at equal recall, from recall 0.80 to 0.995 (chart below).
 - **Against the field:** on GIST1M, GloVe-100, DBpedia OpenAI embeddings and
   DEEP10M, Epzero is ahead of VSAG, FAISS, hnswlib and USearch on every one.
-  Glass is the fastest library, but on GIST1M Epzero SQ8 is level with it
-  (796 vs 788 QPS at recall 0.95); Glass leads by 1.25× on DBpedia and
-  1.5–1.8× on DEEP10M and GloVe
+  Epzero SQ8 is the fastest of all on GIST1M (1.08× Glass) and DEEP10M
+  (1.15× Glass); Glass leads on GloVe (1.18×) and DBpedia (1.31×)
   ([table](docs/performance.md#against-the-field-four-more-datasets)).
 - **Build:** 1M vectors in 22.7 s on 24 threads. The index takes 765 MiB.
 - **Threads:** 59,636 QPS on 12 threads of one socket (10.0×) and 83,746 on all
