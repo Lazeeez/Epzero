@@ -27,7 +27,9 @@
   let seen = $state(0);
   let error = $state("");
   let best = $state<number | null>(readBest());
-  let moving = false; // one hop at a time, even on a fast double-click
+  // One hop at a time, even on a fast double-click. While the next photo's neighbours load, the
+  // options, the hint and Back wait too, so nothing acts on the list that is about to be replaced.
+  let moving = $state(false);
 
   const hops = $derived(path.length - 1);
   const current = $derived(path[path.length - 1]);
@@ -136,7 +138,7 @@
   }
 
   function hint() {
-    if (!neighbors.length) return;
+    if (!neighbors.length || moving) return;
     hints++;
     hinted = neighbors.reduce((a, b) => (b.similarity > a.similarity ? b : a)).id;
   }
@@ -235,19 +237,20 @@
         {#if phase === "playing"}
           <div class="toolbar">
             <span class="hint-text">Choose the next photo</span>
-            <button class="btn btn-ghost" onclick={back} disabled={path.length < 2}>Back</button>
-            <button class="btn btn-ghost" onclick={hint}>Ask Epzero{hints ? ` (${hints})` : ""}</button>
+            <button class="btn btn-ghost" onclick={back} disabled={path.length < 2 || moving}>Back</button>
+            <button class="btn btn-ghost" onclick={hint} disabled={moving}>Ask Epzero{hints ? ` (${hints})` : ""}</button>
             <button class="btn btn-ghost" onclick={() => finish(false)}>Give up</button>
           </div>
           {#if !neighbors.length}<p class="warn">This photo has no links left to follow. Go back or give up.</p>{/if}
           {#if error}<p class="warn" role="alert">{error}</p>{/if}
-          <ul class="options">
+          <ul class="options" aria-busy={moving}>
             {#each neighbors as n (n.id)}
               <li>
                 <button
                   class:hinted={hinted === n.id}
                   class:visited={path.includes(n.id)}
                   onclick={() => hop(n.id, n.similarity)}
+                  disabled={moving}
                   onpointerenter={() => (highlight = n.id)}
                   onpointerleave={() => highlight === n.id && (highlight = null)}
                   onfocus={() => (highlight = n.id)}
@@ -537,6 +540,9 @@
   .options button:focus-visible {
     transform: translateY(-2px);
     box-shadow: 0 0 0 2px var(--text);
+  }
+  .options button:disabled {
+    cursor: progress;
   }
   .options button.visited {
     opacity: 0.45;
