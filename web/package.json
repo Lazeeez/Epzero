@@ -19,6 +19,7 @@
     "@types/d3-scale": "^4.0.9",
     "@types/d3-shape": "^3.2.0",
     "@types/three": "^0.186.0",
+    "marked": "^16.4.2",
     "svelte": "^5.57.1",
     "svelte-check": "^4.7.6",
     "typescript": "^5.9.2",
