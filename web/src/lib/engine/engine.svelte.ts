@@ -3,6 +3,7 @@
 import { cachedFetch, pruneCache } from "../cached-fetch";
 import { isolationSettled } from "../isolation";
 import { UNSUPPORTED_BROWSER, wasmSimdSupported } from "../support";
+import { release, type OwnCollection } from "./own-photos.svelte";
 import { stageEnds, type Evaluation, type Explanation, type FilterInfo, type FromWorker, type GraphInfo, type Neighborhood, type Query, type Request, type Trace } from "./protocol";
 
 /** Photo metadata, column-oriented (format 2, written by pipeline/build_dataset.py). */
@@ -117,6 +118,14 @@ class Engine {
   filter = $state.raw<ActiveFilter | null>(null);
   /** Hybrid search: text queries also match their words against the photos' captions. */
   hybrid = $state(readHybrid());
+  /** Which photos the engine indexes: the demo set, or the visitor's own (own-photos.svelte.ts). */
+  source = $state<"demo" | "mine">("demo");
+  /** The visitor's photos, once chosen (kept while the demo is shown, to switch back quickly). */
+  own = $state.raw<OwnCollection | null>(null);
+  /** Changes whenever a different set of photos is indexed. */
+  collection = $state(0);
+  /** The visitor chose their own photos: the playground returns to them after other pages used the demo. */
+  preferOwn = false;
 
   private worker: Worker | null = null;
   private pending = new Map<number, { resolve: (o: SearchOutcome) => void; reject: (e: Error) => void; ef: number }>();
@@ -192,94 +201,7 @@ class Engine {
         this.fail(`Could not load the dataset: ${error}`);
         resolve();
       });
-      this.worker = new Worker(new URL("./collection.worker.ts", import.meta.url), { type: "module" });
-      this.worker.onmessage = (event: MessageEvent<FromWorker>) => {
-        const message = event.data;
-        switch (message.type) {
-          case "progress":
-            if (message.stage === "download") {
-              this.streamed = message.done / message.total;
-              if (this.status === "ready") break;
-              // With a prebuilt graph, search starts once the first block of dimensions is in;
-              // without one, the graph is built from the whole file.
-              const needed = this.graphFile ? stageEnds(this.count, this.dim, this.stages.map((s) => s.dims))[0] : message.total;
-              this.stage = `Downloading ${(needed / 1e6).toFixed(1)} MB of CLIP vectors`;
-              this.progress = (this.graphFile ? 0.95 : 0.35) * Math.min(1, message.done / needed);
-            } else if (this.rebuilding) {
-              this.rebuildProgress = message.done / message.total;
-            } else {
-              this.status = "building";
-              this.stage = `Building the HNSW graph · ${message.done.toLocaleString()} photos`;
-              this.progress = 0.35 + 0.65 * (message.done / message.total);
-              this.built = message.done;
-            }
-            break;
-          case "built": {
-            const graph = message.graph;
-            // Captions and thumbnails need the metadata: go ready once it has arrived too.
-            side.then(() => {
-              this.graph = graph;
-              this.dims ||= this.graphFile ? this.stages[0].dims : this.dim;
-              if (!graph.prebuilt) this.dims = this.dim;
-              this.buildMs = graph.buildMs;
-              this.params = { M: graph.M, efConstruction: graph.efConstruction };
-              this.built = this.count;
-              this.progress = 1;
-              this.stage = "Ready";
-              this.status = "ready";
-              this.evaluation = null;
-              this.rebuilding = false;
-              this.rebuilt?.();
-              this.rebuilt = null;
-              this.sendKeywords();
-              resolve();
-            });
-            break;
-          }
-          case "precision":
-            this.dims = message.dims;
-            break;
-          case "reply": {
-            const waiter = this.replies.get(message.seq);
-            this.replies.delete(message.seq);
-            waiter?.resolve(message.value as never);
-            break;
-          }
-          case "result": {
-            const waiter = this.pending.get(message.seq);
-            if (!waiter) return;
-            this.pending.delete(message.seq);
-            const outcome = { query: message.query, trace: message.trace, ef: waiter.ef };
-            this.last = outcome;
-            waiter.resolve(outcome);
-            break;
-          }
-          case "error":
-            if (message.seq !== undefined) {
-              // One query failed; the others are unaffected.
-              this.pending.get(message.seq)?.reject(new Error(message.message));
-              this.pending.delete(message.seq);
-              this.replies.get(message.seq)?.reject(new Error(message.message));
-              this.replies.delete(message.seq);
-            } else if (this.rebuilding) {
-              this.rebuilding = false;
-              this.rebuilt = null;
-              this.error = message.message;
-            } else if (this.status !== "ready") {
-              this.fail(message.message);
-              resolve();
-            } else {
-              for (const waiter of this.pending.values()) waiter.reject(new Error(message.message));
-              this.pending.clear();
-            }
-            break;
-        }
-      };
-      this.worker.onerror = (event) => {
-        this.fail(event.message || "The engine worker failed to start.");
-        resolve();
-      };
-      this.worker.postMessage({
+      this.spawn(side, resolve).postMessage({
         type: "load",
         base: DATA,
         vectors: this.vectorsFile,
@@ -292,11 +214,177 @@ class Engine {
     });
   }
 
+  // Starts an engine worker; `resolve` once its first graph is ready (and `side`, the metadata).
+  private spawn(side: Promise<void>, resolve: () => void): Worker {
+    const worker = new Worker(new URL("./collection.worker.ts", import.meta.url), { type: "module" });
+    this.worker = worker;
+    worker.onmessage = (event: MessageEvent<FromWorker>) => {
+      if (worker !== this.worker) return; // replaced by a switch to other photos
+      const message = event.data;
+      switch (message.type) {
+        case "progress":
+          if (message.stage === "download") {
+            this.streamed = message.done / message.total;
+            if (this.status === "ready") break;
+            // With a prebuilt graph, search starts once the first block of dimensions is in;
+            // without one, the graph is built from the whole file.
+            const needed = this.graphFile ? stageEnds(this.count, this.dim, this.stages.map((s) => s.dims))[0] : message.total;
+            this.stage = `Downloading ${(needed / 1e6).toFixed(1)} MB of CLIP vectors`;
+            this.progress = (this.graphFile ? 0.95 : 0.35) * Math.min(1, message.done / needed);
+          } else if (this.rebuilding) {
+            this.rebuildProgress = message.done / message.total;
+          } else {
+            this.status = "building";
+            this.stage = `Building the HNSW graph · ${message.done.toLocaleString()} photos`;
+            this.progress = 0.35 + 0.65 * (message.done / message.total);
+            this.built = message.done;
+          }
+          break;
+        case "built": {
+          const graph = message.graph;
+          // Captions and thumbnails need the metadata: go ready once it has arrived too.
+          side.then(() => {
+            if (worker !== this.worker) return;
+            this.graph = graph;
+            this.dims ||= this.graphFile ? this.stages[0].dims : this.dim;
+            if (!graph.prebuilt) this.dims = this.dim;
+            this.buildMs = graph.buildMs;
+            this.params = { M: graph.M, efConstruction: graph.efConstruction };
+            this.built = this.count;
+            this.progress = 1;
+            this.stage = "Ready";
+            this.status = "ready";
+            this.evaluation = null;
+            this.rebuilding = false;
+            this.rebuilt?.();
+            this.rebuilt = null;
+            this.sendKeywords();
+            resolve();
+          });
+          break;
+        }
+        case "precision":
+          this.dims = message.dims;
+          break;
+        case "reply": {
+          const waiter = this.replies.get(message.seq);
+          this.replies.delete(message.seq);
+          waiter?.resolve(message.value as never);
+          break;
+        }
+        case "result": {
+          const waiter = this.pending.get(message.seq);
+          if (!waiter) return;
+          this.pending.delete(message.seq);
+          const outcome = { query: message.query, trace: message.trace, ef: waiter.ef };
+          this.last = outcome;
+          waiter.resolve(outcome);
+          break;
+        }
+        case "error":
+          if (message.seq !== undefined) {
+            // One query failed; the others are unaffected.
+            this.pending.get(message.seq)?.reject(new Error(message.message));
+            this.pending.delete(message.seq);
+            this.replies.get(message.seq)?.reject(new Error(message.message));
+            this.replies.delete(message.seq);
+          } else if (this.rebuilding) {
+            this.rebuilding = false;
+            this.rebuilt = null;
+            this.error = message.message;
+          } else if (this.status !== "ready") {
+            this.fail(message.message);
+            resolve();
+          } else {
+            for (const waiter of this.pending.values()) waiter.reject(new Error(message.message));
+            this.pending.clear();
+          }
+          break;
+      }
+    };
+    worker.onerror = (event) => {
+      if (worker !== this.worker) return;
+      this.fail(event.message || "The engine worker failed to start.");
+      resolve();
+    };
+    return worker;
+  }
+
+  // Drops the current index and everything derived from it, before another set of photos loads.
+  private reset() {
+    this.worker?.terminate();
+    this.worker = null;
+    for (const waiter of this.pending.values()) waiter.reject(new Error("The photos changed"));
+    this.pending.clear();
+    for (const waiter of this.replies.values()) waiter.reject(new Error("The photos changed"));
+    this.replies.clear();
+    this.rebuilt = null;
+    this.rebuilding = false;
+    this.error = "";
+    this.progress = 0;
+    this.built = 0;
+    this.dims = 0;
+    this.streamed = 0;
+    this.graph = null;
+    this.last = null;
+    this.evaluation = null;
+    this.filter = null;
+    this.categoryList = null;
+    this.keywordsSent = false;
+    this.started = null;
+    this.collection++;
+  }
+
+  /** Indexes the visitor's own photos instead of the demo set: built here, on every core. */
+  useOwn(own: OwnCollection): Promise<void> {
+    if (this.own && this.own !== own) release(this.own);
+    this.reset();
+    this.own = own;
+    this.source = "mine";
+    this.preferOwn = true;
+    const count = own.photos.length;
+    this.count = count;
+    this.dim = own.dim;
+    this.stages = [{ dims: own.dim, recallAt10VsFloat: 1 }];
+    this.quantizationRecall = 1;
+    this.graphFile = undefined;
+    this.meta = null;
+    this.layout = own.layout;
+    this.status = "building";
+    this.stage = `Building the HNSW graph · ${count.toLocaleString()} photos`;
+    // A small collection gets a denser graph: it costs little and keeps recall near perfect.
+    const params = { M: 16, efConstruction: 200 };
+    this.started = new Promise<void>((resolve) => {
+      const vectors = own.vectors.slice(); // the worker takes this copy; the collection keeps its own
+      this.spawn(Promise.resolve(), resolve).postMessage({ type: "own", vectors, count, dim: own.dim, ...params }, [vectors.buffer]);
+    });
+    return this.started;
+  }
+
+  /** Back to the demo photos (read from cache, with their prebuilt graph: a second or two). */
+  useDemo(): Promise<void> {
+    if (this.source === "demo") return this.start();
+    this.reset();
+    this.source = "demo";
+    this.layout = null;
+    this.meta = null;
+    this.status = "idle";
+    return this.start();
+  }
+
+  /** Forgets the visitor's photos on this page (not the copy kept in the browser). */
+  dropOwn() {
+    this.preferOwn = false;
+    if (this.source === "mine") void this.useDemo();
+    release(this.own);
+    this.own = null;
+  }
+
   // The captions, one line per photo (its title, or its labels), for the worker's keyword index.
   // Sent once, after the first build: a few hundred kilobytes, indexed in WebAssembly in the worker.
   // Built when the browser is idle, so it never competes with the page's first moments.
   private sendKeywords() {
-    if (this.keywordsSent || !this.worker || !this.meta) return;
+    if (this.keywordsSent || !this.worker || !this.meta || this.source === "mine") return;
     this.keywordsSent = true;
     const send = () => {
       const m = this.meta!;
@@ -408,6 +496,7 @@ class Engine {
 
   /** Every label in the dataset with how many photos carry it, most common first. */
   categories(): Category[] {
+    if (this.source === "mine") return [];
     if (this.categoryList || !this.meta) return this.categoryList ?? [];
     const counts = new Map<string, number>();
     const names = this.meta.labelNames;
@@ -440,20 +529,32 @@ class Engine {
   // the path's first part names): one host means one connection for a whole page of results,
   // instead of a DNS lookup and TLS handshake for each of eight hosts.
   thumbnail(id: number, size: "q" | "n" | "z" = "n"): string {
+    if (this.source === "mine") return this.own?.photos[id]?.thumb ?? "";
+    if (!this.meta) return "";
     const path = this.meta!.path[id];
     return `https://live.staticflickr.com/${path.slice(path.indexOf("/") + 1)}_${size}.jpg`;
   }
 
   caption(id: number): string {
+    if (this.source === "mine") return this.own?.photos[id]?.name ?? "";
+    if (!this.meta) return "";
     const m = this.meta!;
     return m.labels[id].length ? m.labels[id].map((l) => m.labelNames[l]).join(" · ") : decodeEntities(m.title[id]) || "Untitled";
   }
 
   author(id: number): string {
+    if (this.source === "mine") return "you";
     return this.meta?.author[id] || "Unknown";
   }
 
-  source(id: number): string {
+  /** Where to see the photo in full: its page on Flickr, or the visitor's own file ("" if neither). */
+  original(id: number): string {
+    if (this.source === "mine") {
+      const file = this.own?.photos[id]?.file;
+      if (!file) return "";
+      if (!originals.has(file)) originals.set(file, URL.createObjectURL(file));
+      return originals.get(file)!;
+    }
     const m = this.meta;
     if (!m) return "";
     const owner = m.owner[id];
@@ -462,5 +563,8 @@ class Engine {
     return `https://www.flickr.com/photos/${owner}/${photo}/`;
   }
 }
+
+// Object URLs of the visitor's originals, made on first use (opening a photo in full).
+const originals = new WeakMap<File, string>();
 
 export const engine = new Engine();
