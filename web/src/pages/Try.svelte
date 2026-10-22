@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { tick, untrack } from "svelte";
-  import { FREE_LOOK_TOGGLE, freeLook } from "../lib/free-look.svelte";
+  import { untrack } from "svelte";
+  import { freeLook, setFreeLook } from "../lib/free-look.svelte";
   import { imageEncoder, textEncoder } from "../lib/engine/encoders.svelte";
   import { engine, type SearchOutcome } from "../lib/engine/engine.svelte";
   import type { Query } from "../lib/engine/protocol";
@@ -179,19 +179,11 @@
   }
 
   // Free look: everything on the page slides away (search, settings, debugger, HUD, view controls),
-  // leaving the graph under the top bar, which holds the button that brings it all back. Hovering
-  // or tapping a star still shows its photo.
-  let hideButton: HTMLButtonElement | undefined = $state();
-  async function setFreeLook(on: boolean) {
-    if (on === freeLook.on) return;
-    const toggle = document.getElementById(FREE_LOOK_TOGGLE);
-    const hadFocus = document.activeElement === hideButton || document.activeElement === toggle;
-    freeLook.on = on;
-    if (on) tuneOpen = false;
-    await tick();
-    // The keyboard focus follows the button that undoes what was just done.
-    if (hadFocus) (on ? toggle : hideButton)?.focus();
-  }
+  // leaving the graph under the top bar, which holds the button that brings it all back. The view
+  // controls' reset button turns it on (with H); hovering or tapping a star still shows its photo.
+  $effect(() => {
+    if (freeLook.on) tuneOpen = false;
+  });
   $effect(() => () => void (freeLook.on = false)); // leaving the page ends it
   // The category filter belongs to this page: other pages (the live hero, the game) search everything.
   $effect(() => () => {
@@ -214,16 +206,6 @@
 <div class="try">
   <aside class="panel card" class:collapsed={panelHidden} bind:this={panel} aria-label="Search" inert={panelHidden}>
     <header>
-      <button
-        class="hide"
-        bind:this={hideButton}
-        onclick={() => setFreeLook(true)}
-        aria-label="Hide the panels"
-        title="Free look: hide everything and explore the graph (H)"
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
-        <span>Free look</span>
-      </button>
       <p class="eyebrow">Playground</p>
       <h1>Search {engine.count ? engine.count.toLocaleString() : "30,000"} photos, locally.</h1>
       <p class="lede">
@@ -498,38 +480,6 @@
   .panel header {
     position: relative;
   }
-  .hide {
-    position: absolute;
-    top: -6px;
-    right: -6px;
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    height: 32px;
-    padding: 0 11px 0 9px;
-    border: 1px solid var(--border-strong);
-    border-radius: 10px;
-    background: var(--surface);
-    color: var(--text-2);
-    font: 550 12.5px var(--font);
-    cursor: pointer;
-    transition:
-      color 0.2s,
-      border-color 0.2s;
-  }
-  .hide:hover {
-    border-color: var(--text-2);
-    color: var(--text);
-  }
-  .hide svg {
-    width: 16px;
-    height: 16px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
   .panel.collapsed {
     opacity: 0;
     transform: translateX(calc(-100% - 32px));
@@ -735,21 +685,6 @@
     }
     .panel header .lede,
     .panel header .eyebrow {
-      display: none;
-    }
-    /* Phones: the button is just its icon, beside the one-line heading. */
-    .panel header {
-      padding-right: 40px;
-    }
-    .hide {
-      top: -5px;
-      right: -4px;
-      width: 34px;
-      height: 34px;
-      padding: 0;
-      justify-content: center;
-    }
-    .hide span {
       display: none;
     }
 
