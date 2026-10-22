@@ -27,7 +27,8 @@ class SceneController {
 
   scene: GraphScene | null = null;
   private clickHandler: ((id: number) => void) | null = null;
-  private laidOut = false;
+  /** The map the scene shows: the demo set's, or the visitor's own photos'. */
+  private shownLayout: Float32Array | null = null;
   /** The graph the scene currently shows; a rebuild replaces it with a new object. */
   private shownGraph: GraphInfo | null = null;
   private shownFilter: Uint32Array | null = null;
@@ -106,11 +107,20 @@ class SceneController {
   sync() {
     const scene = this.scene;
     if (!scene) return;
-    if (!this.laidOut && engine.layout) {
+    if (engine.layout && engine.layout !== this.shownLayout) {
+      // Another set of photos: a new map, and the old graph and search path go with the old one.
+      if (this.shownLayout) {
+        scene.clearTrace();
+        scene.clearMarker();
+        this.selected = null;
+        this.hover = null;
+      }
       scene.setLayout(engine.layout);
-      this.laidOut = true;
+      this.shownLayout = engine.layout;
+      this.shownGraph = null;
+      this.shownFilter = null;
     }
-    if (!this.laidOut) return;
+    if (!this.shownLayout || engine.layout !== this.shownLayout) return;
     if (engine.graph && engine.graph !== this.shownGraph) {
       if (this.shownGraph) scene.clearTrace(); // a rebuild: the old search path no longer exists
       scene.setGraph(engine.graph);
