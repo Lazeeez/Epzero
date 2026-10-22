@@ -14,6 +14,7 @@
   import Timeline from "../components/try/Timeline.svelte";
   import TunePanel from "../components/try/TunePanel.svelte";
   import NavHud from "../components/try/NavHud.svelte";
+  import PhotoSource from "../components/try/PhotoSource.svelte";
   import ViewControls from "../components/try/ViewControls.svelte";
   import RecallGuard from "../components/try/RecallGuard.svelte";
   import Sharpening from "../components/try/Sharpening.svelte";
@@ -57,7 +58,9 @@
     if (query.kind === "id") blendBase = { id: query.id };
     else if (query.source === "photo" || query.source === "camera") blendBase = { vector: query.vector, preview: query.preview };
     else if (query.source === "text") blendBase = { id: result.trace.results[0] };
-    // Shareable URL for text, photo and blend queries (image uploads have no stable identity).
+    // Shareable URL for text, photo and blend queries (image uploads have no stable identity, and
+    // nor do the visitor's own photos: a link would open the demo set).
+    if (engine.source === "mine") return;
     const url = new URL(location.href);
     url.search = "";
     if (query.kind === "id") url.searchParams.set("photo", String(query.id));
@@ -99,6 +102,34 @@
       );
     else if (engine.last && engine.last.query.kind === "vector") search(engine.last.query); // back from another page
     else surprise();
+  });
+
+  // Another set of photos (the visitor's own, or the demo again): once it's indexed, ask the same
+  // description of it, or start from a random photo.
+  let shownCollection = engine.collection;
+  let carried: Query | null | undefined; // undefined: no switch pending
+  $effect(() => {
+    const collection = engine.collection;
+    if (collection === shownCollection) return;
+    shownCollection = collection;
+    untrack(() => {
+      // The old results name photos the new set doesn't have: clear them at once.
+      const previous = outcome?.query;
+      carried = previous?.kind === "vector" && previous.source === "text" ? previous : null;
+      outcome = null;
+      blendBase = null;
+      sceneController.selected = null;
+    });
+  });
+  $effect(() => {
+    if (engine.status !== "ready" || carried === undefined) return;
+    const query = carried;
+    carried = undefined;
+    untrack(() => (query ? search(query) : surprise()));
+  });
+  // Back on the playground after other pages used the demo: return to the visitor's photos.
+  $effect(() => {
+    if (engine.preferOwn && engine.own && engine.source === "demo") void engine.useOwn(engine.own);
   });
 
   // Search starts on the vectors' leading dimensions; each further block that arrives re-runs the
@@ -207,12 +238,22 @@
   <aside class="panel card" class:collapsed={panelHidden} bind:this={panel} aria-label="Search" inert={panelHidden}>
     <header>
       <p class="eyebrow">Playground</p>
-      <h1>Search {engine.count ? engine.count.toLocaleString() : "30,000"} photos, locally.</h1>
-      <p class="lede">
-        Epzero's C++ engine runs in this tab as WebAssembly. Search by description, photo or camera, then step through exactly how
-        the graph found the answer.
-      </p>
+      {#if engine.source === "mine"}
+        <h1>Search {engine.count ? engine.count.toLocaleString() : "your"} of your photos, locally.</h1>
+        <p class="lede">
+          CLIP embedded them in this tab and Epzero's C++ engine searches them as WebAssembly. Nothing was uploaded. Search by
+          description, photo or camera, then step through how the graph found the answer.
+        </p>
+      {:else}
+        <h1>Search {engine.count ? engine.count.toLocaleString() : "30,000"} photos, locally.</h1>
+        <p class="lede">
+          Epzero's C++ engine runs in this tab as WebAssembly. Search by description, photo or camera, then step through exactly how
+          the graph found the answer.
+        </p>
+      {/if}
     </header>
+
+    <PhotoSource onmessage={(text) => say(text, 5000)} />
 
     <SearchBox
       onsearch={search}
@@ -223,7 +264,9 @@
       {initialBlend}
     />
 
-    <CategoryFilter onchange={() => outcome && search(outcome.query)} disabled={engine.status !== "ready" || engine.rebuilding} />
+    {#if engine.source !== "mine"}
+      <CategoryFilter onchange={() => outcome && search(outcome.query)} disabled={engine.status !== "ready" || engine.rebuilding} />
+    {/if}
 
     <Sharpening />
 
@@ -253,7 +296,13 @@
       <output class="num">{ef}</output>
     </label>
     <div class="buttons">
-      <button class="btn btn-ghost icon-only" onclick={share} disabled={!outcome} aria-label="Share this search" title="Share this search">
+      <button
+        class="btn btn-ghost icon-only"
+        onclick={share}
+        disabled={!outcome || engine.source === "mine"}
+        aria-label="Share this search"
+        title={engine.source === "mine" ? "Searches of your own photos can't be shared: they never leave this device" : "Share this search"}
+      >
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" /></svg>
       </button>
       <button class="btn btn-ghost" onclick={() => (raceOpen = true)} disabled={!outcome}>
@@ -306,7 +355,11 @@
       {:else}
         <strong>{engine.stage || "Starting the engine"}</strong>
         <div class="meter"><i style:width="{(engine.progress * 100).toFixed(1)}%"></i></div>
-        <p>C++ compiled to WebAssembly. The graph arrives prebuilt; rebuild it on your own cores any time from the index settings.</p>
+        <p>
+          {engine.source === "mine"
+            ? "Indexing your photos on every core of this device, with the same C++ engine compiled to WebAssembly."
+            : "C++ compiled to WebAssembly. The graph arrives prebuilt; rebuild it on your own cores any time from the index settings."}
+        </p>
       {/if}
     </div>
   {/if}
@@ -317,7 +370,7 @@
       <Thumb id={hover.id} size="n" alt={engine.caption(hover.id)} />
       <div>
         <strong>{engine.caption(hover.id)}</strong>
-        <span>© {engine.author(hover.id)} · CC BY 2.0 · click to search · shift-click for details</span>
+        <span>{engine.source === "mine" ? "Your photo" : `© ${engine.author(hover.id)} · CC BY 2.0`} · click to search · shift-click for details</span>
       </div>
     </div>
   {/if}
@@ -334,8 +387,8 @@
       <div class="info">
         <strong>{engine.caption(selected.id)}</strong>
         <span>
-          © {engine.author(selected.id)} · CC BY 2.0 · photo #{selected.id} ·
-          <a href={engine.source(selected.id)} target="_blank" rel="noopener noreferrer">original ↗</a>
+          {engine.source === "mine" ? "Your photo" : `© ${engine.author(selected.id)} · CC BY 2.0 · photo #${selected.id}`}
+          {#if engine.original(selected.id)}· <a href={engine.original(selected.id)} target="_blank" rel="noopener noreferrer">original ↗</a>{/if}
         </span>
       </div>
       <div class="actions">
