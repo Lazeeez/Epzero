@@ -109,8 +109,8 @@ project was called Oryx until October 2026.)
   settles, so easy queries finish early and hard ones search further, and the
   recall guard can steer that instead of one beam width for everything. Under
   drift on GloVe-100, where query difficulty varies widely, it held the same
-  target in 18% less time (26% fewer distance computations); on SIFT1M, where it
-  varies little, it doesn't pay, so it is opt-in (laptop; [details](docs/recall-guard.md#per-query-effort)).
+  target in 13% less time (22% fewer distance computations); on SIFT1M, where it
+  varies little, it is about even, so it is opt-in (dedicated server; [details](docs/recall-guard.md#per-query-effort)).
 - **Hybrid search:** a BM25 keyword index beside the vector index, merged by
   reciprocal rank fusion, in Python and in the LangChain store, for the exact
   terms (product codes, names, error messages) that embeddings blur.
@@ -125,7 +125,8 @@ project was called Oryx until October 2026.)
   and 37.8 s). Where huge pages are opt-in, Epzero asks for them and the others
   don't, and the lead grows to 1.46× ([why](docs/performance.md#why-the-laptop-showed-a-bigger-lead-huge-pages)).
 - **Near-linear multicore scaling:** lock-free reads reach 10× on the 12 cores of
-  one socket, at identical recall.
+  one socket, at identical recall, and 109k queries per second on a two-socket
+  node with one index copy per socket (+30% over one shared copy).
 - **Hand-written SIMD** for AVX2, AVX-512, NEON and WebAssembly SIMD128, picked
   at runtime; up to 10.9× faster than scalar code.
 - **8-bit quantization** with exact re-ranking: +48% QPS at identical recall.
@@ -214,8 +215,8 @@ and its memory. Runs agree within 0.5%. Job scripts: [`scripts/pace/`](scripts/p
   ([table](docs/performance.md#against-the-field-four-more-datasets)).
 - **Build:** 1M vectors in 22.7 s on 24 threads. The index takes 765 MiB.
 - **Threads:** 59,636 QPS on 12 threads of one socket (10.0×) and 83,746 on all
-  24 (14.0×), at recall 0.974. Crossing sockets costs about 19%, which per-socket
-  index copies would avoid ([details](docs/performance.md#thread-scaling)).
+  24 (14.0×), at recall 0.974. Crossing sockets costs about 19%; one index copy
+  per socket avoids it, reaching 109,186 QPS on the node ([details](docs/performance.md#thread-scaling)).
 
 **Development laptop:** Intel i5-13420H (AVX2), WSL2 Ubuntu 24.04, GCC 13. Its
 higher clock (up to ~4.5 GHz) makes single-thread search about 1.8× faster;
@@ -535,7 +536,8 @@ dedicated-server runs are in [`scripts/pace/`](scripts/pace/).
 12. ✅ RaBitQ quantization (correct and tested; not faster in memory, see the performance log)
 13. ✅ Competitive benchmarks on GIST1M, GloVe-100, OpenAI text embeddings and DEEP10M against Glass, VSAG, USearch, hnswlib and tuned FAISS (`bench/compete.py`)
 14. ✅ Per-query search effort and the per-query recall guard; integer SQ8 kernels; hybrid keyword + vector search
-15. Server re-runs of the comparison and the per-query guard (PACE jobs ready); an ann-benchmarks submission (`ann-benchmarks/`)
+15. ✅ Per-query guard and one index copy per socket measured on the server
+16. The comparison re-run with the faster SQ8 (PACE jobs ready); an ann-benchmarks submission (`ann-benchmarks/`)
 
 ## License
 
