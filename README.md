@@ -1,7 +1,6 @@
 # Epzero
 
-**[epzero.dev](https://epzero.dev/)** · The name is HNSW's own path: a search starts at the
-**e**ntry **p**oint on the top layer and descends to layer **zero**, where the answer is.
+**[epzero.dev](https://epzero.dev/)**
 
 A vector database built from scratch in C++20. It implements HNSW
 (Hierarchical Navigable Small World) approximate nearest-neighbor search, with
@@ -51,8 +50,8 @@ WebAssembly (SIMD128 + threads), running entirely in your browser:
   graph with a navigator HUD following each search. **Filter by category**
   ("dogs only") and see which strategy the engine picked; turn on the **recall
   guard** and watch it hold a recall target live; shift-click (or tap) any star
-  to learn **why it is or isn't a result**. **Free look** (`H`) hides every
-  panel, leaving just the graph to explore.
+  to learn **why it is or isn't a result**. **Reset the view** (or `H`) for a
+  free look: every panel slides away, leaving just the graph to explore.
 - **[Play](https://epzero.dev/play).** *Out-navigate Epzero*: hop
   from photo to photo along the real base-layer links to reach a target,
   then see the route Epzero's search took through its express layers.
@@ -89,10 +88,11 @@ failover, and a browser build that lets anyone watch a search happen. Each
 choice is measured against the best existing libraries, and the ones that
 didn't pay off are documented too.
 
-The name comes from Destiny's Epzero, *the First Navigator*. An HNSW search is
-navigation: it starts on a sparse top layer, takes long hops toward the target,
-and descends layer by layer to refine the route. The site's star-map visuals and
-navigator HUD lean on that idea.
+The name is the algorithm's own path. An HNSW search starts at the **e**ntry
+**p**oint on a sparse top layer, takes long hops toward the target, and descends
+layer by layer to layer **zero**, where the answer is. The site's star-map
+visuals and navigator HUD lean on that idea of search as navigation. (The
+project was called Oryx until October 2026.)
 
 ## Highlights
 
