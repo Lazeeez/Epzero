@@ -289,7 +289,34 @@ class Glass(Library):
 
 
 COMPARED = (Epzero, EpzeroSq8, Hnswlib, FaissHnsw, FaissIvfPq, USearch, Vsag, Glass)
-LIBRARIES = {cls.name: cls for cls in (*COMPARED, EpzeroSq8Default)}
+class EpzeroSq8Adaptive(EpzeroSq8):
+    """SQ8 with per-query effort: a search stops once its best k have held for ef / 3 expansions
+    (patience), so ef only caps the hard queries. Not in the default comparison."""
+
+    name = "epzero-sq8-adaptive"
+    cache_name = "epzero-sq8"
+
+    def search(self, q, k, ef):
+        return self.index.search(q, k=k, ef=ef, threads=1, patience=max(1, ef // 3))[0]
+
+
+class EpzeroSq8Avx512(EpzeroSq8):
+    """SQ8 forced onto the AVX-512 integer kernel, which Epzero skips on the first AVX-512 Xeons
+    (EPZERO_SQ8_KERNEL is read when an index is made, so this copy alone gets it). Not in the
+    default comparison."""
+
+    name = "epzero-sq8-avx512"
+    cache_name = "epzero-sq8"
+
+    def load(self, path, base):
+        os.environ["EPZERO_SQ8_KERNEL"] = "avx512"
+        try:
+            super().load(path, base)
+        finally:
+            del os.environ["EPZERO_SQ8_KERNEL"]
+
+
+LIBRARIES = {cls.name: cls for cls in (*COMPARED, EpzeroSq8Default, EpzeroSq8Adaptive, EpzeroSq8Avx512)}
 
 
 def main():
