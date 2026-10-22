@@ -19,7 +19,9 @@ cd "$SLURM_SUBMIT_DIR"
 source scripts/pace/env.sh
 VENV="$EPZERO_ROOT/.pace-bench"
 [ -x "$VENV/bin/python" ] || { echo "set up first: bash scripts/pace/bench-env.sh && bash scripts/pace/compete-env.sh"; exit 1; }
-command -v perf >/dev/null || { echo "perf is not installed on this node"; exit 1; }
+# perf isn't installed on the compute nodes by default; try the module system before giving up.
+command -v perf >/dev/null || module load perf 2>/dev/null || module load linux-perf 2>/dev/null || true
+command -v perf >/dev/null || { echo "perf is not available on this node (try: module spider perf)"; exit 1; }
 echo "perf $(perf --version); perf_event_paranoid=$(cat /proc/sys/kernel/perf_event_paranoid)"
 
 # The same builds as compete.sbatch: native code for this node's CPU, Epzero from this checkout.
