@@ -282,7 +282,8 @@ server: a 96-dimension node's codes sit in bytes 4-99 of its record, two cache l
 128 of them touched a third on every distance, a miss on these memory-bound sets. Reverted. On
 GIST1M and DBpedia (multiples of 64, nothing padded) the AVX-512 integer kernel was 3-5% faster
 than the AVX2 one, so its trouble on short vectors is the masked tail; a tail that stays inside the
-record's existing cache lines is the way to use it there.
+record's existing cache lines is the way to use it there. Meanwhile these Xeons use the AVX-512
+kernel when the dimension is a multiple of 64, and the AVX2 one otherwise.
 
 Server results from the same run ([`scripts/pace/variants.sbatch`](../scripts/pace/variants.sbatch),
 `bench/results/pace/gold6226/*-variants.json`): per-query effort (`patience` = `ef` / 3) is +5-10%
