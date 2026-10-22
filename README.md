@@ -286,7 +286,9 @@ accumulators.
   nodes, which fits in L2, and it resets without clearing and allocates
   nothing per query.
 - **SIMD dispatch.** Each ISA (AVX2, AVX-512, NEON) is compiled in its own
-  translation unit and picked at runtime by CPU detection. `EPZERO_SIMD=scalar`
+  translation unit and picked at runtime by CPU detection. AVX-512 is used only
+  on cores that run it at full clock (Ice Lake and later, Zen 4): on a Cascade
+  Lake Xeon, the AVX2 kernels searched 57–72% faster. `EPZERO_SIMD=scalar`
   forces a level, e.g. for A/B benchmarks.
 - **Concurrency.** Search is lock-free: neighbor-list slots are atomics written
   with release stores and read with acquire loads, so a reader that sees a node
