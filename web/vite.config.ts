@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
+import { PAGES, SITE, type Page } from "./src/lib/pages";
 import { defineConfig, type Plugin } from "vite";
 
 // WebAssembly threads need SharedArrayBuffer, which browsers only expose on cross-origin isolated
@@ -13,11 +14,50 @@ const isolation = {
 };
 
 // The site is a single-page app with client-side routes. Give every route its own index.html so a
-// deep link (e.g. /try) loads with a 200 on a static host, and keep a 404.html fallback. Each copy
-// names its own address as canonical (otherwise search engines fold every page into the home page),
-// and the 404 page asks not to be indexed.
-const SITE = "https://epzero.dev/";
-const ROUTES = ["try", "play", "cluster", "benchmarks"];
+// deep link (e.g. /try) loads with a 200 on a static host, and keep a 404.html fallback. Each page's
+// HTML carries its own title, description, link-preview tags and canonical address (so search
+// engines index every page on its own, without running the app), plus a no-JavaScript fallback
+// with its heading and links to the others; the 404 page asks not to be indexed. The sitemap is
+// written from the same list (src/lib/pages.ts).
+const ROUTES = ["try", "play", "cluster", "benchmarks"] as const;
+const escapeHtml = (text: string) =>
+  text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+function pageHtml(html: string, page: Page, indexed: boolean): string {
+  const url = SITE + page.path;
+  const title = escapeHtml(page.title);
+  const description = escapeHtml(page.description);
+  const swaps: [RegExp, string][] = [
+    [/<title>[^<]*<\/title>/, `<title>${title}</title>`],
+    [/<meta\s+name="description"\s+content="[^"]*"\s*\/>/, `<meta name="description" content="${description}" />`],
+    [/<meta property="og:title" content="[^"]*" \/>/, `<meta property="og:title" content="${title}" />`],
+    [/<meta property="og:description" content="[^"]*" \/>/, `<meta property="og:description" content="${description}" />`],
+    [/<meta property="og:url" content="[^"]*" \/>/, `<meta property="og:url" content="${url}" />`],
+    [
+      /<link rel="canonical" href="[^"]*" \/>/,
+      indexed ? `<link rel="canonical" href="${url}" />` : `<meta name="robots" content="noindex" />`,
+    ],
+    [/<noscript>[\s\S]*?<\/noscript>/, `<noscript>${fallback(page)}</noscript>`],
+  ];
+  for (const [pattern, replacement] of swaps) {
+    if (!pattern.test(html)) throw new Error(`index.html: ${pattern} not found`);
+    html = html.replace(pattern, () => replacement);
+  }
+  return html;
+}
+
+// What a visitor (or crawler) without JavaScript gets: the page's heading and summary, and links.
+function fallback(page: Page): string {
+  const links = (["home", ...ROUTES] as const)
+    .map((name) => `<a href="/${PAGES[name].path}">${escapeHtml(name === "home" ? "Home" : PAGES[name].title.split(" · ")[0])}</a>`)
+    .join(" · ");
+  return (
+    `<main style="max-width:720px;margin:96px auto;padding:0 24px;font:16px/1.6 system-ui,sans-serif;color:#d7dae0">` +
+    `<h1>${escapeHtml(page.heading)}</h1><p>${escapeHtml(page.description)}</p>` +
+    `<p>The live demo runs a C++ search engine in your browser, so it needs JavaScript.</p><nav>${links}</nav></main>`
+  );
+}
+
 function staticRoutes(): Plugin {
   let outDir = "dist";
   return {
@@ -29,17 +69,20 @@ function staticRoutes(): Plugin {
     async closeBundle() {
       const index = join(outDir, "index.html");
       const html = await readFile(index, "utf8");
-      const canonical = `<link rel="canonical" href="${SITE}" />`;
-      const ogUrl = `<meta property="og:url" content="${SITE}" />`;
-      if (!html.includes(canonical) || !html.includes(ogUrl)) throw new Error("index.html: canonical or og:url not found");
+      await writeFile(index, pageHtml(html, PAGES.home, true));
       for (const route of ROUTES) {
         await mkdir(join(outDir, route), { recursive: true });
-        const page = html
-          .replace(canonical, `<link rel="canonical" href="${SITE}${route}" />`)
-          .replace(ogUrl, `<meta property="og:url" content="${SITE}${route}" />`);
-        await writeFile(join(outDir, route, "index.html"), page);
+        await writeFile(join(outDir, route, "index.html"), pageHtml(html, PAGES[route], true));
       }
-      await writeFile(join(outDir, "404.html"), html.replace(canonical, `<meta name="robots" content="noindex" />`));
+      await writeFile(join(outDir, "404.html"), pageHtml(html, PAGES.notfound, false));
+      const today = new Date().toISOString().slice(0, 10);
+      const urls = (["home", ...ROUTES] as const)
+        .map((name, i) => `  <url><loc>${SITE}${PAGES[name].path}</loc><lastmod>${today}</lastmod><priority>${i === 0 ? "1.0" : "0.8"}</priority></url>`)
+        .join("\n");
+      await writeFile(
+        join(outDir, "sitemap.xml"),
+        `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`,
+      );
     },
   };
 }
