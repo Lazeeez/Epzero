@@ -29,12 +29,17 @@ DATA="data/ann/$DATASET.hdf5"
 [ -f "$DATA" ] || { echo "download first: scripts/download_ann_dataset.sh $DATASET"; exit 1; }
 
 # Libraries that compile with -march=native are built here, on this node's CPU.
+# Every job installs into the same environment, and jobs submitted together start together: take
+# turns, or one job deletes files another is installing (seen: hnswlib's dist-info vanishing).
+exec 9>"$VENV/.install.lock"
+flock 9
 "$VENV/bin/pip" install --quiet --no-index --no-build-isolation --no-deps --force-reinstall "$VENV"/src/hnswlib-*.tar.gz
 if [ -d "$VENV/src/pyglass/python" ]; then
   "$VENV/bin/pip" install --quiet --no-build-isolation --no-deps --force-reinstall "$VENV/src/pyglass/python" || echo "glass did not build: skipped"
 fi
 # Epzero from this checkout (it picks its SIMD kernels at run time).
 "$VENV/bin/pip" install --quiet --no-deps --force-reinstall "$EPZERO_ROOT/engine"
+flock -u 9
 
 OUT=pace-results/gold6226
 CACHE=data/indexes/compete-gold6226
