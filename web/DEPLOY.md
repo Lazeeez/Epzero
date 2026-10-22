@@ -47,3 +47,27 @@ E2E_BASE_URL=http://localhost:8787/ npx playwright test --project=chromium
 ```
 
 `npx wrangler deploy --dry-run` checks the configuration without deploying.
+
+## Search engines
+
+What the site already does: every page's HTML has its own title, description, canonical address,
+link-preview tags and a no-JavaScript fallback with its heading and links; there is structured
+data (`WebSite`, `WebApplication`, `Person`), a sitemap written at each build with the build date,
+`robots.txt` pointing at it, and a `noindex` 404 page ([`e2e/seo.spec.ts`](e2e/seo.spec.ts) tests
+all of it). To get it indexed:
+
+1. **Google Search Console** (search.google.com/search-console): *Add property → Domain →
+   `epzero.dev`*. For a domain on Cloudflare, Google offers to add its verification TXT record
+   for you; otherwise add the `google-site-verification=...` TXT record under *DNS* in Cloudflare
+   (name `@`), then *Verify*.
+2. *Sitemaps*: submit `https://epzero.dev/sitemap.xml`.
+3. *URL inspection*: inspect `https://epzero.dev/`, `/try`, `/benchmarks`, `/cluster` and `/play`,
+   and *Request indexing* for each. Indexing usually takes a few days.
+4. **Bing Webmaster Tools** (bing.com/webmasters): *Import from Google Search Console*. That covers
+   Bing, DuckDuckGo and Yahoo too.
+5. **Cloudflare → Caching → Configuration → Crawler Hints**: on. Cloudflare then tells search
+   engines (IndexNow) when pages change, so updates are picked up without waiting for a crawl.
+6. Check the structured data with Google's Rich Results Test (search.google.com/test/rich-results).
+7. Links from elsewhere are what search engines weigh most for a new domain: put `epzero.dev` in
+   the GitHub repository's *About → Website* field, on LinkedIn and your résumé, and in posts that
+   share the project.
