@@ -9,6 +9,10 @@
   const k = $derived(trace.results.length);
   const speedup = $derived(trace.exactMicros / Math.max(trace.micros, 1));
   const share = $derived((trace.distanceComputations / engine.count) * 100);
+  // On a small collection the walk touches every photo (some twice, from different layers), and a
+  // straight scan of them all is as quick or quicker: say so rather than claim a speedup.
+  const small = $derived(share >= 100 || speedup < 1.5);
+  const ratio = (x: number) => (x >= 10 ? x.toFixed(0) : x.toFixed(1));
 
   const time = (us: number) => (us >= 1000 ? `${(us / 1000).toFixed(1)} ms` : `${us.toFixed(0)} µs`);
 
@@ -42,8 +46,8 @@
         <span class="label">Answer</span>
         <strong>Exact</strong>
       {:else}
-        <span class="label">Faster</span>
-        <strong class="num">{speedup.toFixed(0)}×</strong>
+        <span class="label">{speedup >= 1 ? "Faster" : "Speed"}</span>
+        <strong class="num">{ratio(speedup)}×</strong>
       {/if}
     </div>
   </div>
@@ -51,13 +55,23 @@
     <i style:width="{Math.min(share, 100)}%"></i>
   </div>
   <p class="detail">
-    Scored <strong class="num">{trace.distanceComputations.toLocaleString()}</strong> of {engine.count.toLocaleString()} photos
-    (<span class="num">{share.toFixed(1)}%</span>){trace.strategy === "exact" ? "" : ` across ${trace.entryLayer + 1} layers`} ·
+    {#if share >= 100}
+      Scored all <strong class="num">{engine.count.toLocaleString()}</strong> photos{trace.strategy === "exact" ? "" : ` across ${trace.entryLayer + 1} layers`} ·
+    {:else}
+      Scored <strong class="num">{trace.distanceComputations.toLocaleString()}</strong> of {engine.count.toLocaleString()} photos
+      (<span class="num">{share.toFixed(1)}%</span>){trace.strategy === "exact" ? "" : ` across ${trace.entryLayer + 1} layers`} ·
+    {/if}
     <strong class="num" class:perfect={hits === k}>{hits}/{k}</strong> same as the exact scan{trace.hybrid ? " (image search)" : ""}
     {#if encodeMs !== null && outcome.query.kind === "vector"}
       · CLIP {outcome.query.source === "text" ? "text" : "image"} encoder {encodeMs.toFixed(0)} ms
     {/if}
   </p>
+  {#if small && !trace.strategy && engine.count < 5000}
+    <p class="note">
+      With {engine.count.toLocaleString()} photos, scanning every one is about as quick. A graph pays off with many more: on the
+      29,825 demo photos it is typically 10–40× faster.
+    </p>
+  {/if}
   {#if trace.hybrid}
     <p class="keywords">
       <span class="tag">hybrid</span>
@@ -86,6 +100,11 @@
 </div>
 
 <style>
+  .note {
+    margin: 8px 0 0;
+    color: var(--muted);
+    font-size: 12.5px;
+  }
   .stats {
     display: grid;
     gap: 10px;
