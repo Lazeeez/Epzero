@@ -116,25 +116,33 @@ to the same recall@10.
 
 | Library | GIST1M, 960-D (recall 0.95) | GloVe-100 (recall 0.90) | DBpedia OpenAI, 1,536-D (recall 0.95) | DEEP10M, 10M × 96-D (recall 0.95) |
 |---|---|---|---|---|
-| Epzero | 351 | 1,311 | 1,419 | 3,824 |
-| Epzero SQ8 | 481 | 1,373 | 2,170 | 4,101 |
-| hnswlib | 356 | 1,133 | 1,438 | 3,710 |
-| FAISS HNSW | 336 | 1,160 | 1,617 | 3,407 |
-| FAISS IVF-PQ | never reaches | never reaches | 1,620 | never reaches |
-| USearch | 260 | 734 | 993 | 2,052 |
-| VSAG | 414 | 1,050 | 1,798 | 3,113 |
-| Glass | **709** | **2,867** | **3,604** | **6,344** |
+| Epzero | 343 | 1,301 | 1,418 | 3,734 |
+| Epzero SQ8 | **719** | 1,340 | 2,903 | 3,572 |
+| hnswlib | 353 | 1,141 | 1,449 | 3,608 |
+| FAISS HNSW | 330 | 1,160 | 1,630 | 3,359 |
+| FAISS IVF-PQ | never reaches | never reaches | 1,574 | never reaches |
+| USearch | 256 | 744 | 1,103 | 2,017 |
+| VSAG | 406 | 1,051 | 1,868 | 3,159 |
+| Glass | 705 | **2,891** | **3,703** | **6,392** |
 
-- **Glass is the fastest on every dataset**, 1.5–2.1× Epzero SQ8. Like Epzero SQ8 and VSAG it walks
-  the graph on 8-bit codes and re-ranks with the full vectors, and it measures the best prefetch
-  distance for the machine before searching (its `optimize` step). It is the one to learn from:
-  tuned prefetch depth and a batch search loop are the next levers worth trying here.
-- **Epzero SQ8 is second on all four.**
-- **Uncompressed, Epzero is level with hnswlib** on the high-dimensional sets (GIST 351 vs 356,
-  DBpedia 1,419 vs 1,438) and ahead on the low-dimensional ones (DEEP10M +3%, GloVe +16%). With
+- **On GIST1M, Epzero SQ8 and Glass are level at the top**: 719 and 705 queries a second at recall
+  0.95. Above that Epzero SQ8 is a little ahead (about 495 vs 472 at 0.967), below it Glass is
+  (1.17× at 0.90). 960-dimensional vectors are where the integer kernel and the smaller re-rank
+  (below) matter most; before them, Glass led here by 1.5×.
+- **Elsewhere Glass is the fastest**: 1.28× Epzero SQ8 on DBpedia (it was 1.66× before the
+  integer kernel), 1.7× the best Epzero mode on DEEP10M and 2.2× on GloVe. Like Epzero SQ8 and VSAG
+  it walks the graph on 8-bit codes and re-ranks with the full vectors, and it measures the best
+  prefetch distance for the machine before searching (its `optimize` step). On the
+  low-dimensional sets, where each distance is short, its lead is in the work around each distance.
+- **Epzero SQ8 is second on DBpedia and GloVe.** On DEEP10M it trails uncompressed Epzero in this
+  run: the exact outlier weights (see below) cost more per node than they save at 96 dimensions.
+  They are now applied only to queries that need them, which on the laptop made SQ8 7–10% faster
+  on GloVe (100 dimensions) at identical recall; the DEEP10M run is to be repeated with that.
+- **Uncompressed, Epzero is level with hnswlib** on the high-dimensional sets (GIST 343 vs 353,
+  DBpedia 1,418 vs 1,449) and ahead on the low-dimensional ones (DEEP10M +3%, GloVe +14%). With
   960 or 1,536 dimensions, each distance is a long, bandwidth-bound scan, and the memory work
   around it (prefetching, the visited set) is a small share of the time. On DBpedia, FAISS HNSW
-  (+14%) and VSAG are ahead of uncompressed Epzero.
+  (+15%) and VSAG are ahead of uncompressed Epzero.
 - **GloVe is compared at recall 0.90**: at M = 16 no library but VSAG reaches 0.95 by `ef` = 800
   (the others top out at 0.942–0.946). Tuned FAISS IVF-PQ reaches 0.95 only on DBpedia.
 - **Build is not Epzero's strength here.** On SIFT1M it built fastest; on these sets hnswlib builds
@@ -200,12 +208,23 @@ error drops to 0.3% on those embeddings, and on 38,000 of them the integer kerne
 the float kernel's within 0.003 at every beam width. It also lowers the error on SIFT1M, GloVe and
 GIST, whose largest weight was 2-4% off before.
 
+On the server, that split took DBpedia from 2,170 to 2,903 queries a second at recall 0.95 (+34%),
+but cost SQ8 13% on DEEP10M: eight extra float multiply-adds per node, as a chain of dependent
+adds, are a visible share of a 96-dimensional distance. A query's weights only need the split
+when a few of them dominate, so it now applies only when the largest weight is more than 4× the
+largest of the rest. Measured on 1,000 queries per dataset, that is every query on DBpedia
+(the ratio is about 60) and 98% on CLIP image embeddings (about 7), but 1.4% on GloVe, 0.2% on
+SIFT1M and none on GIST (median ratio 1.3-2), whose plain rounding is already accurate. The
+remaining split adds its eight terms in four independent sums. On the laptop, SQ8 is then
+7-10% faster on GloVe and 10-14% faster on GIST, and level on DBpedia, at identical recall.
+
 The gain grows with the dimension: at 960 dimensions the arithmetic per node is large enough that
 the instruction count matters, which is exactly where Glass's lead was. Prefetch tuning found
 +17% at full precision on GloVe-100 (8 neighbours ahead, 4 lines each) and about 6% on SIFT1M,
 and nothing on SQ8 codes, where one line up front was already best; Glass's own tuning log shows the
-same pattern (+0.1% on GIST, +36% on GloVe over its default). The server numbers, and where this
-leaves Epzero against Glass, come from re-running `compete.sbatch`.
+same pattern (+0.1% on GIST, +36% on GloVe over its default). On the server, the re-run of
+`compete.sbatch` took Epzero SQ8 from 481 to 719 queries a second on GIST1M (now level with Glass)
+and from 2,170 to 2,903 on DBpedia ([table](#against-the-field-four-more-datasets)).
 
 ### Thread scaling
 
