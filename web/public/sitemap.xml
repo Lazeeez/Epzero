@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://epzero.dev/</loc><priority>1.0</priority></url>
-  <url><loc>https://epzero.dev/try</loc><priority>0.9</priority></url>
-  <url><loc>https://epzero.dev/play</loc><priority>0.7</priority></url>
-  <url><loc>https://epzero.dev/cluster</loc><priority>0.8</priority></url>
-  <url><loc>https://epzero.dev/benchmarks</loc><priority>0.8</priority></url>
-</urlset>
