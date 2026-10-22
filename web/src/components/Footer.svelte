@@ -15,6 +15,7 @@
       <a href={router.href("play")}>Play</a>
       <a href={router.href("cluster")}>Cluster</a>
       <a href={router.href("benchmarks")}>Benchmarks</a>
+      <a href={router.href("blog")}>Blog</a>
     </nav>
     <p class="credits">
       Photos: <a href="https://storage.googleapis.com/openimages/web/index.html" rel="noopener">Open Images</a>, CC BY 2.0 via Flickr
@@ -78,7 +79,8 @@
     }
     nav {
       flex-direction: row;
-      gap: 20px;
+      flex-wrap: wrap;
+      gap: 10px 20px;
     }
   }
 </style>
