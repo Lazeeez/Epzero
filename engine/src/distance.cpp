@@ -158,21 +158,22 @@ std::vector<std::pair<std::string_view, Sq8IntDotFn>> sq8_int_dot_variants() {
   return out;
 }
 
-Sq8IntDotFn get_sq8_int_dot_fn(SimdLevel level) noexcept {
+Sq8IntDotFn get_sq8_int_dot_fn(SimdLevel level, std::size_t dim) noexcept {
   if (!simd_level_supported(level)) return nullptr;
   switch (level) {
     case SimdLevel::Scalar: return kernels::sq8_int_dot_scalar;
 #if defined(__x86_64__) || defined(_M_X64)
     case SimdLevel::AVX512:
 #if defined(EPZERO_HAVE_AVX512VNNI)
-      // Not on the first AVX-512 Xeons: on a Gold 6226 (Cascade Lake), SQ8 search with the AVX2
-      // integer kernel was 61% faster on GloVe-100 and 73% on DEEP10M (100 and 96 dimensions), and
-      // within 3% on GIST1M and DBpedia (960 and 1,536), while float search stayed fastest with
-      // AVX-512 (SIFT1M: -10% on AVX2). So these cores keep AVX-512 for everything else.
+      // On the first AVX-512 Xeons only for whole 64-byte blocks: on a Gold 6226 (Cascade Lake),
+      // SQ8 search with the AVX2 integer kernel was 61% faster on GloVe-100 and 73% on DEEP10M (100
+      // and 96 dimensions: the AVX-512 kernel's masked tail), while on GIST1M and DBpedia (960 and
+      // 1,536) the AVX-512 kernel was 3-5% faster. Float search stays on AVX-512 throughout.
       // EPZERO_SQ8_KERNEL=avx512 forces it (for A/B runs).
       if (cpu_has_avx512_vnni()) {
         const char* forced = std::getenv("EPZERO_SQ8_KERNEL");
-        if (avx512_runs_at_full_clock() || (forced != nullptr && std::string_view(forced) == "avx512")) {
+        const bool whole_blocks = dim > 0 && dim % 64 == 0;
+        if (avx512_runs_at_full_clock() || whole_blocks || (forced != nullptr && std::string_view(forced) == "avx512")) {
           return kernels::sq8_int_dot_avx512vnni;
         }
       }
