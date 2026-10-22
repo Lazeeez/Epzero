@@ -139,6 +139,8 @@ export type ToWorker =
       /** A prebuilt graph to load instead of building (falls back to building if it fails). */
       graph?: string;
     }
+  /** The visitor's own photos: unit CLIP vectors (count x dim), indexed here instead of the demo set. */
+  | { type: "own"; vectors: Float32Array; count: number; dim: number; M: number; efConstruction: number }
   | { type: "rebuild"; M: number; efConstruction: number }
   /** The photos' captions, newline-separated, line i for photo i: indexed for keyword search. */
   | { type: "keywords"; texts: string }
