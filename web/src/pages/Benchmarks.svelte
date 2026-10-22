@@ -175,7 +175,8 @@
       its prefetch distance to the machine before searching. Epzero is ahead of hnswlib, FAISS, VSAG and USearch on all four.
       Uncompressed, it is level with hnswlib on the high-dimensional sets (GIST, DBpedia: within 2%) and ahead on the low-dimensional
       ones (DEEP10M, GloVe: 4–15%), where the memory work around each distance matters most. GloVe is compared at recall 0.90: at
-      M = 16 no library but VSAG reaches 0.95 by <code>ef</code> = 800.
+      M = 16 no library but VSAG reaches 0.95 by <code>ef</code> = 800. How the engine got here, and what didn't help:
+      <a href={router.href("blog")}>Vector search is a memory problem</a>.
     </p>
   </section>
 
