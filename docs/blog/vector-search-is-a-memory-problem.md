@@ -88,7 +88,7 @@ only pays when the work you skip is what you're waiting on.
 
 My first comparison, on a laptop, said Epzero served **1.46× hnswlib's** queries per second at the
 same recall. On a dedicated server (2 × Xeon Gold 6226, clock fixed, no other jobs, search pinned
-to one socket) it was **1.13×**.
+to one socket) it was **1.08×**.
 
 The difference was huge pages. On the laptop they're opt-in: Epzero asked for them, and the other
 libraries didn't. On the server the kernel gives them to every program. Turning Epzero's request
@@ -128,9 +128,10 @@ ends up close to what Epzero already did. Two other things weren't:
 
 Together, on my laptop: **1.95× faster on GIST** (960 dimensions), +20% on GloVe (100) and +26% on
 SIFT (128). The gain grows with the dimension, which is exactly where Glass's lead was largest.
-Back on the server, Epzero's 8-bit mode went from 1.5× behind Glass on GIST to level with it
-(796 against 788 queries a second at recall 0.95), and from 1.66× behind to 1.25× on the OpenAI
-embeddings. On the low-dimensional sets Glass still leads, by 1.5–1.8×.
+Back on the server, Epzero's 8-bit mode went from 1.5× behind Glass on GIST to 1.08× ahead of it,
+and to 1.15× ahead on DEEP10M, once its 8-bit kernel stopped using AVX-512 on that older Xeon,
+where the 512-bit version was far slower on short vectors. Glass still leads on GloVe (1.18×) and
+the OpenAI embeddings (1.31×).
 
 So the thesis needs a footnote: vector search is a memory problem *until you shrink the bytes*.
 Quantization moves the bottleneck back toward the core, and then instruction counts matter again.
