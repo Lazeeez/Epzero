@@ -80,10 +80,12 @@ instruction-level changes.
 
 The reference run is on a dedicated server node: 2 × Intel Xeon Gold 6226 (Cascade Lake, 24
 cores, AVX-512, clock fixed at 2.7 GHz), Slurm `--exclusive`, search pinned to one socket and its
-local memory. Repeated runs agree within 0.5%. At the same recall (0.95), Epzero serves **1.13×
-hnswlib's QPS and 1.17× FAISS's**, and the lead holds at every recall level (1.12–1.14× and
-1.16–1.24× between recall 0.80 and 0.995). It also builds the graph fastest: 26.1 s, against 27.8 s
-and 37.8 s, on 24 threads. Raw data:
+local memory. Repeated runs agree within 0.5%. At the same recall (0.95), Epzero serves **1.08×
+hnswlib's QPS and 1.12× FAISS's**, and the lead holds at every recall level (1.06–1.08× and
+1.12–1.18× between recall 0.80 and 0.995). It also builds the graph fastest: 24.0 s, against 27.8 s
+and 37.8 s, on 24 threads. (An earlier engine measured 1.13× and 1.17× here: today's is about 4%
+slower on full-precision SIFT1M on this server while hnswlib held steady, and
+[`scripts/pace/ab.sbatch`](../scripts/pace/ab.sbatch) bisects which change did it.) Raw data:
 [`bench/results/pace/gold6226/sift1m-compare.json`](../bench/results/pace/gold6226/sift1m-compare.json).
 
 All three libraries implement the same algorithm, and graph quality is essentially identical
@@ -99,7 +101,7 @@ The server's smaller lead is explained by transparent huge pages:
 |---|---|---|
 | Laptop: huge pages opt-in (`madvise`); only Epzero asks for them | 1.44–1.55× | 1.39–1.55× |
 | Laptop: no library on huge pages (`EPZERO_NO_HUGEPAGES=1`) | 1.18–1.25× | 1.21–1.35× |
-| Server: huge pages for every program (`always`) | 1.12–1.14× | 1.16–1.24× |
+| Server: huge pages for every program (`always`) | 1.06–1.08× | 1.12–1.18× |
 
 A random walk over a 765 MB graph misses the TLB on almost every node with 4 KiB pages. Epzero
 requests 2 MiB pages for its graph (`MADV_HUGEPAGE`), which is worth about 16% on its own: turning
@@ -121,34 +123,28 @@ to the same recall@10.
 
 | Library | GIST1M, 960-D (recall 0.95) | GloVe-100 (recall 0.90) | DBpedia OpenAI, 1,536-D (recall 0.95) | DEEP10M, 10M × 96-D (recall 0.95) |
 |---|---|---|---|---|
-| Epzero | 351 | 1,294 | 1,470 | 3,844 |
-| Epzero SQ8 | **796** | 1,567 | 3,185 | 4,466 |
-| hnswlib | 353 | 1,127 | 1,438 | 3,688 |
-| FAISS HNSW | 330 | 1,147 | 1,620 | 3,378 |
-| FAISS IVF-PQ | never reaches | never reaches | 1,615 | never reaches |
-| USearch | 258 | 729 | 983 | 2,029 |
-| VSAG | 409 | 1,048 | 1,752 | 3,178 |
-| Glass | 788 | **2,880** | **3,988** | **6,523** |
+| Epzero | 352 | 1,301 | 1,444 | 3,884 |
+| Epzero SQ8 | **768** | 2,435 | 3,137 | **7,409** |
+| hnswlib | 356 | 1,133 | 1,448 | 3,615 |
+| FAISS HNSW | 336 | 1,154 | 1,629 | 3,362 |
+| FAISS IVF-PQ | never reaches | never reaches | 1,545 | never reaches |
+| USearch | 261 | 735 | 1,072 | 2,056 |
+| VSAG | 411 | 1,049 | 1,871 | 3,136 |
+| Glass | 708 | **2,865** | **4,094** | 6,443 |
 
-- **On GIST1M, Epzero SQ8 and Glass are level at the top**: 796 and 788 queries a second at recall
-  0.95. Above that Epzero SQ8 is a little ahead (634 vs 618 at 0.96), below it Glass is (1.12× at
-  0.90). 960-dimensional vectors are where the integer kernel and the smaller re-rank (below)
-  matter most; before them, Glass led here by 1.5×.
-- **Elsewhere Glass is the fastest**: 1.25× Epzero SQ8 on DBpedia (1.66× before the integer
-  kernel), 1.46× on DEEP10M (1.79× in the previous run) and 1.84× on GloVe (2.16×). Like Epzero
-  SQ8 and VSAG it walks the graph on 8-bit codes and re-ranks with the full vectors, and it
-  measures the best prefetch distance for the machine before searching (its `optimize` step).
-  Where its lead is largest, the low-dimensional sets, each distance is short and the time goes
-  into the work around it. On the laptop, at the same settings, Glass and Epzero SQ8 are level on
-  GloVe (Epzero 3-10% ahead); why the server widens the gap is not yet known.
-- **Epzero SQ8 is second on DBpedia, DEEP10M and GloVe**, and now Epzero's fastest mode on all four:
-  applying the exact outlier weights (below) only to the queries that need them took SQ8 on
-  DEEP10M from 3,572 to 4,466 (+25%) and on GloVe from 1,340 to 1,567 (+17%).
-- **Uncompressed, Epzero is level with hnswlib** on the high-dimensional sets (GIST 351 vs 353,
-  DBpedia 1,470 vs 1,438) and ahead on the low-dimensional ones (DEEP10M +4%, GloVe +15%). With
+- **Epzero SQ8 is the fastest of the eight on GIST1M and DEEP10M**: 1.08× Glass on GIST1M and
+  1.15× on DEEP10M at recall 0.95. On DEEP10M that took two fixes: applying the exact outlier
+  weights only to the queries that need them (+25%), then not scoring 8-bit codes with the AVX-512
+  kernel on this Cascade Lake Xeon, where it was far slower on short vectors (below; +66%).
+- **Glass leads on GloVe-100 (1.18×) and DBpedia (1.31×).** Like Epzero SQ8 and VSAG it walks the
+  graph on 8-bit codes and re-ranks with the full vectors, and it measures the best prefetch
+  distance for the machine before searching (its `optimize` step). Its own results vary by about
+  10% between runs (GIST1M: 705 to 795 queries a second), as it rebuilds its graph each time.
+- **Uncompressed, Epzero is level with hnswlib** on the high-dimensional sets (GIST 352 vs 356,
+  DBpedia 1,444 vs 1,448) and ahead on the low-dimensional ones (DEEP10M +7%, GloVe +15%). With
   960 or 1,536 dimensions, each distance is a long, bandwidth-bound scan, and the memory work
   around it (prefetching, the visited set) is a small share of the time. On DBpedia, FAISS HNSW
-  (+10%) and VSAG are ahead of uncompressed Epzero.
+  (+13%) and VSAG are ahead of uncompressed Epzero.
 - **GloVe is compared at recall 0.90**: at M = 16 no library but VSAG reaches 0.95 by `ef` = 800
   (the others top out at 0.942–0.946). Tuned FAISS IVF-PQ reaches 0.95 only on DBpedia.
 - **Build is not Epzero's strength here.** On SIFT1M it built fastest; on these sets hnswlib builds
