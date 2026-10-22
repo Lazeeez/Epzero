@@ -1,6 +1,13 @@
 // Messages between the page and the engine worker.
 
+export type Metric = "cosine" | "l2" | "ip";
+
 export interface LabConfig {
+  /** synthetic: clustered vectors generated in WebAssembly; own: the visitor's file (inspected first). */
+  source: "synthetic" | "own";
+  /** own: the distance, and how many vectors to hold out as queries when no query file is given. */
+  metric?: Metric;
+  holdout?: number;
   n: number;
   dim: number;
   queries: number;
@@ -33,9 +40,24 @@ export interface KernelRow {
   simdNs: number;
 }
 
-export type StageId = "generate" | "truth" | "build" | "sweep" | "baseline" | "kernel";
+/** A vector file the worker has read (and keeps until it's replaced or run). */
+export interface VectorInfo {
+  name: string;
+  bytes: number;
+  n: number;
+  dim: number;
+  format: string;
+  meanNorm: number;
+  /** Every vector is (nearly) unit length: cosine is the natural metric. */
+  unit: boolean;
+}
 
-export type ToWorker = { type: "run"; config: LabConfig };
+export type StageId = "generate" | "load" | "truth" | "build" | "sweep" | "baseline" | "kernel";
+
+export type ToWorker =
+  | { type: "run"; config: LabConfig }
+  | { type: "inspect"; role: "base" | "queries"; file: File }
+  | { type: "drop"; role: "base" | "queries" };
 
 export type FromWorker =
   | { type: "ready"; info: EngineInfo }
@@ -45,5 +67,9 @@ export type FromWorker =
   | { type: "baseline"; qps: number }
   | { type: "kernel"; row: KernelRow }
   | { type: "summary"; buildMs: number; memoryBytes: number; layers: number }
+  | { type: "inspected"; role: "base" | "queries"; info: VectorInfo }
+  | { type: "inspect-error"; role: "base" | "queries"; message: string }
+  /** own: what the run indexes (after holding out queries). */
+  | { type: "loaded"; n: number; queries: number; dim: number }
   | { type: "done" }
   | { type: "error"; message: string };
