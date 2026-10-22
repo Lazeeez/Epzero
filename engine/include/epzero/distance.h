@@ -48,7 +48,9 @@ inline constexpr int kSq8IntWeightMax = 63;
 using Sq8IntDotFn = std::int32_t (*)(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept;
 // The fastest integer kernel for `level` on this CPU (VNNI when present), or nullptr where there is
 // none faster than the float kernel (NEON, WebAssembly) or `level` is unsupported.
-Sq8IntDotFn get_sq8_int_dot_fn(SimdLevel level) noexcept;
+// `dim`, when known, lets the first AVX-512 Xeons use their AVX-512 kernel where it's fast: on
+// whole 64-byte blocks (see distance.cpp).
+Sq8IntDotFn get_sq8_int_dot_fn(SimdLevel level, std::size_t dim = 0) noexcept;
 // Every integer kernel this CPU can run, by name (for tests and benchmarks).
 std::vector<std::pair<std::string_view, Sq8IntDotFn>> sq8_int_dot_variants();
 
