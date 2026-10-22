@@ -42,7 +42,14 @@ jobs:
         run: npm ci && npx playwright install --with-deps chromium firefox webkit
       - name: Dependency audit (fails on high-severity advisories)
         working-directory: web
-        run: npm audit --omit=dev --audit-level=high
+        # Retried: npm reports an unreachable advisory service the same way as a finding, and a real
+        # advisory fails every attempt.
+        run: |
+          for attempt in 1 2 3; do
+            npm audit --omit=dev --audit-level=high && exit 0
+            echo "audit attempt $attempt failed"; sleep 20
+          done
+          exit 1
       # The CLIP text and image encoders (154 MB) are self-hosted with the site; fetch once, reuse.
       - uses: actions/cache@v4
         with:
