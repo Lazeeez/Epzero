@@ -234,6 +234,15 @@ same pattern (+0.1% on GIST, +36% on GloVe over its default). On the server, the
 `compete.sbatch` took Epzero SQ8 from 481 to 796 queries a second on GIST1M (now level with Glass)
 and from 2,170 to 3,185 on DBpedia ([table](#against-the-field-four-more-datasets)).
 
+**Prefetch tuning on the server.** `tune_prefetch` picked a shallow window for SQ8 on the Gold
+6226 (2 neighbours ahead, where the laptop is best with all of them up front). It times searches of
+indexed vectors at `ef` 64, unlike the benchmark's queries, so the pick was checked against the
+default at the measured beam widths, interleaved beside Glass
+([`scripts/pace/prefetch.sbatch`](../scripts/pace/prefetch.sbatch)): the tuned setting is 13-17%
+faster on GloVe-100 and 15-17% on DEEP10M at every recall. The pick is right, and the server's
+cores prefer the opposite of the laptop's; Glass's lead there (1.8× on GloVe-100, 1.47× on
+DEEP10M) has another cause. Raw data: `bench/results/pace/gold6226/*-prefetch.json`.
+
 ### Thread scaling
 
 Search throughput on the same server node, SIFT1M, ef = 80 (recall 0.974), median of three runs
