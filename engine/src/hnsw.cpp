@@ -352,9 +352,7 @@ class HnswIndex::Scorer {
     }
     w_scale_ = largest > 0.0f ? largest / static_cast<float>(kSq8IntWeightMax) : 1.0f;
     const float inv = 1.0f / w_scale_;
-    // Zero weights past the last dimension, up to whole 64-byte blocks (see sq8_span_): the kernels
-    // then never run a masked or scalar tail, and the bytes they read past the codes count for 0.
-    iweights_.assign(index.sq8_span_, 0);
+    iweights_.resize(dim);
     for (std::size_t i = 0; i < dim; ++i) iweights_[i] = static_cast<std::int8_t>(std::lrint(weights_[i] * inv));  // outliers: 0
     for (std::size_t j = 0; j < outliers_; ++j) weights_[top[j]] = kept[j];
   }
@@ -474,10 +472,6 @@ HnswIndex::HnswIndex(const HnswParams& params)
                    : sq8()  ? round_up(sizeof(float) + params_.dim, sizeof(id_t))
                             : params_.dim * sizeof(float);
   node_stride_ = round_up(links0_offset_ + (1 + max_links0_) * sizeof(id_t), 64);
-  // The integer SQ8 kernels score whole 64-byte blocks when the record has room for the overrun
-  // (its neighbour list follows the codes): a partial last block needed a masked load on AVX-512,
-  // which on a Cascade Lake Xeon made 96-100-dimension search far slower than the AVX2 kernel.
-  sq8_span_ = sq8() && sizeof(float) + round_up(params_.dim, 64) <= node_stride_ ? round_up(params_.dim, 64) : params_.dim;
   level0_ = allocate_level0();
   if (quantized() && params_.keep_vectors) {
     full_.reset(static_cast<float*>(allocate_block(params_.max_elements * params_.dim * sizeof(float))));
