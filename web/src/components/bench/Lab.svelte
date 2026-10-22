@@ -1,6 +1,6 @@
 <script lang="ts">
   import { formatQps, formatUs } from "../../lib/format";
-  import type { EngineInfo, FromWorker, KernelRow, LabConfig, StageId, SweepRow } from "../../lib/lab/protocol";
+  import type { EngineInfo, FromWorker, KernelRow, LabConfig, Metric, StageId, SweepRow, VectorInfo } from "../../lib/lab/protocol";
   import { reloadForThreads } from "../../lib/isolation";
   import { UNSUPPORTED_BROWSER, wasmSimdSupported } from "../../lib/support";
   import RecallChart from "./RecallChart.svelte";
@@ -16,17 +16,49 @@
   const labels: Record<keyof typeof choices, string> = { n: "Vectors", dim: "Dimensions", M: "Links per node (M)", efConstruction: "efConstruction" };
   let settings = $state({ n: 100000, dim: 128, M: 16, efConstruction: 128 });
 
-  const stageNames: [StageId, string][] = [
-    ["generate", "Generate clustered vectors"],
+  // The data: clustered vectors generated in WebAssembly, or the visitor's own file.
+  let source = $state<"synthetic" | "own">("synthetic");
+  type FileState = { reading: boolean; info: VectorInfo | null; error: string };
+  let files = $state<{ base: FileState; queries: FileState }>({
+    base: { reading: false, info: null, error: "" },
+    queries: { reading: false, info: null, error: "" },
+  });
+  let separateQueries = $state(false);
+  let metric = $state<Metric>("cosine");
+  let metricTouched = false;
+  const metrics: [Metric, string][] = [
+    ["cosine", "Cosine"],
+    ["l2", "L2"],
+    ["ip", "Inner product"],
+  ];
+  const suggested = $derived<Metric | null>(files.base.info ? (files.base.info.unit ? "cosine" : "l2") : null);
+  const ownReady = $derived(!!files.base.info && !files.base.reading && (!separateQueries || (!!files.queries.info && !files.queries.reading)));
+  let baseInput: HTMLInputElement | undefined = $state();
+  let queryInput: HTMLInputElement | undefined = $state();
+  let dragging = $state<"" | "base" | "queries">("");
+
+  function choose(role: "base" | "queries", file: File | undefined | null) {
+    if (!file || !worker) return;
+    files[role] = { reading: true, info: null, error: "" };
+    worker.postMessage({ type: "inspect", role, file });
+  }
+  function drop(role: "base" | "queries") {
+    files[role] = { reading: false, info: null, error: "" };
+    worker?.postMessage({ type: "drop", role });
+  }
+  const size = (bytes: number) => (bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : bytes >= 1e6 ? `${(bytes / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1e3))} KB`);
+
+  const stageNames = $derived<[StageId, string][]>([
+    source === "own" ? ["load", "Load your vectors"] : ["generate", "Generate clustered vectors"],
     ["truth", "Exact ground truth"],
     ["build", "Build the HNSW graph"],
     ["baseline", "Exact-scan baseline"],
     ["sweep", "Recall / speed sweep"],
     ["kernel", "SIMD kernel check"],
-  ];
+  ]);
 
   let root: HTMLElement | undefined = $state();
-  let worker: Worker | null = null;
+  let worker = $state.raw<Worker | null>(null);
   let info = $state<EngineInfo | null>(null);
   let error = $state("");
   let running = $state(false);
@@ -65,7 +97,24 @@
 
   function run() {
     if (!worker || !info || running) return;
-    config = { ...settings, queries: 1000, clusters: 100, k: 10, efs: [10, 16, 24, 32, 48, 64, 96, 128, 192, 256] };
+    if (source === "own" && !ownReady) return;
+    config =
+      source === "own"
+        ? {
+            source,
+            metric,
+            holdout: 1000,
+            n: files.base.info!.n,
+            dim: files.base.info!.dim,
+            M: settings.M,
+            efConstruction: settings.efConstruction,
+            queries: 1000,
+            clusters: 0,
+            k: 10,
+            // Real data is often harder than clustered noise: the sweep goes further.
+            efs: [10, 16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512],
+          }
+        : { source, ...settings, queries: 1000, clusters: 100, k: 10, efs: [10, 16, 24, 32, 48, 64, 96, 128, 192, 256] };
     stages = {};
     buildProgress = 0;
     rows = [];
@@ -85,6 +134,17 @@
     switch (message.type) {
       case "ready":
         info = message.info;
+        break;
+      case "inspected":
+        files[message.role] = { reading: false, info: message.info, error: "" };
+        if (message.role === "base" && !metricTouched) metric = message.info.unit ? "cosine" : "l2";
+        break;
+      case "inspect-error":
+        files[message.role] = { reading: false, info: null, error: message.message };
+        break;
+      case "loaded":
+        if (config) config = { ...config, n: message.n, queries: message.queries, dim: message.dim };
+        setStage("load", { detail: `${message.n.toLocaleString()} vectors · ${message.queries.toLocaleString()} queries · ${message.dim}-D · ${metric === "ip" ? "inner product" : metric}` });
         break;
       case "stage":
         setStage(message.stage, { state: message.state, ms: message.ms });
@@ -155,8 +215,141 @@
       {/if}
     </ul>
 
+    <div class="source" role="radiogroup" aria-label="Data to benchmark">
+      <button role="radio" aria-checked={source === "synthetic"} class:on={source === "synthetic"} onclick={() => (source = "synthetic")} disabled={running}>
+        Synthetic clusters
+        <small>generated here, any size</small>
+      </button>
+      <button role="radio" aria-checked={source === "own"} class:on={source === "own"} onclick={() => (source = "own")} disabled={running}>
+        Your vectors
+        <small>a file of embeddings: .npy, .fvecs, CSV, JSON</small>
+      </button>
+    </div>
+
+    {#snippet picker(role: "base" | "queries", title: string)}
+      {@const state = files[role]}
+      {#if state.info}
+        <div class="file">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7z" /><path d="M14 3v5h5" /></svg>
+          <div>
+            <strong>{state.info.name}</strong>
+            <span class="num">
+              {state.info.n.toLocaleString()} × {state.info.dim.toLocaleString()} · {state.info.format} · {size(state.info.bytes)}{role === "base"
+                ? ` · ${state.info.unit ? "unit length" : `mean length ${state.info.meanNorm.toPrecision(3)}`}`
+                : ""}
+            </span>
+          </div>
+          <button class="link" onclick={() => (role === "base" ? baseInput : queryInput)?.click()} disabled={running}>Replace</button>
+          <button class="link" onclick={() => drop(role)} disabled={running}>Remove</button>
+        </div>
+      {:else}
+        <button
+          class="dropfile"
+          class:dragging={dragging === role}
+          disabled={state.reading || !worker}
+          onclick={() => (role === "base" ? baseInput : queryInput)?.click()}
+          ondragover={(e) => {
+            e.preventDefault();
+            dragging = role;
+          }}
+          ondragleave={() => (dragging = "")}
+          ondrop={(e) => {
+            e.preventDefault();
+            dragging = "";
+            choose(role, e.dataTransfer?.files[0]);
+          }}
+        >
+          {#if state.reading}
+            <i class="spin dark" aria-hidden="true"></i>
+            <span><strong>Reading…</strong></span>
+          {:else}
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M7 9l5-5 5 5M5 15v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4" /></svg>
+            <span>
+              <strong>{title}</strong>
+              <small>.npy · .fvecs · .bvecs · CSV / TSV · JSON / JSON Lines. Read in this tab, never uploaded.</small>
+            </span>
+            <span class="btn btn-ghost small" aria-hidden="true">Choose file</span>
+          {/if}
+        </button>
+      {/if}
+      {#if state.error}<p class="file-error" role="alert">{state.error}</p>{/if}
+    {/snippet}
+
+    {#if source === "own"}
+      <div class="own">
+        <input
+          class="sr"
+          type="file"
+          bind:this={baseInput}
+          accept=".npy,.fvecs,.bvecs,.csv,.tsv,.txt,.json,.jsonl,.ndjson"
+          onchange={(e) => choose("base", e.currentTarget.files?.[0])}
+          tabindex="-1"
+          aria-label="Vector file"
+        />
+        <input
+          class="sr"
+          type="file"
+          bind:this={queryInput}
+          accept=".npy,.fvecs,.bvecs,.csv,.tsv,.txt,.json,.jsonl,.ndjson"
+          onchange={(e) => choose("queries", e.currentTarget.files?.[0])}
+          tabindex="-1"
+          aria-label="Query file"
+        />
+        {@render picker("base", "Drop a file of vectors, or choose one")}
+
+        <fieldset disabled={running}>
+          <legend>Queries</legend>
+          <div class="seg">
+            <label class:on={!separateQueries}>
+              <input
+                type="radio"
+                name="queries"
+                checked={!separateQueries}
+                onchange={() => {
+                  separateQueries = false;
+                  drop("queries");
+                }}
+              />
+              Hold out from the file
+            </label>
+            <label class:on={separateQueries}>
+              <input type="radio" name="queries" checked={separateQueries} onchange={() => (separateQueries = true)} />
+              A separate query file
+            </label>
+          </div>
+          <p class="help">
+            {separateQueries
+              ? "Searched against every vector in the first file; recall is measured against an exact scan."
+              : "Random vectors are set aside as queries (up to 1,000, fewer for big files) and left out of the index, so none finds itself."}
+          </p>
+        </fieldset>
+        {#if separateQueries}{@render picker("queries", "Drop the query vectors, or choose a file")}{/if}
+
+        <fieldset disabled={running}>
+          <legend>Distance</legend>
+          <div class="seg">
+            {#each metrics as [value, name] (value)}
+              <label class:on={metric === value}>
+                <input
+                  type="radio"
+                  name="metric"
+                  {value}
+                  checked={metric === value}
+                  onchange={() => {
+                    metric = value;
+                    metricTouched = true;
+                  }}
+                />
+                {name}{#if suggested === value}<em>suggested</em>{/if}
+              </label>
+            {/each}
+          </div>
+        </fieldset>
+      </div>
+    {/if}
+
     <div class="options">
-      {#each Object.keys(choices) as key (key)}
+      {#each Object.keys(choices).filter((key) => source === "synthetic" || key === "M" || key === "efConstruction") as key (key)}
         {@const k = key as keyof typeof choices}
         <fieldset disabled={running}>
           <legend>{labels[k]}</legend>
@@ -172,7 +365,7 @@
       {/each}
     </div>
 
-    <button class="btn btn-primary run" onclick={run} disabled={!info || running}>
+    <button class="btn btn-primary run" onclick={run} disabled={!info || running || (source === "own" && !ownReady)}>
       {#if running}<i class="spin"></i>Running…{:else}Run on this device{/if}
     </button>
   </div>
@@ -222,7 +415,7 @@
       {#if rows.length}
         <div class="card pad">
           <RecallChart
-            series={[{ name: "Epzero on this device", color: "var(--accent)", points: rows }]}
+            series={[{ name: config.source === "own" ? "Epzero on your vectors" : "Epzero on this device", color: "var(--accent)", points: rows }]}
             {baseline}
             baselineLabel="Exact scan on this device"
             height={360}
@@ -265,6 +458,182 @@
 </div>
 
 <style>
+  .source {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .source button {
+    display: grid;
+    gap: 2px;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--text-2);
+    font: 600 14px var(--font);
+    text-align: left;
+    cursor: pointer;
+    transition:
+      border-color 0.2s,
+      background 0.2s,
+      color 0.2s;
+  }
+  .source button small {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 400;
+  }
+  .source button.on {
+    border-color: var(--accent);
+    background: var(--accent-wash);
+    color: var(--text);
+  }
+  .source button:focus-visible,
+  .dropfile:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .own {
+    display: grid;
+    gap: 16px;
+  }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .dropfile {
+    display: grid;
+    grid-template-columns: 22px 1fr auto;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    padding: 16px 18px;
+    border: 1.5px dashed var(--border-strong);
+    border-radius: 14px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition:
+      border-color 0.2s,
+      background 0.2s;
+  }
+  .dropfile:hover:not(:disabled),
+  .dropfile.dragging {
+    border-color: var(--accent);
+    background: var(--accent-wash);
+  }
+  .dropfile:disabled {
+    cursor: default;
+  }
+  .dropfile span {
+    display: grid;
+    gap: 2px;
+  }
+  .dropfile strong {
+    font-size: 14px;
+  }
+  .dropfile small {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .dropfile svg,
+  .file svg {
+    width: 22px;
+    height: 22px;
+    fill: none;
+    stroke: var(--accent-strong);
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .btn.small {
+    height: 34px;
+    padding: 0 14px;
+    font-size: 13px;
+  }
+  .file {
+    display: grid;
+    grid-template-columns: 22px 1fr auto auto;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 18px;
+    border: 1px solid color-mix(in srgb, var(--good) 40%, var(--border));
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--good) 6%, transparent);
+  }
+  .file div {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+  }
+  .file strong {
+    overflow: hidden;
+    font-size: 14px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .file span {
+    color: var(--text-2);
+    font: 12px var(--mono);
+  }
+  .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-2);
+    font: 13px var(--font);
+    cursor: pointer;
+  }
+  .link:hover {
+    color: var(--accent-strong);
+  }
+  .file-error {
+    margin: -6px 0 0;
+    color: var(--warn);
+    font-size: 13px;
+  }
+  .own .seg {
+    width: fit-content;
+    max-width: 100%;
+  }
+  .own .seg label {
+    font-family: var(--font);
+  }
+  .help {
+    margin: 8px 0 0;
+    color: var(--muted);
+    font-size: 12.5px;
+  }
+  .seg label em {
+    margin-left: 6px;
+    color: var(--good);
+    font: normal 11px var(--mono);
+  }
+  .spin.dark {
+    border-color: var(--border-strong);
+    border-top-color: var(--accent);
+  }
+  @media (max-width: 600px) {
+    .source {
+      grid-template-columns: 1fr;
+    }
+    .dropfile {
+      grid-template-columns: 22px 1fr;
+    }
+    .dropfile .btn {
+      display: none;
+    }
+    .file {
+      gap: 10px;
+      padding: 12px 14px;
+    }
+  }
   .lab {
     display: grid;
     gap: 16px;
