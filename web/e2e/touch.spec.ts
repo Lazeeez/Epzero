@@ -16,8 +16,8 @@ test("touch: tap a star for its photo card, search from it, hide and show the pa
   const panel = page.getByRole("complementary", { name: "Search" });
   await expect(panel.locator(".result")).toHaveCount(12, { timeout: 150_000 });
 
-  // Free look: hide the panel to explore full screen; the button to bring it back is in reach.
-  await page.getByRole("button", { name: "Hide the panels" }).click();
+  // Free look: the reset button hides the panel to explore full screen; the way back is in reach.
+  await page.getByRole("button", { name: "Reset the view and hide the panels" }).click();
   await expect(panel).toHaveClass(/collapsed/);
   await expect(page.locator(".knobs")).toHaveClass(/away/);
   await expect(page.locator(".view-anchor")).toHaveClass(/away/);
@@ -28,7 +28,7 @@ test("touch: tap a star for its photo card, search from it, hide and show the pa
   await show.click();
   await expect(panel).not.toHaveClass(/collapsed/);
   await expect(page.getByRole("button", { name: "Switch to light theme" })).toBeVisible();
-  await page.getByRole("button", { name: "Hide the panels" }).click();
+  await page.getByRole("button", { name: "Reset the view and hide the panels" }).click();
   await expect(panel).toHaveClass(/collapsed/);
   await page.keyboard.press("r"); // hold the camera still (the view controls are hidden too)
 
