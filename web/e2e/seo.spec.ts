@@ -5,10 +5,11 @@ import { expect, test } from "@playwright/test";
 // data, the sitemap and robots.txt, and a 404 page that asks not to be indexed.
 const pages = [
   { path: "", title: /^Epzero · A vector database/ },
-  { path: "try", title: /^Search 29,825 photos/ },
+  { path: "try", title: /^Semantic photo search/ },
   { path: "play", title: /out-navigate/ },
   { path: "cluster", title: /^Break a vector database cluster/ },
-  { path: "benchmarks", title: /^Benchmarks: Epzero vs/ },
+  { path: "benchmarks", title: /^Vector search benchmarks: Epzero vs/ },
+  { path: "blog", title: /^Vector search is a memory problem/ },
 ];
 
 test("every page's raw HTML is ready for search engines", async ({ request, baseURL }) => {
@@ -36,6 +37,13 @@ test("every page's raw HTML is ready for search engines", async ({ request, base
   expect(titles.size).toBe(pages.length); // no two pages share a title or a description
   expect(descriptions.size).toBe(pages.length);
 
+  // The article's whole text is in its static HTML, with its own structured data, and no link to
+  // the repository (the site never links there).
+  const article = await (await request.get("blog/")).text();
+  expect(article).toContain("Where the time actually goes");
+  expect(article).toContain('"@type":"BlogPosting"');
+  expect(article).not.toContain("github.com");
+
   const sitemap = await (await request.get("sitemap.xml")).text();
   for (const { path } of pages) expect(sitemap).toContain(`<loc>https://epzero.dev/${path}</loc>`);
   expect(await (await request.get("robots.txt")).text()).toContain("Sitemap: https://epzero.dev/sitemap.xml");
@@ -50,7 +58,7 @@ test("every page's raw HTML is ready for search engines", async ({ request, base
 
 test("moving between pages keeps the title, description and canonical in step", async ({ page }) => {
   await page.goto("benchmarks");
-  await expect(page).toHaveTitle(/^Benchmarks: Epzero vs/);
+  await expect(page).toHaveTitle(/^Vector search benchmarks: Epzero vs/);
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Play" }).click();
   await expect(page).toHaveTitle(/out-navigate/);
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", "https://epzero.dev/play");
