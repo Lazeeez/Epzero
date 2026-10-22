@@ -255,7 +255,10 @@ class HnswIndex::Scorer {
     // levels: OpenAI embeddings have such dimensions, and a query's largest weight there is ~300x
     // its median (measured: 15% error, recall capped at 0.93). The largest weights (up to 8, one
     // dimension in twelve on small vectors) are therefore kept exact, in float, and only the rest
-    // are rounded: error 0.3% on those embeddings, and lower than before on SIFT, GloVe and GIST.
+    // are rounded: error 0.3% on those embeddings. They cost a few float operations per node, so
+    // they are split off only when they dominate: when the largest weight is over 4x the largest
+    // of the rest. That is every query on OpenAI and CLIP embeddings (ratio ~60 and ~7), and
+    // almost none on SIFT, GIST or GloVe (median 1.3-2), whose plain rounding is already accurate.
     outliers_ = std::min<std::size_t>({kMaxOutliers, dim / 12, dim});
     std::array<std::uint32_t, kMaxOutliers> top{};
     for (std::size_t i = 0, n = 0; outliers_ > 0 && i < dim; ++i) {
@@ -270,21 +273,26 @@ class HnswIndex::Scorer {
       }
       for (std::size_t j = n - 1; j > 0 && std::abs(weights_[top[j]]) > std::abs(weights_[top[j - 1]]); --j) std::swap(top[j], top[j - 1]);
     }
-    iweights_.assign(dim, 0);
+    // The largest |w| outside the top `outliers_`: zero those slots for the pass, then restore them.
+    std::array<float, kMaxOutliers> kept{};
+    for (std::size_t j = 0; j < outliers_; ++j) std::swap(kept[j], weights_[top[j]]);
+    float largest = 0.0f;
+    for (std::size_t i = 0; i < dim; ++i) largest = std::max(largest, std::abs(weights_[i]));
+    if (outliers_ > 0 && std::abs(kept[0]) <= kOutlierRatio * largest) {
+      for (std::size_t j = 0; j < outliers_; ++j) std::swap(kept[j], weights_[top[j]]);
+      largest = std::abs(weights_[top[0]]);
+      outliers_ = 0;
+    }
+    // Unused slots keep weight 0 (dimension 0), so scoring always runs all kMaxOutliers slots.
     for (std::size_t j = 0; j < outliers_; ++j) {
       outlier_dims_[j] = top[j];
-      outlier_weights_[j] = weights_[top[j]];
-    }
-    float largest = 0.0f;
-    for (std::size_t i = 0; i < dim; ++i) {
-      const bool outlier = std::find(top.begin(), top.begin() + outliers_, static_cast<std::uint32_t>(i)) != top.begin() + outliers_;
-      if (!outlier) largest = std::max(largest, std::abs(weights_[i]));
+      outlier_weights_[j] = kept[j];
     }
     w_scale_ = largest > 0.0f ? largest / static_cast<float>(kSq8IntWeightMax) : 1.0f;
-    for (std::size_t i = 0; i < dim; ++i) {
-      const bool outlier = std::find(top.begin(), top.begin() + outliers_, static_cast<std::uint32_t>(i)) != top.begin() + outliers_;
-      if (!outlier) iweights_[i] = static_cast<std::int8_t>(std::lrint(weights_[i] / w_scale_));
-    }
+    const float inv = 1.0f / w_scale_;
+    iweights_.resize(dim);
+    for (std::size_t i = 0; i < dim; ++i) iweights_[i] = static_cast<std::int8_t>(std::lrint(weights_[i] * inv));  // outliers: 0
+    for (std::size_t j = 0; j < outliers_; ++j) weights_[top[j]] = kept[j];
   }
 
   float operator()(id_t id) const noexcept {
@@ -304,7 +312,12 @@ class HnswIndex::Scorer {
         dot = index_.sq8_dot_(weights_.data(), codes, weights_.size());
       } else {
         dot = w_scale_ * static_cast<float>(index_.sq8_int_dot_(iweights_.data(), codes, iweights_.size()));
-        for (std::size_t j = 0; j < outliers_; ++j) dot += outlier_weights_[j] * static_cast<float>(codes[outlier_dims_[j]]);
+        if (outliers_ != 0) {
+          // A fixed count with independent sums: unrolled, without a chain of dependent adds.
+          float part[4] = {};
+          for (std::size_t j = 0; j < kMaxOutliers; ++j) part[j % 4] += outlier_weights_[j] * static_cast<float>(codes[outlier_dims_[j]]);
+          dot += (part[0] + part[1]) + (part[2] + part[3]);
+        }
       }
       return l2_ ? base_ + index_.code_norm(id) - 2.0f * dot : base_ - dot;
     }
@@ -347,6 +360,7 @@ class HnswIndex::Scorer {
   float w_scale_ = 1.0f;
   // Integer SQ8: the largest weights, kept exact (their int8 slots are 0).
   static constexpr std::size_t kMaxOutliers = 8;
+  static constexpr float kOutlierRatio = 4.0f;
   std::size_t outliers_ = 0;
   std::array<std::uint32_t, kMaxOutliers> outlier_dims_{};
   std::array<float, kMaxOutliers> outlier_weights_{};
