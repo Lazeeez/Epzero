@@ -103,13 +103,33 @@ jobs:
       - name: Create the R2 bucket for the models (once)
         if: steps.creds.outputs.ok == 'true'
         working-directory: web
-        run: $WRANGLER r2 bucket list | grep -q "epzero-assets" || $WRANGLER r2 bucket create epzero-assets
+        run: |
+          # Surface Cloudflare's message as an annotation: the usual first-time failure is R2 not yet
+          # being enabled on the account (dashboard: R2 Object Storage).
+          if ! out=$($WRANGLER r2 bucket list 2>&1); then
+            echo "$out"
+            echo "::error title=R2 unavailable::$(echo "$out" | grep -iE 'error|code' | head -3 | tr '\n' ' ') (Is R2 enabled for this account? Cloudflare dashboard > R2 Object Storage)"
+            exit 1
+          fi
+          if echo "$out" | grep -q "epzero-assets"; then
+            echo "bucket epzero-assets exists"
+          elif ! out=$($WRANGLER r2 bucket create epzero-assets 2>&1); then
+            echo "$out"
+            echo "::error title=Could not create the R2 bucket::$(echo "$out" | grep -iE 'error|code' | head -3 | tr '\n' ' ')"
+            exit 1
+          fi
       - name: Deploy the site and the www redirect
         if: steps.creds.outputs.ok == 'true'
         working-directory: web
         run: |
-          $WRANGLER deploy
-          $WRANGLER deploy -c wrangler.www.jsonc
+          for config in wrangler.jsonc wrangler.www.jsonc; do
+            if ! out=$($WRANGLER deploy -c "$config" 2>&1); then
+              echo "$out"
+              echo "::error title=Deploy failed ($config)::$(echo "$out" | grep -iE 'error|code' | head -3 | tr '\n' ' ')"
+              exit 1
+            fi
+            echo "$out"
+          done
       - name: Upload the CLIP models to R2 (only those the site doesn't serve yet)
         if: steps.creds.outputs.ok == 'true'
         working-directory: web/dist
