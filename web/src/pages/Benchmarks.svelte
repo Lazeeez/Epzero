@@ -390,11 +390,15 @@
     .head .section-lede {
       max-width: calc(100% - 340px - 56px);
     }
+    .bench .head h1 {
+      font-size: clamp(48px, 4.4vw, 56px);
+    }
   }
   .head h1 {
     font-size: clamp(38px, 6vw, 72px);
     letter-spacing: -0.045em;
     line-height: 1.02;
+    text-wrap: balance;
   }
   .stats {
     display: grid;
