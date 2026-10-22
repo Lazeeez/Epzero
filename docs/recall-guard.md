@@ -135,40 +135,42 @@ GloVe-100. The control loop, the monitor and the guarantee are unchanged: the ta
 held against measured recall.
 
 **Where it helps.** GloVe-100 (word embeddings, 1.2M × 100) is one of the hardest ann-benchmarks
-sets, with query difficulty that varies widely: at `ef` 512 mean recall is 0.92, yet 12% of
-queries get fewer than 8 of their 10 true neighbours and 2.3% fewer than half. One search thread on the development laptop, 2,000
-queries, against a fixed beam width interpolated to the same recall
-([`engine/bench/bench_adaptive.cpp`](../engine/bench/bench_adaptive.cpp),
-[`bench/results/glove-adaptive-laptop.json`](../bench/results/glove-adaptive-laptop.json)):
+sets, with query difficulty that varies widely: at `ef` 512 mean recall is 0.93, yet 1.9% of
+queries get fewer than half their 10 true neighbours. On the dedicated server node (2 × Xeon
+Gold 6226, one search thread pinned to one socket, 10,000 queries), against a fixed beam width
+interpolated to the same recall ([`engine/bench/bench_adaptive.cpp`](../engine/bench/bench_adaptive.cpp),
+[`bench/results/pace/gold6226/glove-adaptive.json`](../bench/results/pace/gold6226/glove-adaptive.json)):
 
 | Patience (cap) | Recall | vs fixed `ef` at that recall: queries/s | distance computations | Queries with recall < 0.5 |
 |---|---|---|---|---|
-| 128 (384) | 0.892 | 1.13× | 0.82× | 3.8% |
-| 192 (512) | 0.912 | 1.11× | 0.83× | 2.6% |
-| 256 (768) | 0.929 | 1.10× | 0.81× | 1.3% (fixed `ef` 512, recall 0.924: 2.3%) |
+| 128 (384) | 0.894 | 1.12× | 0.83× | 3.8% |
+| 192 (768) | 0.920 | 1.08× | 0.80× | 1.7% (fixed `ef` 512, recall 0.926: 1.9%) |
+| 256 (768) | 0.930 | 1.12× | 0.81× | 1.2% |
+| 512 (1536) | 0.956 | 1.13× | 0.78× | 0.2% (fixed `ef` 1024, recall 0.955: 0.4%) |
 
-On SIFT1M, where queries vary less, patience matched a fixed beam width on distance computations
-per unit of recall but ran about 8% slower, the cost of its bookkeeping. It earns its place on hard,
-uneven traffic.
+On SIFT1M, where queries vary less, patience is level with a fixed beam width: 0.93–1.04× the
+queries per second at the same recall ([`sift1m-adaptive.json`](../bench/results/pace/gold6226/sift1m-adaptive.json)).
+It earns its place on hard, uneven traffic. The development laptop showed the same picture
+([`bench/results/glove-adaptive-laptop.json`](../bench/results/glove-adaptive-laptop.json)).
 
-**Under drift.** The same four-phase stream as above, with the per-query guard as a fourth policy
-(laptop; [`bench/results/*-guard-perquery-laptop.json`](../bench/results/)):
+**Under drift.** The same four-phase stream as above, with the per-query guard as a fourth policy,
+on the server ([`bench/results/pace/gold6226/*-guard-perquery.json`](../bench/results/pace/gold6226/)):
 
 | | SIFT1M, target 0.95 | GloVe-100, target 0.90 |
 |---|---|---|
 | Phases at target, after adapting: guard / per-query guard | 4 / 4 and 4 / 4 | 4 / 4 and 4 / 4 |
-| Distance computations per query: guard | 1,417 | 8,958 |
-| Distance computations per query: per-query guard | 1,385 (−2%) | 6,659 (−26%) |
-| Time per query: guard | 144 µs | 973 µs |
-| Time per query: per-query guard | 162 µs (+12%) | **799 µs (−18%)** |
+| Distance computations per query: guard | 1,570 | 8,957 |
+| Distance computations per query: per-query guard | 1,436 (−9%) | 7,008 (−22%) |
+| Time per query: guard | 299 µs | 1,707 µs |
+| Time per query: per-query guard | 292 µs (−2%) | **1,481 µs (−13%)** |
+| For reference: a fixed beam width, hand-tuned on the steady phase | 1,215 (misses the target in 2 of 4 phases) | 6,893, 1,379 µs |
 
 On GloVe the plain guard overshoots (it holds 0.93 for a 0.90 target, because narrowing waits for
-strong evidence), and the per-query guard lands closer to the target, below the cost of a
-hand-tuned fixed beam width (6,899 distance computations), without anyone tuning it. On SIFT1M it
-doesn't pay: the queries there are too alike for early stopping to save more than its bookkeeping
-costs. Across three runs the per-query guard's saving in distance computations ranged from 2% to
-12% on SIFT1M and from 23% to 26% on GloVe, the noise of the sampled control loop. So `per_query`
-is off by default: turn it on for traffic whose difficulty is uneven.
+strong evidence); the per-query guard lands close to the target and to the cost of a beam width
+someone tuned by hand for this exact stream, without anyone tuning it. On SIFT1M the queries are
+too alike for early stopping to save much. On the laptop the picture was the same on GloVe (−18%
+time) but on SIFT1M the bookkeeping cost more than it saved (+12% time), so `per_query` is off by
+default: turn it on for traffic whose difficulty is uneven.
 
 ## What didn't work
 
