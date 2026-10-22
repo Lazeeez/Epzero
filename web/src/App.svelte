@@ -7,6 +7,7 @@
   import { PAGES, SITE } from "./lib/pages";
   import { router } from "./lib/router.svelte";
   import { sceneController, type SceneMode } from "./lib/scene/scene.svelte";
+  import Article from "./pages/Article.svelte";
   import Benchmarks from "./pages/Benchmarks.svelte";
   import Landing from "./pages/Landing.svelte";
   import NotFound from "./pages/NotFound.svelte";
@@ -15,7 +16,7 @@
 
   let stage: HTMLDivElement;
 
-  const modes: Record<string, SceneMode> = { home: "hero", try: "explore", play: "hidden", cluster: "hidden", benchmarks: "hidden", notfound: "hidden" };
+  const modes: Record<string, SceneMode> = { home: "hero", try: "explore", play: "hidden", cluster: "hidden", benchmarks: "hidden", blog: "hidden", notfound: "hidden" };
   // The cluster page carries its own (Go) engine: load its code only when it is opened.
   const loadCluster = () => import("./pages/Cluster.svelte");
 
@@ -40,7 +41,7 @@
   // which doesn't use them): the first text or photo search then answers without a download.
   let warmed = false;
   $effect(() => {
-    if (warmed || engine.status !== "ready" || router.route === "benchmarks" || router.route === "cluster") return;
+    if (warmed || engine.status !== "ready" || router.route === "benchmarks" || router.route === "cluster" || router.route === "blog") return;
     warmed = true;
     warmUpEncoders();
   });
@@ -98,6 +99,8 @@
     {/await}
   {:else if router.route === "benchmarks"}
     <Benchmarks />
+  {:else if router.route === "blog"}
+    <Article />
   {:else}
     <NotFound />
   {/if}
