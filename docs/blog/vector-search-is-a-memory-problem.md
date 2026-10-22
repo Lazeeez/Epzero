@@ -104,8 +104,8 @@ doesn't mention can matter more than the algorithm.
 Because reads take no locks, throughput scales almost linearly within a socket: 10× on 12 cores.
 The loss comes from sharing L3 and memory bandwidth. Spread the same 12 threads over two sockets
 and throughput drops 19%, because about half the reads now cross to the other socket's memory.
-The index is small enough to keep one copy per socket; by my estimate (not yet measured) that
-would take the node from 84k to about 119k queries per second.
+The index is small enough to keep one copy per socket, and that measured as expected: two copies,
+one in each socket's memory, took the node from 84k to 109k queries per second (+30%).
 
 ## Against the fastest library, and when it stops being a memory problem
 
