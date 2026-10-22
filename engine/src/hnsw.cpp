@@ -1,6 +1,7 @@
 #include "epzero/hnsw.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -248,14 +249,42 @@ class HnswIndex::Scorer {
     }
     base_ = l2_ ? qq - 2.0f * c : 1.0f - c;
     if (index.sq8_int_dot_ == nullptr) return;
-    // Integer kernel: the weights rounded to int8 on one scale per query. The rounding error is at
-    // most half a step per dimension, against distances the beam only needs to rank; the final
-    // candidates are re-scored exactly.
+    // Integer kernel: the weights rounded to int8 on one scale per query, against distances the
+    // beam only needs to rank (the final candidates are re-scored exactly). The scale follows the
+    // largest weight, so a few outlier dimensions would leave every other weight with one or two
+    // levels: OpenAI embeddings have such dimensions, and a query's largest weight there is ~300x
+    // its median (measured: 15% error, recall capped at 0.93). The largest weights (up to 8, one
+    // dimension in twelve on small vectors) are therefore kept exact, in float, and only the rest
+    // are rounded: error 0.3% on those embeddings, and lower than before on SIFT, GloVe and GIST.
+    outliers_ = std::min<std::size_t>({kMaxOutliers, dim / 12, dim});
+    std::array<std::uint32_t, kMaxOutliers> top{};
+    for (std::size_t i = 0, n = 0; outliers_ > 0 && i < dim; ++i) {
+      // Keep the indices of the `outliers_` largest |w| (insertion into a tiny sorted list).
+      const float a = std::abs(weights_[i]);
+      if (n < outliers_) {
+        top[n++] = static_cast<std::uint32_t>(i);
+      } else if (a > std::abs(weights_[top[outliers_ - 1]])) {
+        top[outliers_ - 1] = static_cast<std::uint32_t>(i);
+      } else {
+        continue;
+      }
+      for (std::size_t j = n - 1; j > 0 && std::abs(weights_[top[j]]) > std::abs(weights_[top[j - 1]]); --j) std::swap(top[j], top[j - 1]);
+    }
+    iweights_.assign(dim, 0);
+    for (std::size_t j = 0; j < outliers_; ++j) {
+      outlier_dims_[j] = top[j];
+      outlier_weights_[j] = weights_[top[j]];
+    }
     float largest = 0.0f;
-    for (const float w : weights_) largest = std::max(largest, std::abs(w));
+    for (std::size_t i = 0; i < dim; ++i) {
+      const bool outlier = std::find(top.begin(), top.begin() + outliers_, static_cast<std::uint32_t>(i)) != top.begin() + outliers_;
+      if (!outlier) largest = std::max(largest, std::abs(weights_[i]));
+    }
     w_scale_ = largest > 0.0f ? largest / static_cast<float>(kSq8IntWeightMax) : 1.0f;
-    iweights_.resize(dim);
-    for (std::size_t i = 0; i < dim; ++i) iweights_[i] = static_cast<std::int8_t>(std::lrint(weights_[i] / w_scale_));
+    for (std::size_t i = 0; i < dim; ++i) {
+      const bool outlier = std::find(top.begin(), top.begin() + outliers_, static_cast<std::uint32_t>(i)) != top.begin() + outliers_;
+      if (!outlier) iweights_[i] = static_cast<std::int8_t>(std::lrint(weights_[i] / w_scale_));
+    }
   }
 
   float operator()(id_t id) const noexcept {
@@ -269,10 +298,14 @@ class HnswIndex::Scorer {
       return 1.0f - (f.norm * rbq_.norm * est + f.dot_c + rbq_.dot_c - center_sq_);
     }
     if (adc_) {
-      const float dot =
-          iweights_.empty()
-              ? index_.sq8_dot_(weights_.data(), index_.codes_of(id), weights_.size())
-              : w_scale_ * static_cast<float>(index_.sq8_int_dot_(iweights_.data(), index_.codes_of(id), iweights_.size()));
+      const std::uint8_t* codes = index_.codes_of(id);
+      float dot;
+      if (iweights_.empty()) {
+        dot = index_.sq8_dot_(weights_.data(), codes, weights_.size());
+      } else {
+        dot = w_scale_ * static_cast<float>(index_.sq8_int_dot_(iweights_.data(), codes, iweights_.size()));
+        for (std::size_t j = 0; j < outliers_; ++j) dot += outlier_weights_[j] * static_cast<float>(codes[outlier_dims_[j]]);
+      }
       return l2_ ? base_ + index_.code_norm(id) - 2.0f * dot : base_ - dot;
     }
     return index_.dist_(query_, index_.full_vector(id), index_.params_.dim);
@@ -312,6 +345,11 @@ class HnswIndex::Scorer {
   std::vector<float> weights_;
   std::vector<std::int8_t> iweights_;  // integer SQ8 (empty: the float kernel)
   float w_scale_ = 1.0f;
+  // Integer SQ8: the largest weights, kept exact (their int8 slots are 0).
+  static constexpr std::size_t kMaxOutliers = 8;
+  std::size_t outliers_ = 0;
+  std::array<std::uint32_t, kMaxOutliers> outlier_dims_{};
+  std::array<float, kMaxOutliers> outlier_weights_{};
   rabitq::Query rbq_;
   std::size_t rbq_words_ = 0;  // nonzero in RaBitQ mode
   float center_sq_ = 0.0f;
