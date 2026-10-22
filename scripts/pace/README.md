@@ -102,6 +102,9 @@ Epzero SQ8, hnswlib and Glass at equal recall on GloVe, GIST and DBpedia (after 
 sbatch scripts/pace/profile.sbatch      # ~1 h; result: pace-results/gold6226/profile.json
 ```
 
+This needs `perf`, which the ICE compute nodes don't have (neither installed nor as a module, as
+of October 2026); the job then stops at once and says so. It runs on any Linux node that has it.
+
 ## Per-query effort and the per-query recall guard
 
 Patience (each query stops once its best 10 have settled) against a fixed beam width, and recall
