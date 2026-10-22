@@ -1,11 +1,11 @@
 // Client-side routing for the pages, with the View Transitions API for page changes.
 // Paths are relative to the site's base (e.g. /Epzero/).
 
-export type Route = "home" | "try" | "play" | "cluster" | "benchmarks" | "notfound";
+export type Route = "home" | "try" | "play" | "cluster" | "benchmarks" | "blog" | "notfound";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-const ROUTES: Record<string, Route> = { "": "home", "/": "home", "/try": "try", "/play": "play", "/cluster": "cluster", "/benchmarks": "benchmarks" };
+const ROUTES: Record<string, Route> = { "": "home", "/": "home", "/try": "try", "/play": "play", "/cluster": "cluster", "/benchmarks": "benchmarks", "/blog": "blog" };
 
 function parse(pathname: string): { route: Route; hash: string } {
   let path = pathname.startsWith(BASE) ? pathname.slice(BASE.length) : pathname;
