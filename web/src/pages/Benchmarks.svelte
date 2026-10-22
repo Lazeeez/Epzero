@@ -169,12 +169,13 @@
       </details>
     </div>
     <p class="caption" use:reveal>
-      Glass is the fastest on every dataset, by 1.5–2.1× over Epzero SQ8. Like Epzero SQ8 and VSAG, it walks the graph on 8-bit codes
-      and re-ranks with the full vectors; it also tunes its prefetch distance to the machine before searching. Epzero SQ8 is second on
-      all four. Uncompressed, Epzero is level with
-      hnswlib on the high-dimensional sets (GIST, DBpedia: within 2%) and ahead on the low-dimensional ones (DEEP10M, GloVe: 3–16%),
-      where the memory work around each distance matters most. On DBpedia's 1,536-D vectors, FAISS HNSW is 14% ahead of it. GloVe is compared at recall 0.90: at M = 16 no library but VSAG reaches
-      0.95 by <code>ef</code> = 800.
+      On 960-dimensional GIST, Epzero SQ8 is level with Glass, the fastest library here: 719 and 705 queries a second at recall 0.95,
+      with Epzero ahead above that and Glass below. Elsewhere Glass leads, by 1.28× on DBpedia's OpenAI embeddings and 1.7–2.2× on
+      DEEP10M and GloVe. Like Epzero SQ8 and VSAG, it walks the graph on 8-bit codes and re-ranks with the full vectors; it also tunes
+      its prefetch distance to the machine before searching. Epzero is ahead of hnswlib, FAISS, VSAG and USearch on all four.
+      Uncompressed, it is level with hnswlib on the high-dimensional sets (GIST, DBpedia: within 3%) and ahead on the low-dimensional
+      ones (DEEP10M, GloVe: 3–14%), where the memory work around each distance matters most. GloVe is compared at recall 0.90: at
+      M = 16 no library but VSAG reaches 0.95 by <code>ef</code> = 800.
     </p>
   </section>
 
