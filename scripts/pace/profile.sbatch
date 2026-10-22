@@ -25,9 +25,14 @@ command -v perf >/dev/null || { echo "perf is not available on this node (try: m
 echo "perf $(perf --version); perf_event_paranoid=$(cat /proc/sys/kernel/perf_event_paranoid)"
 
 # The same builds as compete.sbatch: native code for this node's CPU, Epzero from this checkout.
+# Every job installs into the same environment, and jobs submitted together start together: take
+# turns, or one job deletes files another is installing (seen: hnswlib's dist-info vanishing).
+exec 9>"$VENV/.install.lock"
+flock 9
 "$VENV/bin/pip" install --quiet --no-index --no-build-isolation --no-deps --force-reinstall "$VENV"/src/hnswlib-*.tar.gz
 "$VENV/bin/pip" install --quiet --no-build-isolation --no-deps --force-reinstall "$VENV/src/pyglass/python"
 "$VENV/bin/pip" install --quiet --no-deps --force-reinstall "$EPZERO_ROOT/engine"
+flock -u 9
 
 # User-space counts only (allowed without root). The node has no hyperthreading, so these fit the
 # core's counters together without multiplexing; percent_counted in the result says if they didn't.
