@@ -222,8 +222,8 @@ and its memory. Runs agree within 0.5%. Job scripts: [`scripts/pace/`](scripts/p
 - **Against the field:** on GIST1M, GloVe-100, DBpedia OpenAI embeddings and
   DEEP10M, Epzero is ahead of VSAG, FAISS, hnswlib and USearch on every one.
   Glass is the fastest library, but on GIST1M Epzero SQ8 is level with it
-  (719 vs 705 QPS at recall 0.95); Glass leads by 1.28× on DBpedia and
-  1.7–2.2× on DEEP10M and GloVe
+  (796 vs 788 QPS at recall 0.95); Glass leads by 1.25× on DBpedia and
+  1.5–1.8× on DEEP10M and GloVe
   ([table](docs/performance.md#against-the-field-four-more-datasets)).
 - **Build:** 1M vectors in 22.7 s on 24 threads. The index takes 765 MiB.
 - **Threads:** 59,636 QPS on 12 threads of one socket (10.0×) and 83,746 on all
@@ -550,7 +550,8 @@ dedicated-server runs are in [`scripts/pace/`](scripts/pace/).
 14. ✅ Per-query search effort and the per-query recall guard; integer SQ8 kernels; hybrid keyword + vector search
 15. ✅ Per-query guard and one index copy per socket measured on the server
 16. ✅ The comparison re-run with the integer SQ8 kernel: level with Glass on GIST1M, +34% on DBpedia
-17. DEEP10M and GloVe re-measured with the outlier split gated per query; an ann-benchmarks submission (`ann-benchmarks/`)
+17. ✅ The outlier split gated per query, measured on the server: SQ8 +25% on DEEP10M, +17% on GloVe
+18. Why Glass's lead on low-dimensional data grows on the server (level on a laptop); an ann-benchmarks submission (`ann-benchmarks/`)
 
 ## License
 
