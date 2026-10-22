@@ -128,6 +128,9 @@ ends up close to what Epzero already did. Two other things weren't:
 
 Together, on my laptop: **1.95× faster on GIST** (960 dimensions), +20% on GloVe (100) and +26% on
 SIFT (128). The gain grows with the dimension, which is exactly where Glass's lead was largest.
+Back on the server, Epzero's 8-bit mode went from 1.5× behind Glass on GIST to level with it
+(719 against 705 queries a second at recall 0.95), and from 1.66× behind to 1.28× on the OpenAI
+embeddings. On the low-dimensional sets Glass still leads by about 2×.
 
 So the thesis needs a footnote: vector search is a memory problem *until you shrink the bytes*.
 Quantization moves the bottleneck back toward the core, and then instruction counts matter again.
