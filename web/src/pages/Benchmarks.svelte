@@ -169,12 +169,11 @@
       </details>
     </div>
     <p class="caption" use:reveal>
-      On 960-dimensional GIST, Epzero SQ8 is level with Glass, the fastest library here: 796 and 788 queries a second at recall 0.95,
-      with Epzero ahead above that and Glass below. Elsewhere Glass leads, by 1.25× on DBpedia's OpenAI embeddings and 1.5–1.8× on
-      DEEP10M and GloVe. Like Epzero SQ8 and VSAG, it walks the graph on 8-bit codes and re-ranks with the full vectors; it also tunes
+      Epzero SQ8 is the fastest of the eight on GIST1M (1.08× Glass at recall 0.95) and DEEP10M (1.15× Glass). Glass leads on GloVe
+      (1.18×) and DBpedia's OpenAI embeddings (1.31×); its runs vary by about 10%, as it rebuilds its graph each time. Like Epzero SQ8 and VSAG, it walks the graph on 8-bit codes and re-ranks with the full vectors; it also tunes
       its prefetch distance to the machine before searching. Epzero is ahead of hnswlib, FAISS, VSAG and USearch on all four.
       Uncompressed, it is level with hnswlib on the high-dimensional sets (GIST, DBpedia: within 2%) and ahead on the low-dimensional
-      ones (DEEP10M, GloVe: 4–15%), where the memory work around each distance matters most. GloVe is compared at recall 0.90: at
+      ones (DEEP10M, GloVe: 7–15%), where the memory work around each distance matters most. GloVe is compared at recall 0.90: at
       M = 16 no library but VSAG reaches 0.95 by <code>ef</code> = 800. How the engine got here, and what didn't help:
       <a href={router.href("blog")}>Vector search is a memory problem</a>.
     </p>
