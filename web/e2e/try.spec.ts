@@ -90,12 +90,14 @@ test("searches 29,825 photos by text, photo and camera, with the debugger and ra
   await page.keyboard.press("ArrowRight");
   await expect.poll(step).toBe(before);
 
-  // Free look: everything but the top bar slides away (search panel, settings bar, debugger, HUD and
-  // view controls), leaving the graph. The top bar's button, H or Esc bring it all back.
+  // Free look: the view controls' reset button resets the camera and slides everything but the top
+  // bar away (search panel, settings bar, debugger, HUD and view controls), leaving the graph. The
+  // top bar's "Show panels", H or Esc bring it all back. There is no separate Free look button.
   const hud = page.getByRole("complementary", { name: "Navigator instruments" });
   const chrome = [".knobs", ".dock", ".view-anchor"];
   await expect(hud).toBeVisible();
-  await page.getByRole("button", { name: "Free look", exact: true }).click();
+  await expect(page.getByRole("button", { name: /Free look|Hide the panels/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Reset the view and hide the panels" }).click();
   await expect(panel).toHaveClass(/collapsed/);
   for (const part of chrome) await expect(page.locator(part)).toHaveClass(/away/);
   await expect(hud).toHaveCount(0);
@@ -124,13 +126,15 @@ test("searches 29,825 photos by text, photo and camera, with the debugger and ra
   await expect(panel).toHaveClass(/collapsed/);
   await showPanels.click();
   await expect(panel).not.toHaveClass(/collapsed/);
-  // From the panel's own button, the keyboard focus moves to the way back.
-  await panel.getByRole("button", { name: "Hide the panels" }).focus();
+  await expect(showPanels).toHaveCount(0); // only there in free look
+  // From the reset button, the keyboard focus moves to the way back, and back again.
+  const reset = page.getByRole("button", { name: "Reset the view and hide the panels" });
+  await reset.focus();
   await page.keyboard.press("Enter");
   await expect(showPanels).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(panel).not.toHaveClass(/collapsed/);
-  await expect(page.getByRole("button", { name: "Free look", exact: true })).toBeFocused(); // stays on the button just used
+  await expect(reset).toBeFocused();
 
   // Race against the exact scan.
   await page.getByRole("button", { name: "Race vs. exact" }).click();
