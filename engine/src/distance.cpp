@@ -51,6 +51,20 @@ bool simd_level_supported(SimdLevel level) noexcept {
 
 namespace {
 
+// AVX-512 only where it doesn't slow the core down. Intel's first AVX-512 cores (Skylake-SP, Cascade
+// Lake) lower their clock while heavy 512-bit instructions run, and a graph search is mostly the
+// work around its distances, which then runs slower too: on a Xeon Gold 6226, Epzero's AVX2 kernels
+// searched 57-72% faster than its AVX-512 ones (GloVe-100 and DEEP10M, SQ8; scripts/pace/simd.sbatch).
+// Ice Lake and later, and AMD Zen 4, have no such penalty; they are also the cores with VBMI2, which
+// the older ones lack. EPZERO_SIMD=avx512 still forces it anywhere it is supported.
+bool avx512_runs_at_full_clock() noexcept {
+#if defined(__x86_64__) || defined(_M_X64)
+  return __builtin_cpu_supports("avx512vbmi2");
+#else
+  return false;
+#endif
+}
+
 SimdLevel detect_simd_level() noexcept {
   if (const char* forced = std::getenv("EPZERO_SIMD")) {
     const std::string_view name(forced);
@@ -60,6 +74,7 @@ SimdLevel detect_simd_level() noexcept {
     }
   }
   for (SimdLevel level : {SimdLevel::AVX512, SimdLevel::AVX2, SimdLevel::NEON, SimdLevel::WasmSimd128}) {
+    if (level == SimdLevel::AVX512 && !avx512_runs_at_full_clock()) continue;
     if (simd_level_supported(level)) return level;
   }
   return SimdLevel::Scalar;
