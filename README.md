@@ -53,6 +53,15 @@ WebAssembly (SIMD128 + threads), running entirely in your browser:
   guard** and watch it hold a recall target live; shift-click (or tap) any star
   to learn **why it is or isn't a result**. **Reset the view** (or `H`) for a
   free look: every panel slides away, leaving just the graph to explore.
+  **Search your own photos**: drop a folder and CLIP embeds them in the tab
+  (several encoders side by side, ~1 minute per 1,000 photos on a laptop),
+  UMAP lays out their map and the engine indexes them; everything above then
+  works on them, and nothing is uploaded. They can be kept in the browser for
+  next time.
+- **Benchmark lab.** The engine in WebAssembly generates clustered data, or
+  reads a file of **your own embeddings** (`.npy`, `.fvecs`, CSV, JSON), then
+  computes exact ground truth, builds the graph on every core and sweeps `ef`
+  for recall against queries per second, with cosine, L2 or inner product.
 - **[Play](https://epzero.dev/play).** *Out-navigate Epzero*: hop
   from photo to photo along the real base-layer links to reach a target,
   then see the route Epzero's search took through its express layers.
