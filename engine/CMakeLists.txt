@@ -68,16 +68,33 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
   target_sources(epzero_engine PRIVATE src/distance_avx2.cpp src/distance_avx512.cpp)
   set_source_files_properties(src/distance_avx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma;-mpopcnt")
   set_source_files_properties(src/distance_avx512.cpp PROPERTIES COMPILE_OPTIONS "-mavx512f")
-  # VNNI integer kernels, where the compiler knows the instructions (GCC 11+, Clang 12+ for AVX-VNNI).
-  include(CheckCXXCompilerFlag)
-  check_cxx_compiler_flag("-mavxvnni" EPZERO_COMPILER_AVXVNNI)
-  check_cxx_compiler_flag("-mavx512vnni" EPZERO_COMPILER_AVX512VNNI)
-  if(EPZERO_COMPILER_AVXVNNI)
+  # VNNI integer kernels, where the toolchain can build them: the compiler must know the
+  # instructions (GCC 11+, Clang 12+ for AVX-VNNI) and so must the assembler it hands them to
+  # (binutils 2.36+ for AVX-VNNI; RHEL 9's 2.35 doesn't), so each check compiles and links a use.
+  include(CheckCXXSourceCompiles)
+  set(CMAKE_REQUIRED_FLAGS "-mavx2 -mavxvnni")
+  check_cxx_source_compiles([[
+    #include <immintrin.h>
+    int main(int argc, char**) {
+      __m256i a = _mm256_set1_epi8(static_cast<char>(argc));
+      a = _mm256_dpbusd_avx_epi32(a, a, a);
+      return _mm256_extract_epi32(a, 0);
+    }]] EPZERO_TOOLCHAIN_AVXVNNI)
+  set(CMAKE_REQUIRED_FLAGS "-mavx512f -mavx512bw -mavx512vnni")
+  check_cxx_source_compiles([[
+    #include <immintrin.h>
+    int main(int argc, char**) {
+      __m512i a = _mm512_set1_epi8(static_cast<char>(argc));
+      a = _mm512_dpbusd_epi32(a, a, a);
+      return _mm512_reduce_add_epi32(a);
+    }]] EPZERO_TOOLCHAIN_AVX512VNNI)
+  unset(CMAKE_REQUIRED_FLAGS)
+  if(EPZERO_TOOLCHAIN_AVXVNNI)
     target_sources(epzero_engine PRIVATE src/distance_avxvnni.cpp)
     set_source_files_properties(src/distance_avxvnni.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mavxvnni")
     set_property(SOURCE src/distance.cpp APPEND PROPERTY COMPILE_DEFINITIONS EPZERO_HAVE_AVXVNNI)
   endif()
-  if(EPZERO_COMPILER_AVX512VNNI)
+  if(EPZERO_TOOLCHAIN_AVX512VNNI)
     target_sources(epzero_engine PRIVATE src/distance_avx512vnni.cpp)
     set_source_files_properties(src/distance_avx512vnni.cpp PROPERTIES COMPILE_OPTIONS "-mavx512f;-mavx512bw;-mavx512vnni")
     set_property(SOURCE src/distance.cpp APPEND PROPERTY COMPILE_DEFINITIONS EPZERO_HAVE_AVX512VNNI)
