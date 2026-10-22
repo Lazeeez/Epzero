@@ -180,7 +180,9 @@ loop over queries, so batching isn't it. Three differences are:
    re-scores the best 1.5 × k with full vectors. Epzero re-scored every one of its `ef` candidates: at
    `ef` 400 on GIST that is 400 extra reads of a 3.8 KB vector per query. Re-ranking 15, 20, 30, 50
    or 100 gave the same recall as re-ranking all of them (to 0.0002, on SIFT1M, GloVe-100 and
-   GIST1M), so the default is now 3 × k.
+   GIST1M), so the default became 3 × k, and later 2 × k: against 3 × k, the same recall (to 0.0003,
+   also on OpenAI embeddings) and 3-13% more queries per second where full vectors are large
+   (GIST1M +3-10%, DBpedia +7-13%; laptop).
 2. **Its distances are integer arithmetic.** Glass quantizes the query too, with one scale for all
    dimensions, and scores int8 against int8. Epzero kept its per-dimension scales (more accurate
    codes) and changed only the arithmetic: the per-query weights, already folded with the scales,
@@ -272,6 +274,16 @@ reason, which the laptop (no AVX-512) can't confirm. So on these first AVX-512 c
 VBMI2: Skylake-SP and Cascade Lake), Epzero keeps AVX-512 for everything but uses the AVX2 integer
 kernel for SQ8; on Ice Lake and later, and Zen 4, it uses the AVX-512 kernel throughout.
 `EPZERO_SQ8_KERNEL=avx512` forces it for A/B runs.
+
+**Tried for the gap and dropped.** Prefetching a node's neighbour list as it entered the front of the
+beam (Glass prefetches lists on insert): within noise on SIFT1M and GloVe-100. Relaxed neighbour
+pruning (DiskANN's alpha, 1.2, at the same 32 links per node): 9-26% slower on SIFT1M and 35-39% on
+GloVe-100 at equal recall, needing 10-46% more distance computations: with the degree fixed, longer
+links displace short ones and local navigation suffers (DiskANN pairs alpha with far larger lists).
+Kept: the integer SQ8 kernels now score whole 64-byte blocks (zero weights past the last dimension,
+the bytes past the codes being the node's own neighbour list), with no masked or scalar tail:
++1-2% on GloVe-100 on the laptop; the AVX-512 kernel on the server is measured by
+[`scripts/pace/variants.sbatch`](../scripts/pace/variants.sbatch).
 
 ### Thread scaling
 
