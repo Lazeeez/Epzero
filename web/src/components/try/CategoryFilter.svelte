@@ -231,4 +231,25 @@
     color: var(--muted);
     font-size: 13px;
   }
+  /* Phones: one row that scrolls sideways, with bigger taps (see SearchBox's chips). */
+  @media (max-width: 900px) {
+    .row {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      margin-inline: -16px;
+      padding-inline: 16px;
+      scrollbar-width: none;
+    }
+    .row::-webkit-scrollbar {
+      display: none;
+    }
+    .row > :global(*) {
+      flex: none;
+    }
+    .chip,
+    .clear {
+      padding: 8px 13px;
+      font-size: 13.5px;
+    }
+  }
 </style>
