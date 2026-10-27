@@ -481,7 +481,16 @@
       padding-top: calc(var(--nav-h) + 28px);
     }
     .stage {
-      padding: 56px 12px 12px; /* room for the loading pill above the nodes */
+      padding: 12px;
+    }
+    /* Over the starting nodes, rather than in a band of its own that would stay empty once they run. */
+    .boot {
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: max-content;
+      max-width: calc(100% - 24px);
+      box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.6);
     }
     .log li {
       grid-template-columns: 1fr auto;
