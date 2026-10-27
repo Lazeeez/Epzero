@@ -116,6 +116,7 @@
     background: transparent;
     color: var(--text-2);
     font: 500 13px var(--font);
+    white-space: nowrap;
     cursor: pointer;
     transition:
       background 0.2s,
@@ -158,6 +159,17 @@
     border-top-color: var(--accent);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
+  }
+  /* Narrow phones: each label and its count on one line. */
+  @media (max-width: 400px) {
+    .seg button {
+      gap: 5px;
+      padding: 0 6px;
+      font-size: 12.5px;
+    }
+    .seg .num {
+      font-size: 11px;
+    }
   }
   .manage {
     display: flex;
