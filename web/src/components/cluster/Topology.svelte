@@ -365,5 +365,10 @@
       width: auto;
       transform: none;
     }
+    /* Thumb-sized buttons: the whole row is the node's width, so they grow down instead. */
+    .actions button {
+      min-height: 38px;
+      font-size: 13px;
+    }
   }
 </style>
