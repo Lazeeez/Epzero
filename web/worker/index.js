@@ -26,7 +26,7 @@ async function model(request, env, ctx, url) {
   // given path, and each R2 read is a billed operation.
   const ranged = request.headers.has("Range");
   const whole = request.method === "GET" && !ranged;
-  if (whole && key.endsWith(".onnx") && /br/.test(request.headers.get("Accept-Encoding") ?? "")) {
+  if (whole && key.endsWith(".onnx") && /\bbr\b/.test(request.headers.get("Accept-Encoding") ?? "")) {
     const compressed = await brotli(request, env, key);
     if (compressed) return compressed;
   }
