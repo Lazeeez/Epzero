@@ -11,7 +11,7 @@ test("hybrid search finds captions' words that the image search misses", async (
   await page.goto("try");
   const panel = page.getByRole("complementary", { name: "Search" });
   const input = panel.getByRole("searchbox", { name: "Describe a photo to search for" });
-  await expect(input).toHaveAttribute("placeholder", "Describe a photo…", { timeout: 300_000 });
+  await expect(input).toHaveAttribute("data-model", "ready", { timeout: 300_000 });
   const toggle = panel.getByRole("switch", { name: /Match words in captions too/ });
   await expect(toggle).toBeChecked(); // on by default
 
