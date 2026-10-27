@@ -35,13 +35,22 @@
   });
 
   // The 3D backdrop fades as the story scrolls past the hero; the demo pauses off screen.
+  // Set on the backdrop itself, at most once a frame: on the root, every scroll event restyled the
+  // whole page.
   $effect(() => {
-    const root = document.documentElement;
-    const onScroll = () => {
+    const stage = document.querySelector<HTMLElement>(".stage") ?? document.documentElement;
+    let frame = 0;
+    let shown = "";
+    const update = () => {
+      frame = 0;
       const fade = 1 - scrollY / (innerHeight * 0.85);
-      root.style.setProperty("--hero-scene-opacity", String(Math.max(0.06, Math.min(1, fade))));
+      const opacity = Math.max(0.06, Math.min(1, fade)).toFixed(2);
+      if (opacity !== shown) stage.style.setProperty("--hero-scene-opacity", (shown = opacity));
     };
-    onScroll();
+    const onScroll = () => {
+      frame ||= requestAnimationFrame(update);
+    };
+    update();
     addEventListener("scroll", onScroll, { passive: true });
     // Below the hero the backdrop is a faint still frame: stop rendering it (and the demo queries).
     const observer = new IntersectionObserver(
@@ -54,9 +63,10 @@
     if (hero) observer.observe(hero);
     return () => {
       removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(frame);
       observer.disconnect();
       sceneController.setVisible(true);
-      root.style.removeProperty("--hero-scene-opacity");
+      stage.style.removeProperty("--hero-scene-opacity");
     };
   });
 
