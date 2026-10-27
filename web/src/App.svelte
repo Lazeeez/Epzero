@@ -130,6 +130,11 @@
   .stage.hero {
     opacity: var(--hero-scene-opacity, 1);
     transition: none;
+    /* As tall as the viewport with the phone's address bar hidden, so the bar sliding in and out as
+       the page scrolls doesn't resize the canvas (which clears it and rebuilds the bloom buffers). */
+    bottom: auto;
+    height: 100vh;
+    height: 100lvh;
   }
   .stage :global(canvas) {
     display: block;
