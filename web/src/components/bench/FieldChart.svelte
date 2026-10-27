@@ -178,6 +178,18 @@
     opacity: 1;
     transform: none;
   }
+  /* Phones: the four datasets as a two-by-two grid of full-width buttons, not a wrapping row. */
+  @media (max-width: 640px) {
+    .seg {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      width: 100%;
+    }
+    .seg button {
+      min-height: 40px;
+      font-size: 13.5px;
+    }
+  }
   @media (max-width: 640px) {
     .row {
       grid-template-columns: 88px 1fr 52px;
