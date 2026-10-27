@@ -797,4 +797,25 @@
     border-style: solid;
     color: var(--muted);
   }
+  /* Phones: each chip group is one row that scrolls sideways (bleeding to the sheet's edges),
+     instead of wrapping into three or four lines that push the results down; bigger taps. */
+  @media (max-width: 900px) {
+    .chips {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      margin-inline: -16px;
+      padding-inline: 16px;
+      scrollbar-width: none;
+    }
+    .chips::-webkit-scrollbar {
+      display: none;
+    }
+    .chips > :global(*) {
+      flex: none;
+    }
+    .chips button {
+      padding: 8px 13px;
+      font-size: 13.5px;
+    }
+  }
 </style>
