@@ -15,7 +15,7 @@ test("landing, text search, similar photos, the game and the lab all work", asyn
   const panel = page.getByRole("complementary", { name: "Search" });
   await expect(panel.locator(".result")).toHaveCount(12, { timeout: 200_000 });
   const input = panel.getByRole("searchbox", { name: "Describe a photo to search for" });
-  await expect(input).toHaveAttribute("placeholder", "Describe a photo…", { timeout: 300_000 });
+  await expect(input).toHaveAttribute("data-model", "ready", { timeout: 300_000 });
   await input.fill("a red apple");
   await input.press("Enter");
   await expect(panel.locator(".results h2")).toContainText("a red apple", { timeout: 60_000 });
