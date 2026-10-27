@@ -33,7 +33,7 @@ test("searches 29,825 photos by text, photo and camera, with the debugger and ra
 
   // Text search: the in-browser CLIP text encoder lands in the same space as the photo embeddings.
   const input = panel.getByRole("searchbox", { name: "Describe a photo to search for" });
-  await expect(input).toHaveAttribute("placeholder", "Describe a photo…", { timeout: 120_000 });
+  await expect(input).toHaveAttribute("data-model", "ready", { timeout: 120_000 });
   await input.fill("a red apple");
   await input.press("Enter");
   await expect(panel.locator(".results h2")).toContainText("a red apple");
