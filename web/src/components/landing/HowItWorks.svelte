@@ -123,6 +123,27 @@
     applyStage();
   });
 
+  // Phones step through the explanation with buttons and swipes (one card under the figure); wider
+  // screens scroll through it beside a pinned figure.
+  let compact = $state(matchMedia("(max-width: 900px)").matches);
+  $effect(() => {
+    const query = matchMedia("(max-width: 900px)");
+    const change = () => (compact = query.matches);
+    query.addEventListener("change", change);
+    return () => query.removeEventListener("change", change);
+  });
+  const go = (step: number) => (active = Math.min(steps.length - 1, Math.max(0, step)));
+  let swipeX = 0;
+  let swipeY = 0;
+  const swipeStart = (event: PointerEvent) => {
+    swipeX = event.clientX;
+    swipeY = event.clientY;
+  };
+  const swipeEnd = (event: PointerEvent) => {
+    const dx = event.clientX - swipeX;
+    if (Math.abs(dx) > 56 && Math.abs(dx) > 1.5 * Math.abs(event.clientY - swipeY)) go(active + (dx < 0 ? 1 : -1));
+  };
+
   let stepEls: HTMLElement[] = $state([]);
   // The active step is the last one whose middle has passed a trigger line: mid-screen on desktop,
   // below the pinned figure on phones. Computed from positions on every scroll (not from crossing
@@ -132,6 +153,7 @@
     let frame = 0;
     const update = () => {
       frame = 0;
+      if (compact) return; // the buttons pick the step
       const box = section!.getBoundingClientRect();
       if (box.bottom < 0 || box.top > innerHeight) return;
       const line = innerHeight * (matchMedia("(max-width: 900px)").matches ? 0.8 : 0.62);
@@ -196,8 +218,8 @@
     </header>
 
     <div class="scrolly">
-      <div class="steps">
-        <article class="step" class:active={active === 0} bind:this={stepEls[0]}>
+      <div class="steps" role="group" aria-label="How HNSW works, step by step" onpointerdown={swipeStart} onpointerup={swipeEnd}>
+        <article class="step" class:active={active === 0} bind:this={stepEls[0]} inert={compact && active !== 0}>
           <span class="index num">01</span>
           <h3>{steps[0].title}</h3>
           <p>
@@ -210,7 +232,7 @@
           </p>
         </article>
 
-        <article class="step" class:active={active === 1} bind:this={stepEls[1]}>
+        <article class="step" class:active={active === 1} bind:this={stepEls[1]} inert={compact && active !== 1}>
           <span class="index num">02</span>
           <h3>{steps[1].title}</h3>
           <p>
@@ -223,7 +245,7 @@
           </p>
         </article>
 
-        <article class="step" class:active={active === 2} bind:this={stepEls[2]}>
+        <article class="step" class:active={active === 2} bind:this={stepEls[2]} inert={compact && active !== 2}>
           <span class="index num">03</span>
           <h3>{steps[2].title}</h3>
           <p>
@@ -237,7 +259,7 @@
           </p>
         </article>
 
-        <article class="step" class:active={active === 3} bind:this={stepEls[3]}>
+        <article class="step" class:active={active === 3} bind:this={stepEls[3]} inert={compact && active !== 3}>
           <span class="index num">04</span>
           <h3>{steps[3].title}</h3>
           <p>
@@ -251,7 +273,7 @@
           </p>
         </article>
 
-        <article class="step" class:active={active === 4} bind:this={stepEls[4]}>
+        <article class="step" class:active={active === 4} bind:this={stepEls[4]} inert={compact && active !== 4}>
           <span class="index num">05</span>
           <h3>{steps[4].title}</h3>
           <p>
@@ -264,7 +286,7 @@
           </p>
         </article>
 
-        <article class="step last" class:active={active === 5} bind:this={stepEls[5]}>
+        <article class="step last" class:active={active === 5} bind:this={stepEls[5]} inert={compact && active !== 5}>
           <span class="index num">06</span>
           <h3>{steps[5].title}</h3>
           <p>
@@ -291,6 +313,23 @@
           </div>
         </article>
       </div>
+
+      {#if compact}
+        <nav class="stepper" aria-label="Explanation steps">
+          <button class="btn btn-ghost" onclick={() => go(active - 1)} disabled={active === 0} aria-label="Previous step">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg>
+          </button>
+          <div class="dots" role="group" aria-label="Step {active + 1} of {steps.length}">
+            {#each steps as step, i (step.title)}
+              <button class="dot" class:on={i === active} onclick={() => go(i)} aria-label="Step {i + 1}: {step.title}" aria-current={i === active ? "step" : undefined}></button>
+            {/each}
+          </div>
+          <button class="btn btn-primary next" onclick={() => go(active + 1)} disabled={active === steps.length - 1}>
+            {active === steps.length - 2 ? "Try it" : "Next"}
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+          </button>
+        </nav>
+      {/if}
 
       <figure class="figure">
         <div class="frame card">
@@ -534,35 +573,122 @@
   .dim {
     color: var(--muted); /* already the muted color: no opacity on top, to keep contrast */
   }
-  /* Phones: the figure pins to the top and the steps scroll up beneath it as cards. A flex column
-     (not a grid) so the sticky figure's containing block is the whole section. */
+  /* Phones: the figure on top, then one step at a time in a card (all steps share one grid cell,
+     so the card keeps the tallest step's height and nothing jumps), with Back/Next and dots. No
+     pinning: on a narrow screen a pinned figure covers the very text that explains it. */
   @media (max-width: 900px) {
     .scrolly {
       display: flex;
       flex-direction: column;
-      gap: 0;
-      margin-top: 40px;
+      gap: 14px;
+      margin-top: 32px;
     }
+    /* Graph, then the controls, then the step: tapping Next changes the graph right above the
+       thumb, and graph and controls fit one screen with room for the text. */
     .figure {
+      order: -2;
+      position: relative;
+      top: auto;
+      height: min(42vh, 380px);
+      min-height: 280px;
+    }
+    .stepper {
       order: -1;
-      z-index: 2;
-      top: calc(var(--nav-h) + 8px);
-      height: 46vh;
     }
     .frame {
       background: var(--surface-solid);
     }
     .steps {
-      gap: 42vh;
-      padding: 50vh 0 30vh;
+      display: grid;
+      touch-action: pan-y; /* vertical scrolling stays native; horizontal swipes change the step */
     }
     .step,
     .step.last {
+      grid-area: 1 / 1;
       min-height: 0;
+      justify-content: flex-start;
       padding: 20px;
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      background: var(--overlay-fill);
+      background: var(--surface-solid);
+      opacity: 0;
+      visibility: hidden;
+      transform: translateX(12px);
+      transition:
+        opacity 0.3s var(--ease),
+        transform 0.3s var(--ease),
+        visibility 0.3s;
+    }
+    .step.active {
+      opacity: 1;
+      visibility: visible;
+      transform: none;
+    }
+    .step:not(.active) h3,
+    .step:not(.active) p {
+      color: inherit;
+    }
+    h3 {
+      margin: 8px 0 10px;
+      font-size: 22px;
+    }
+    .step p {
+      font-size: 15px;
+      line-height: 1.6;
+    }
+    .stepper {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .stepper .btn {
+      height: 44px;
+      min-width: 44px;
+      padding: 0 14px;
+      font-size: 15px;
+    }
+    .stepper svg {
+      width: 18px;
+      height: 18px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .dots {
+      display: flex;
+      gap: 2px;
+    }
+    .dot {
+      width: 28px;
+      height: 44px; /* a full tap target around a small dot */
+      padding: 0;
+      border: 0;
+      background: none;
+      cursor: pointer;
+    }
+    .dot::before {
+      content: "";
+      display: block;
+      width: 8px;
+      height: 8px;
+      margin: auto;
+      border-radius: 99px;
+      background: var(--border-strong);
+      transition:
+        width 0.3s var(--ease),
+        background 0.3s;
+    }
+    .dot.on::before {
+      width: 20px;
+      background: var(--accent);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .step {
+      transition: none;
     }
   }
 </style>
