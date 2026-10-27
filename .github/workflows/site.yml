@@ -60,7 +60,8 @@ jobs:
         run: npm run build
       - name: End-to-end tests (Chromium, Firefox, WebKit, accessibility, offline, isolation without headers)
         working-directory: web
-        run: npx playwright test --reporter=line
+        # "github" also turns each failure into an annotation on the run, readable without the logs.
+        run: npx playwright test --reporter=line,github
       - name: Keep the test report when something fails
         if: failure()
         uses: actions/upload-artifact@v4
