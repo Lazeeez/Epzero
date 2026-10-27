@@ -50,14 +50,24 @@
   }
 
   /** Runs a search and replays it in 3D. `live` (slider-driven) keeps the camera still and replays fast. */
+  // The latest search wins: one that finishes after a newer one started (the first random photo,
+  // say, overtaken by a tapped example) is dropped rather than replacing its results. Re-runs (a
+  // new ef, a filter, sharper vectors) repeat the latest search asked for, not the one on screen,
+  // which may be about to be replaced.
+  let searchSeq = 0;
+  let latest: Query | null = null;
+  const rerun = (options?: { live?: boolean }) => latest && search(latest, options);
   async function search(query: Query, { live = false } = {}) {
+    const seq = ++searchSeq;
+    latest = query;
     let result: SearchOutcome;
     try {
       result = await engine.search(query, ef);
     } catch (error) {
-      searchError = error instanceof Error ? error.message : String(error);
+      if (seq === searchSeq) searchError = error instanceof Error ? error.message : String(error);
       return;
     }
+    if (seq !== searchSeq) return;
     searchError = "";
     outcome = result;
     encodeMs =
@@ -146,7 +156,7 @@
   let shownDims = 0;
   $effect(() => {
     const dims = engine.dims;
-    if (shownDims && dims > shownDims) untrack(() => outcome && search(outcome.query, { live: true }));
+    if (shownDims && dims > shownDims) untrack(() => rerun({ live: true }));
     shownDims = dims;
   });
 
@@ -155,7 +165,7 @@
   function onEf(value: number) {
     ef = value;
     clearTimeout(efTimer);
-    efTimer = window.setTimeout(() => outcome && search(outcome.query), 150);
+    efTimer = window.setTimeout(() => rerun(), 150);
   }
 
   // Keep the graph centered in the space the panel leaves free.
@@ -283,7 +293,7 @@
     />
 
     {#if engine.source !== "mine"}
-      <CategoryFilter onchange={() => outcome && search(outcome.query)} disabled={engine.status !== "ready" || engine.rebuilding} />
+      <CategoryFilter onchange={() => rerun()} disabled={engine.status !== "ready" || engine.rebuilding} />
     {/if}
 
     <Sharpening />
@@ -299,7 +309,7 @@
       {ef}
       onef={(next) => {
         ef = next;
-        if (outcome) search(outcome.query, { live: true });
+        rerun({ live: true });
       }}
       onburst={async (count) => {
         for (let i = 0; i < count; i++) await search({ kind: "id", id: engine.randomId() }, { live: true });
@@ -352,7 +362,7 @@
 
   {#if tuneOpen}
     <div class="tune-anchor">
-      <TunePanel {ef} onclose={() => (tuneOpen = false)} onrebuilt={() => outcome && search(outcome.query)} />
+      <TunePanel {ef} onclose={() => (tuneOpen = false)} onrebuilt={() => rerun()} />
     </div>
   {/if}
 
@@ -421,7 +431,7 @@
       {#if outcome}
         <WhyNot id={selected.id} {outcome} onwiden={(wider) => {
             ef = Math.min(wider, EF_MAX);
-            if (outcome) search(outcome.query);
+            rerun();
           }} />
       {/if}
     </div>
