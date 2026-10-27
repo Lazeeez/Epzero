@@ -1,8 +1,10 @@
 // CLIP ViT-B/32 image encoder (int8 ONNX) in its own worker: turns a photo or a webcam frame into a
 // vector in the same space as the indexed photos, so "find photos like this one" is just a search.
 // It also embeds the visitor's own photos in bulk ("embed"), several workers side by side.
-// The model is served from this site (see scripts/fetch-assets.mjs) and cached after first use.
+// The model is served from this site (see scripts/fetch-assets.mjs), downloaded by model-files.ts and
+// cached after first use.
 import { AutoProcessor, CLIPVisionModelWithProjection, RawImage, env } from "@huggingface/transformers";
+import { loadModelFiles } from "./model-files";
 
 export type ToImage =
   | { type: "encode"; seq: number; image: Blob }
@@ -40,39 +42,25 @@ if (onnx.wasm) {
 }
 
 const MODEL = "clip-vit-base-patch32";
-const EXPECTED_BYTES = 89_150_000; // int8 vision model + preprocessor config
 const CLIP_SIDE = 224; // the model's input: shortest side 224, centre-cropped by the processor
-const files = new Map<string, number>();
 const started = performance.now();
 
 const ready = (async () => {
-  // The site's service worker already caches everything under models/. When it's active, don't
-  // let transformers.js keep a second copy of the model in its own cache: that doubled the disk
-  // writes on a first visit and the reads on every later one. Without it, keep the library cache.
-  try {
-    env.useBrowserCache = !(await caches.keys()).some((name) => name.startsWith("epzero-shell-"));
-  } catch {
-    env.useBrowserCache = true;
-  }
-  const progress_callback = (event: { status: string; file?: string; loaded?: number }) => {
-    if (event.status !== "progress" || !event.file) return;
-    files.set(event.file, event.loaded ?? 0);
-    let loaded = 0;
-    for (const bytes of files.values()) loaded += bytes;
-    post({ type: "progress", loaded, total: EXPECTED_BYTES });
-  };
-  for (let attempt = 1; ; attempt++) {
-    try {
-      const processor = await AutoProcessor.from_pretrained(MODEL, { progress_callback });
-      const model = await CLIPVisionModelWithProjection.from_pretrained(MODEL, { dtype: "q8", device: "wasm", progress_callback });
-      post({ type: "ready", ms: performance.now() - started });
-      return { processor, model };
-    } catch (error) {
-      if (attempt >= 4) throw error;
-      files.clear();
-      await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** (attempt - 1)));
-    }
-  }
+  const files = loadModelFiles(
+    {
+      [`${MODEL}/preprocessor_config.json`]: 520,
+      [`${MODEL}/config.json`]: 4_524,
+      [`${MODEL}/onnx/vision_model_quantized.onnx`]: 89_117_001,
+    },
+    (loaded, total) => post({ type: "progress", loaded, total }),
+  );
+  await files.ready;
+  const [processor, model] = await Promise.all([
+    AutoProcessor.from_pretrained(MODEL),
+    CLIPVisionModelWithProjection.from_pretrained(MODEL, { dtype: "q8", device: "wasm" }),
+  ]);
+  post({ type: "ready", ms: performance.now() - started });
+  return { processor, model };
 })();
 ready.catch((error) => post({ type: "error", message: `Image model failed to load: ${error}` }));
 
