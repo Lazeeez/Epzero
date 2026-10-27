@@ -1,8 +1,10 @@
 // CLIP ViT-B/32 text encoder (int8 ONNX) running in its own worker via ONNX Runtime Web. It maps a
 // description into the same 512-d space as the photo embeddings, so a text query is just another
 // vector for the HNSW index. The model and runtime are served from this site (see
-// scripts/fetch-assets.mjs), so text search works offline after the first visit.
+// scripts/fetch-assets.mjs) and downloaded by model-files.ts, so text search works offline after the
+// first visit.
 import { AutoTokenizer, CLIPTextModelWithProjection, env } from "@huggingface/transformers";
+import { loadModelFiles } from "./model-files";
 
 export type ToText = { type: "encode"; seq: number; text: string };
 export type FromText =
@@ -29,47 +31,25 @@ if (onnx.wasm) {
 }
 
 const MODEL = "clip-vit-base-patch32";
-const EXPECTED_BYTES = 66_750_000; // int8 text model (64.5 MB) + tokenizer (2.2 MB)
-const files = new Map<string, { loaded: number; total: number }>();
 const started = performance.now();
 
 const ready = (async () => {
-  // The site's service worker already caches everything under models/. When it's active, don't
-  // let transformers.js keep a second copy of the model in its own cache: that doubled the disk
-  // writes on a first visit and the reads on every later one. Without it, keep the library cache.
-  try {
-    env.useBrowserCache = !(await caches.keys()).some((name) => name.startsWith("epzero-shell-"));
-  } catch {
-    env.useBrowserCache = true;
-  }
-  const progress_callback = (event: { status: string; file?: string; loaded?: number; total?: number }) => {
-    if (event.status !== "progress" || !event.file) return;
-    files.set(event.file, { loaded: event.loaded ?? 0, total: event.total ?? 0 });
-    let loaded = 0;
-    let total = 0;
-    for (const f of files.values()) {
-      loaded += f.loaded;
-      total += f.total;
-    }
-    // Servers that compress or omit Content-Length make `total` grow with the download, so
-    // measure against the known size of the model files instead.
-    post({ type: "progress", loaded, total: Math.max(total, EXPECTED_BYTES) });
-  };
-  // A 67 MB download can be cut off mid-stream (flaky Wi-Fi, a proxy, the service worker that
-  // adds the isolation headers). Retry with backoff; files that already finished come from the
-  // browser cache, so a retry only redoes the part that failed.
-  for (let attempt = 1; ; attempt++) {
-    try {
-      const tokenizer = await AutoTokenizer.from_pretrained(MODEL, { progress_callback });
-      const model = await CLIPTextModelWithProjection.from_pretrained(MODEL, { dtype: "q8", device: "wasm", progress_callback });
-      post({ type: "ready", ms: performance.now() - started });
-      return { tokenizer, model };
-    } catch (error) {
-      if (attempt >= 4) throw error;
-      files.clear();
-      await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** (attempt - 1)));
-    }
-  }
+  const files = loadModelFiles(
+    {
+      [`${MODEL}/tokenizer.json`]: 2_224_119,
+      [`${MODEL}/tokenizer_config.json`]: 775,
+      [`${MODEL}/config.json`]: 4_524,
+      [`${MODEL}/onnx/text_model_quantized.onnx`]: 64_504_507,
+    },
+    (loaded, total) => post({ type: "progress", loaded, total }),
+  );
+  await files.ready;
+  const [tokenizer, model] = await Promise.all([
+    AutoTokenizer.from_pretrained(MODEL),
+    CLIPTextModelWithProjection.from_pretrained(MODEL, { dtype: "q8", device: "wasm" }),
+  ]);
+  post({ type: "ready", ms: performance.now() - started });
+  return { tokenizer, model };
 })();
 ready.catch((error) => post({ type: "error", message: `Text model failed to load: ${error}` }));
 
