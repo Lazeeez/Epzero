@@ -149,6 +149,25 @@ jobs:
               $WRANGLER r2 object put "epzero-assets/$file" --file "$file" --remote
             fi
           done
+          # A brotli copy of each model (about 37% smaller), which the Worker sends to browsers that
+          # take it. Compressed once, at the highest setting, when R2 doesn't have it yet.
+          find models -name "*.onnx" | while read -r file; do
+            if curl -sfI "https://epzero.dev/$file.br" > /dev/null; then
+              echo "present: $file.br"
+            else
+              out="$RUNNER_TEMP/$(basename "$file").br"
+              node -e '
+                const fs = require("fs"), zlib = require("zlib");
+                const input = fs.readFileSync(process.argv[1]);
+                const { constants: c } = zlib;
+                fs.writeFileSync(process.argv[2], zlib.brotliCompressSync(input, {
+                  params: { [c.BROTLI_PARAM_QUALITY]: 11, [c.BROTLI_PARAM_LGWIN]: 24, [c.BROTLI_PARAM_SIZE_HINT]: input.length },
+                }));
+              ' "$file" "$out"
+              echo "uploading: $file.br ($(stat -c %s "$out") bytes)"
+              $WRANGLER r2 object put "epzero-assets/$file.br" --file "$out" --remote
+            fi
+          done
       - name: Smoke test the deployed site
         id: smoke
         if: steps.creds.outputs.ok == 'true'
