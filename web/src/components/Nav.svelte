@@ -27,17 +27,23 @@
       // Without an active tab the pill fades out where it is (read untracked: this effect writes it).
       pill = active ? { x: active.offsetLeft, w: active.offsetWidth, on: true } : { ...untrack(() => pill), on: false };
     };
-    place();
-    const observer = new ResizeObserver(place); // fonts loading, breakpoints
+    // The observer's first callback places the pill after layout: measuring here, while the page
+    // is still being built, would force the browser to lay out the whole page early.
+    const observer = new ResizeObserver(place); // first layout, fonts loading, breakpoints
     observer.observe(links);
     return () => observer.disconnect();
   });
 
   $effect(() => {
     const onScroll = () => (scrolled = scrollY > 12);
-    onScroll();
+    // Not synchronously: reading scrollY mid-mount forced a layout of the whole page (measured: 1.8 s
+    // of a phone-speed CPU on the 12,000 px home page).
+    const first = requestAnimationFrame(onScroll);
     addEventListener("scroll", onScroll, { passive: true });
-    return () => removeEventListener("scroll", onScroll);
+    return () => {
+      cancelAnimationFrame(first);
+      removeEventListener("scroll", onScroll);
+    };
   });
 
   function theme() {
