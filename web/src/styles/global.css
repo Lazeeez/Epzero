@@ -264,6 +264,28 @@ h3 {
   box-shadow: var(--shadow);
 }
 
+/* Tables wider than the screen (data tables on phones): they scroll sideways inside their box,
+   with momentum and without dragging the page; the first column, which names the row, stays put;
+   and a shadow on an edge shows there is more that way (the "local" gradients cover the shadows
+   when scrolled to that end). --table-bg is the box's background, behind the pinned column. */
+.table-wrap {
+  --table-bg: var(--surface-solid);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  background:
+    linear-gradient(to right, var(--table-bg) 40%, transparent) left / 48px 100% no-repeat local,
+    linear-gradient(to left, var(--table-bg) 40%, transparent) right / 48px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgba(0, 0, 0, 0.5), transparent) left / 16px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.5), transparent) right / 16px 100% no-repeat scroll;
+}
+.table-wrap :is(th, td):first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--table-bg);
+}
+
 /* Page transitions (View Transitions API) */
 ::view-transition-old(root),
 ::view-transition-new(root) {
@@ -325,6 +347,14 @@ h3 {
 .section {
   position: relative;
   padding: clamp(96px, 14vw, 160px) 0;
+}
+/* Long pages: a section the visitor hasn't scrolled near yet isn't laid out or painted (its size
+   is estimated until then, and remembered after). The home and benchmarks pages are 10-12,000 px
+   tall on a phone, and laying all of it out at once was the biggest stall on load. */
+.section,
+.block {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 900px;
 }
 .section-title {
   max-width: 820px;
