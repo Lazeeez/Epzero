@@ -2,6 +2,9 @@ import { expect, test } from "@playwright/test";
 
 // While the text model downloads, the examples search at once (their vectors ship with the page) and
 // a typed search waits for the model, then runs. The model is held back here until the test lets it go.
+// Without the service worker: its requests bypass the test's hold on the download.
+test.use({ serviceWorkers: "block" });
+
 test("text search before the model has loaded: examples now, typed searches when it's ready", async ({ page }) => {
   test.setTimeout(300_000);
   let release!: () => void;
