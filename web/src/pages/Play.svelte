@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import Constellation from "../components/play/Constellation.svelte";
   import StarChart from "../components/play/StarChart.svelte";
   import { spotlight } from "../lib/spotlight";
@@ -10,6 +11,7 @@
   const MAX_HOPS = 25;
   const BEST_KEY = "epzero-navigator-best";
 
+  let gameEl: HTMLElement | undefined = $state();
   type Phase = "intro" | "loading" | "playing" | "won" | "lost";
   let phase = $state<Phase>("intro");
   let target = $state(0);
@@ -94,6 +96,11 @@
       seen = 1;
       await loadNeighbors(start);
       phase = "playing";
+      // Phones: the photos to choose from are the game; bring it into view.
+      if (matchMedia("(max-width: 900px)").matches) {
+        await tick();
+        gameEl?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+      }
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
       phase = "intro";
@@ -160,7 +167,7 @@
   const time = (us: number) => (us >= 1000 ? `${(us / 1000).toFixed(1)} ms` : `${Math.round(us)} µs`);
 </script>
 
-<div class="play container">
+<div class="play container" class:in-game={phase !== "intro" && phase !== "loading"}>
   <header class="head">
     <p class="eyebrow">Navigator challenge</p>
     <h1><span class="gradient-text">Can you out-navigate</span> Epzero?</h1>
@@ -197,7 +204,7 @@
       <div class="intro-art"><Constellation /></div>
     </div>
   {:else}
-    <div class="game">
+    <div class="game" bind:this={gameEl}>
       <section class="side">
         <div class="target card">
           <span class="tag">Target</span>
@@ -605,12 +612,57 @@
     align-items: center;
     gap: 10px;
   }
+  /* Phones: the game in the order it's played. The target (compact), where you are, the moves and
+     the photos to choose from come first; the star chart, a guide, follows them. The intro text
+     steps aside once a round starts. */
   @media (max-width: 900px) {
     .game {
       grid-template-columns: 1fr;
+      gap: 12px;
+      scroll-margin-top: calc(var(--nav-h) + 12px);
     }
     .side {
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      display: contents;
+    }
+    .target {
+      order: 1;
+      grid-template-columns: 96px minmax(0, 1fr);
+      grid-template-rows: auto 1fr;
+      align-items: start;
+      gap: 4px 12px;
+      padding: 10px;
+    }
+    .target .tag {
+      grid-column: 2;
+    }
+    .target :global(.thumb) {
+      grid-row: 1 / 3;
+      grid-column: 1;
+    }
+    .target p {
+      grid-column: 2;
+      font-size: 15px;
+      line-height: 1.35;
+    }
+    .main {
+      order: 2;
+    }
+    .chart {
+      order: 3;
+    }
+    .in-game .head .lede {
+      display: none;
+    }
+    .in-game .head h1 {
+      font-size: 26px;
+    }
+    .toolbar .hint-text {
+      flex-basis: 100%;
+    }
+    .toolbar .btn {
+      flex: 1;
+      height: 42px;
+      padding: 0 8px;
     }
   }
   @media (max-width: 560px) {
