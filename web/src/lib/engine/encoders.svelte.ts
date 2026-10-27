@@ -74,6 +74,8 @@ class TextEncoder {
   progress = $state(0);
   error = $state("");
   lastMs = $state(0);
+  /** The example searches, embedded at build time (scripts/example-vectors.mjs): they need no model. */
+  presets = $state<Map<string, Float32Array>>(new Map());
 
   private worker: Worker | null = null;
   private seq = 0;
@@ -83,6 +85,13 @@ class TextEncoder {
   start() {
     if (this.worker) return;
     this.status = "loading";
+    import("./example-vectors.json").then(({ default: vectors }) => {
+      const presets = new Map<string, Float32Array>();
+      for (const [text, base64] of Object.entries(vectors as Record<string, string>)) {
+        presets.set(text, new Float32Array(Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)).buffer));
+      }
+      this.presets = presets;
+    });
     this.worker = new Worker(new URL("./text.worker.ts", import.meta.url), { type: "module" });
     this.worker.onerror = (event) => this.fail(event.message || "The encoder worker failed to start.");
     this.worker.onmessage = (event: MessageEvent<FromText>) => {
@@ -123,6 +132,11 @@ class TextEncoder {
 
   encode(text: string): Promise<Float32Array> {
     this.start();
+    const preset = this.presets.get(text);
+    if (preset) {
+      this.lastMs = 0;
+      return Promise.resolve(preset.slice());
+    }
     if (this.status === "error") return Promise.reject(new Error(this.error));
     const seq = ++this.seq;
     return new Promise((resolve, reject) => {
