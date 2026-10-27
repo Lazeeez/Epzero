@@ -2,6 +2,7 @@
   import { untrack } from "svelte";
   import { imageEncoder, textEncoder } from "../../lib/engine/encoders.svelte";
   import { engine } from "../../lib/engine/engine.svelte";
+  import examples from "../../lib/engine/example-queries.json";
   import type { Query } from "../../lib/engine/protocol";
   import BlendBox, { type BlendBase } from "./BlendBox.svelte";
 
@@ -64,7 +65,6 @@
     }
   }
 
-  const examples = ["a dog on the beach", "snowy mountains", "city lights at night", "a bowl of fruit", "vintage black and white photo", "a red sports car"];
 
   // Models load once the index is ready: searching needs the index anyway, and loading a 67-89 MB
   // model at the same time would slow the index's own download on the critical path.
@@ -328,30 +328,38 @@
         bind:this={input}
         bind:value={text}
         type="search"
-        placeholder={textEncoder.status === "ready"
-          ? "Describe a photo…"
-          : textEncoder.status === "error"
-            ? "The text model couldn't load. Reload to retry."
-            : `Loading the text model… ${pct(textEncoder.progress)}`}
+        placeholder={textEncoder.status === "error" ? "The text model couldn't load. Reload to retry." : "Describe a photo…"}
         aria-label="Describe a photo to search for"
-        disabled={disabled || textEncoder.status !== "ready"}
+        aria-describedby={textEncoder.status === "loading" ? "text-model-status" : undefined}
+        data-model={textEncoder.status}
+        disabled={disabled || textEncoder.status === "error"}
         autocomplete="off"
         spellcheck="false"
       />
       {#if busy}<span class="spinner" aria-hidden="true"></span>{:else}<kbd aria-hidden="true">/</kbd>{/if}
     </form>
+    {#if textEncoder.status === "loading"}
+      <!-- Typing works while the model downloads: a search waits for it, and the examples need none. -->
+      <div class="model" id="text-model-status" role="status">
+        <span class="bar" style:--p={textEncoder.progress}></span>
+        <span>
+          {busy ? "Searching as soon as the text model is ready" : "Text model loading: type now, or tap an example"}
+          · {pct(textEncoder.progress)}
+        </span>
+      </div>
+    {/if}
     {#if recent.length}
       <div class="chips recent" role="group" aria-label="Recent searches">
         <span class="label">Recent</span>
         {#each recent as item (item)}
-          <button onclick={() => searchText(item)} disabled={disabled || textEncoder.status !== "ready"}>{item}</button>
+          <button onclick={() => searchText(item)} disabled={disabled || textEncoder.status === "error"}>{item}</button>
         {/each}
         <button class="clear" onclick={() => saveRecent([])} aria-label="Clear recent searches" title="Clear recent searches">×</button>
       </div>
     {/if}
     <div class="chips" role="group" aria-label="Example searches">
       {#each examples as example (example)}
-        <button onclick={() => searchText(example)} disabled={disabled || textEncoder.status !== "ready"}>{example}</button>
+        <button onclick={() => searchText(example)} disabled={disabled || (textEncoder.status !== "ready" && !textEncoder.presets.has(example))}>{example}</button>
       {/each}
     </div>
     {#if engine.source !== "mine"}
@@ -817,5 +825,18 @@
       padding: 8px 13px;
       font-size: 13.5px;
     }
+  }
+  .model {
+    display: grid;
+    gap: 6px;
+    margin-top: -6px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .model .bar {
+    height: 3px;
+    border-radius: 99px;
+    background: linear-gradient(90deg, var(--accent) calc(var(--p) * 100%), var(--border) 0);
+    transition: background 0.3s;
   }
 </style>
