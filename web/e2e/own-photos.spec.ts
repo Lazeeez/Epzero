@@ -65,7 +65,7 @@ test("indexes the visitor's own photos in the browser, searches them, keeps and 
 
   // Text search across their own photos: the red ones come first.
   const input = panel.getByRole("searchbox", { name: "Describe a photo to search for" });
-  await expect(input).toHaveAttribute("placeholder", "Describe a photo…", { timeout: 120_000 });
+  await expect(input).toHaveAttribute("data-model", "ready", { timeout: 120_000 });
   await input.fill("a red picture");
   await input.press("Enter");
   await expect(panel.locator(".results h2")).toContainText("a red picture");
