@@ -40,6 +40,15 @@
 
   let searchError = $state("");
 
+  // Phones: the search panel is a bottom sheet; its handle expands it to nearly the full screen
+  // (for browsing results) or back to half (to see the graph). A tap toggles; a swipe goes its way.
+  let sheetOpen = $state(false);
+  let grabY = 0;
+  function grabEnd(event: PointerEvent) {
+    const dy = event.clientY - grabY;
+    sheetOpen = Math.abs(dy) < 8 ? !sheetOpen : dy < 0;
+  }
+
   /** Runs a search and replays it in 3D. `live` (slider-driven) keeps the camera still and replays fast. */
   async function search(query: Query, { live = false } = {}) {
     let result: SearchOutcome;
@@ -234,8 +243,17 @@
   });
 </script>
 
-<div class="try">
-  <aside class="panel card" class:collapsed={panelHidden} bind:this={panel} aria-label="Search" inert={panelHidden}>
+<div class="try" class:sheet-open={sheetOpen}>
+  <aside class="panel card" class:collapsed={panelHidden} class:expanded={sheetOpen} bind:this={panel} aria-label="Search" inert={panelHidden}>
+    <button
+      class="grabber"
+      type="button"
+      onpointerdown={(e) => (grabY = e.clientY)}
+      onpointerup={grabEnd}
+      onclick={(e) => e.detail === 0 && (sheetOpen = !sheetOpen)}
+      aria-label={sheetOpen ? "Shrink the search panel" : "Expand the search panel"}
+      aria-expanded={sheetOpen}
+    ><span></span></button>
     <header>
       <p class="eyebrow">Playground</p>
       {#if engine.source === "mine"}
@@ -700,6 +718,9 @@
   .panel > :global(*) {
     min-width: 0;
   }
+  .grabber {
+    display: none;
+  }
   .hovercard {
     position: fixed;
     z-index: 30;
@@ -734,7 +755,44 @@
       /* A fixed height (the first results always follow): the sheet doesn't grow under the viewer's
          thumb when they arrive, and the view controls docked above it stay put. */
       height: 52dvh;
-      padding: 16px;
+      padding: 0 16px 16px;
+      transition:
+        height 0.35s var(--ease),
+        transform 0.4s var(--ease),
+        opacity 0.3s;
+    }
+    .panel.expanded {
+      height: calc(100dvh - var(--nav-h) - 24px - env(safe-area-inset-bottom, 0px));
+    }
+    /* The handle: sticky at the top of the sheet's scroll, a wide target around a small bar. */
+    .grabber {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      display: grid;
+      place-items: center;
+      flex: none;
+      height: 28px;
+      margin: 0 -16px -6px;
+      border: 0;
+      background: var(--overlay-fill);
+      cursor: grab;
+      touch-action: none;
+    }
+    .grabber span {
+      width: 40px;
+      height: 5px;
+      border-radius: 99px;
+      background: var(--border-strong);
+    }
+    .grabber:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -4px;
+    }
+    .sheet-open .knobs,
+    .sheet-open .view-anchor {
+      opacity: 0;
+      pointer-events: none !important;
     }
     .panel header .lede,
     .panel header .eyebrow {
@@ -797,7 +855,9 @@
     .view-anchor {
       right: 12px;
       bottom: calc(52dvh + 24px + env(safe-area-inset-bottom, 0px));
-      transition: bottom 0.35s var(--ease);
+      transition:
+        bottom 0.35s var(--ease),
+        opacity 0.3s;
     }
 
     .loading {
