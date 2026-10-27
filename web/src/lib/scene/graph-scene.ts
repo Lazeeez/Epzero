@@ -503,7 +503,7 @@ export class GraphScene {
   setLayout(xy: Float32Array) {
     this.dirty = true;
     this.count = xy.length / 2;
-    this.positions = xy;
+    this.positions = intoDisc(xy);
     this.levels = new Uint8Array(this.count);
     this.rebuildPoints();
   }
@@ -1153,7 +1153,9 @@ export class GraphScene {
   private fitScale() {
     const { clientWidth: w, clientHeight: h } = this.host;
     const visibleHeight = Math.max(h - this.inset.bottom, 1);
-    return Math.max(1, 1.25 / Math.max((w - this.inset.left) / visibleHeight, 0.1));
+    const aspect = Math.max((w - this.inset.left) / visibleHeight, 0.1);
+    // Portrait: far enough back that the layer discs fit the width, rim to rim.
+    return Math.max(1, (aspect < 1 ? 1.6 : 1.25) / aspect);
   }
 
   private resize() {
@@ -1173,5 +1175,29 @@ export class GraphScene {
     if (left > 0 || bottom > 0) this.camera.setViewOffset(w, h, -left / 2, bottom / 2, w, h);
     else this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
+    // Resizing clears the canvas. While paused (the landing backdrop scrolled away) nothing would
+    // draw it again, and it would stay blank: draw the one frame now.
+    if (!this.active) {
+      if (this.bloom.enabled) this.composer.render();
+      else this.renderer.render(this.scene, this.camera);
+    }
   }
+}
+
+// Layouts fill a square (-1 to 1 on each axis), but each layer is drawn as a disc of radius 1.18:
+// nodes toward the square's corners (up to 1.41 out) sat beyond the rim. Every node farther out than
+// INNER is pulled smoothly in toward the rim, keeping its direction; the layout inside is unchanged.
+function intoDisc(xy: Float32Array): Float32Array {
+  const INNER = 0.85;
+  const OUTER = 1.1; // the farthest a node can land, inside the rim at 1.18
+  const out = new Float32Array(xy.length);
+  for (let i = 0; i < xy.length; i += 2) {
+    const x = xy[i];
+    const y = xy[i + 1];
+    const r = Math.hypot(x, y);
+    const k = r > INNER ? (INNER + (OUTER - INNER) * Math.tanh((r - INNER) / (OUTER - INNER))) / r : 1;
+    out[i] = x * k;
+    out[i + 1] = y * k;
+  }
+  return out;
 }
