@@ -101,8 +101,8 @@
     font: 0.88em var(--mono);
   }
   .prose :global(.table-wrap) {
+    --table-bg: var(--page);
     margin: 0 0 24px;
-    overflow-x: auto;
     border: 1px solid var(--border);
     border-radius: 12px;
   }
@@ -127,6 +127,53 @@
   }
   .prose :global(tr:last-child td) {
     border-bottom: 0;
+  }
+  /* Phones: a table of three or more columns would squeeze its prose into a tall, narrow column.
+     Each row becomes a card instead, every cell under its column's name. */
+  @media (max-width: 640px) {
+    .prose :global(.table-wrap.stack) {
+      overflow: visible;
+      border: 0;
+      border-radius: 0;
+      background: none;
+    }
+    .prose :global(.stack thead) {
+      display: none;
+    }
+    .prose :global(.stack :is(table, tbody, tr, td)) {
+      display: block;
+    }
+    .prose :global(.stack tr) {
+      margin-bottom: 12px;
+      padding: 4px 16px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--surface);
+    }
+    .prose :global(.stack td) {
+      position: static;
+      padding: 10px 0;
+      background: none;
+    }
+    .prose :global(.stack td:not(:last-child)) {
+      border-bottom: 1px solid var(--border);
+    }
+    .prose :global(.stack td::before) {
+      content: attr(data-label);
+      display: block;
+      margin-bottom: 2px;
+      color: var(--muted);
+      font: 600 11px var(--mono);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .prose :global(.stack td:first-child) {
+      color: var(--text);
+      font-weight: 600;
+    }
+    .prose :global(.stack td:first-child::before) {
+      display: none; /* the row's name heads its card */
+    }
   }
   .next {
     display: grid;
