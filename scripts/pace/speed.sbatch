@@ -16,6 +16,9 @@
 #   sbatch --export=ALL,DATASET=deep-image-96-angular --time=16:00:00 scripts/pace/speed.sbatch
 #   sbatch --export=ALL,DATASET=glove-100-angular scripts/pace/speed.sbatch
 # LIBS=a,b,c overrides the sweep; TAG=name keeps a run apart (<dataset>-speed-name.json).
+# Each index holds a full copy of the vectors, so a sweep needs tens of GB of scratch while it runs
+# (about 30 GB on GIST1M, 50 GB on DBpedia, 35 GB on DEEP10M). The job deletes its experiment indexes
+# when it ends, even after a failure; KEEP=1 keeps them. The shipped SQ8 index stays either way.
 #SBATCH --job-name=epzero-speed
 #SBATCH --nodes=1
 #SBATCH --exclusive
@@ -35,8 +38,8 @@ CACHE=data/indexes/compete-gold6226
 ls "$CACHE/$DATASET-epzero-sq8-"*.idx > /dev/null || { echo "run compete.sbatch for $DATASET first"; exit 1; }
 
 case "$DATASET" in
-  gist-*)    SWEEP=nav96-r100-fast-fill,nav128-r100-fast,nav128-r100-fast-fill,nav128-r100-fast-fill-p3,nav128-r200-fast-fill,nav192-r100-fast-fill,nav256-r50-fast-fill,fast ;;
-  dbpedia-*) SWEEP=nav256-r50-fast-fill,nav256-r100-fast-fill,nav384-r50-fast-fill,nav384-r100-fast-fill,nav512-r50-fast-fill,nav512-r100-fast-fill,nav384-r100-fast,fast ;;
+  gist-*)    SWEEP=nav128-r100,nav96-r100-fast-fill,nav128-r100-fast,nav128-r100-fast-fill,nav128-r100-fast-fill-p3,nav128-r200-fast-fill,nav192-r100-fast-fill,nav256-r50-fast-fill,fast ;;
+  dbpedia-*) SWEEP=nav384-r100,nav256-r50-fast-fill,nav256-r100-fast-fill,nav384-r50-fast-fill,nav384-r100-fast-fill,nav512-r50-fast-fill,nav512-r100-fast-fill,nav384-r100-fast,fast ;;
   deep-*)    SWEEP=ymm,ymm-p3,nav60-r50-fast-fill,fast,fast-fill,fill ;;
   glove-*)   SWEEP=ymm,ymm-p3,fast,fast-fill,fast-fill-p3,fill-p3 ;;
   *)         SWEEP=fast,fill ;;
@@ -58,6 +61,10 @@ flock -u 9
 OUT=pace-results/gold6226
 mkdir -p "$OUT"
 COMMON=(--data "$DATA" --cache "$CACHE" --M 16 --efc 200 --threads "$(nproc)" --libs "$LIBS")
+cleanup() {
+  [ -n "${KEEP:-}" ] || rm -f "${CACHE:?}/${DATASET:?}-epzero-sq8-"{nav,fast,fill}*
+}
+trap cleanup EXIT
 echo "== build the new indexes on $(nproc) cores"
 # Without Glass, which is rebuilt for its search run anyway (see compete.py).
 "$VENV/bin/python" bench/compete.py "${COMMON[@]}" --libs "${LIBS//glass,/}" --build-only --out "$OUT/$DATASET-speed${TAG:+-$TAG}.json"
