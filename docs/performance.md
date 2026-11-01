@@ -492,10 +492,36 @@ SIFT1M and GloVe-100.
 | + `fast_build` | about 3,750 | 52 s |
 | + `fill_links` | about 4,060 (3×) | 127 s |
 
+**A second pass over the graph.** HNSW's first nodes pick neighbours from a nearly empty graph and
+keep them. `refine_links()` has every node search the finished graph and reconnect, through the same
+rule, once the build is done. On plain SQ8 at equal recall it gave +28% on GloVe-100 at 0.90 and +37%
+at 0.93, with recall at `ef` 800 up from 0.944 to 0.960, and +8% on SIFT1M at 0.95 and +19% at 0.98.
+The build takes 2-2.8× as long on the codes. A second refinement added little, and a lower `ef` in the
+pass kept only about half the gain.
+
+`fill_free_links()` gives free slots to each node's closest two-hop neighbours in one pass when the
+build ends, instead of keeping pruned candidates during it (`fill_links`), which makes every insert
+re-prune full lists. On GIST1M it is faster to build and at least as fast to search.
+
+| GIST1M at recall 0.95, laptop | QPS | Build |
+|---|---|---|
+| `nav_dim` 128 + `fast_build` + `fill_free_links` | about 4,190 | 69 s |
+| + `refine_links` | about 5,250 (3.9× the shipped index) | 152 s |
+
 Where it doesn't help: `nav_dim` loses on low-dimensional data (SIFT1M, 60 directions: 16,571 against
 19,920 QPS at a slightly lower recall; GloVe-100, 80 directions: recall 0.898 at `ef` 800 against
 0.943), and `fill_links` adds nothing there. Scoring the codes with the float kernel instead of the
 integer one changed recall by at most 0.0014 at `nav_dim` 128, so rounding isn't holding it back.
+
+Tried for the same goals and removed:
+
+- **The alpha-convergent pruning rule** (Fast-Convergent Proximity Graphs, as a slack `tau` and `alpha`
+  on the heuristic). GloVe-100, `tau` 0.1: about 2,200 against 3,900 QPS at recall 0.90, and every other
+  `tau` and `alpha` tried was also worse. The links kept are all short once the list is full at 32; the
+  paper uses lists of 50-100. SIFT1M, `tau` 5: +5% at 0.95, too little for a per-dataset setting.
+- **Scoring a node's neighbours in one kernel call, and 8-byte beam items.** Identical recall, and speed
+  within noise (-7% to +2% across SIFT1M, GloVe-100 and GIST1M), so per-node overhead isn't what limits
+  search on this CPU.
 
 The DBpedia sample has only 37,000 vectors, so a search is short and the projection takes a large
 share of it; [`scripts/pace/speed.sbatch`](../scripts/pace/speed.sbatch) measures the full sets beside
