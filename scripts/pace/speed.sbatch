@@ -3,6 +3,7 @@
 # dataset, interleaved in one process on a dedicated Gold 6226 (bench/compete.py's rules):
 #   epzero-sq8-nav<dims>  walks the graph on 8-bit codes of that many principal directions
 #   -r<n>                 re-ranks n candidates with full vectors
+#   -ymm                  the 256-bit VNNI kernel
 #   -fast                 built on the codes instead of the full vectors
 #   -fill                 free link slots filled with the closest pruned candidates
 #   -p<div>               per-query effort, patience = ef / div
@@ -36,8 +37,8 @@ ls "$CACHE/$DATASET-epzero-sq8-"*.idx > /dev/null || { echo "run compete.sbatch 
 case "$DATASET" in
   gist-*)    SWEEP=nav96-r100-fast-fill,nav128-r100-fast,nav128-r100-fast-fill,nav128-r100-fast-fill-p3,nav128-r200-fast-fill,nav192-r100-fast-fill,nav256-r50-fast-fill,fast ;;
   dbpedia-*) SWEEP=nav256-r50-fast-fill,nav256-r100-fast-fill,nav384-r50-fast-fill,nav384-r100-fast-fill,nav512-r50-fast-fill,nav512-r100-fast-fill,nav384-r100-fast,fast ;;
-  deep-*)    SWEEP=nav60-r50-fast-fill,fast,fast-fill,fill ;;
-  glove-*)   SWEEP=fast,fast-fill,fast-fill-p3,fill-p3 ;;
+  deep-*)    SWEEP=ymm,ymm-p3,nav60-r50-fast-fill,fast,fast-fill,fill ;;
+  glove-*)   SWEEP=ymm,ymm-p3,fast,fast-fill,fast-fill-p3,fill-p3 ;;
   *)         SWEEP=fast,fill ;;
 esac
 DEFAULT=epzero-sq8,glass
