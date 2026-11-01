@@ -474,6 +474,36 @@ TEST_F(HnswTest, FillLinksUsesTheFreeSlots) {
   EXPECT_GE(measure_recall(filled, data_, 100, Metric::L2), 0.9);
 }
 
+TEST_F(HnswTest, FillFreeLinksKeepsListsValid) {
+  HnswIndex index(params_for(Metric::L2));
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  const double before = measure_recall(index, data_, 40, Metric::L2);
+  EXPECT_GT(index.fill_free_links(2), 0u);
+  EXPECT_GE(measure_recall(index, data_, 40, Metric::L2), before);
+  for (std::size_t i = 0; i < kBase; ++i) {
+    auto links = index.neighbors_of(i, 0);
+    EXPECT_LE(links.size(), 32u);
+    std::sort(links.begin(), links.end());
+    EXPECT_EQ(std::adjacent_find(links.begin(), links.end()), links.end());
+    EXPECT_FALSE(std::binary_search(links.begin(), links.end(), i));
+  }
+}
+
+TEST_F(HnswTest, RefineLinksRaisesRecallAndKeepsListsValid) {
+  HnswIndex index(params_for(Metric::L2));
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  const double before = measure_recall(index, data_, 20, Metric::L2);
+  index.refine_links(2);
+  EXPECT_GE(measure_recall(index, data_, 20, Metric::L2), before);
+  for (std::size_t i = 0; i < kBase; ++i) {
+    auto links = index.neighbors_of(i, 0);
+    EXPECT_LE(links.size(), 32u);
+    std::sort(links.begin(), links.end());
+    EXPECT_EQ(std::adjacent_find(links.begin(), links.end()), links.end());
+    EXPECT_FALSE(std::binary_search(links.begin(), links.end(), i));
+  }
+}
+
 TEST_F(HnswTest, FastBuildKeepsRecall) {
   HnswParams p = sq8_params(Metric::L2, true);
   p.fast_build = true;
