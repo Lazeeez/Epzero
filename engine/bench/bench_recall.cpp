@@ -45,6 +45,7 @@ struct Options {
   bool fast_build = false;
   bool fill_after = false;
   std::size_t refine = 0;
+  bool refine_exact = false;
   std::uint64_t seed = 42;
   float rerank_z = 0.0f;
   std::size_t refine_ef = 0;
@@ -99,6 +100,7 @@ Options parse(int argc, char** argv) {
     else if (arg == "--fast-build") o.fast_build = true;
     else if (arg == "--fill-after") o.fill_after = true;
     else if (arg == "--refine") o.refine = std::stoul(value());
+    else if (arg == "--refine-exact") o.refine_exact = true;
     else if (arg == "--seed") o.seed = std::stoull(value());
     else if (arg == "--rerank-z") o.rerank_z = std::stof(value());
     else if (arg == "--refine-ef") o.refine_ef = std::stoul(value());
@@ -203,7 +205,7 @@ int main(int argc, char** argv) try {
     for (auto& b : builders) b.join();
     for (std::size_t pass = 0; pass < opt.refine; ++pass) {
       const double refine_at = seconds_since(t0);
-      loaded->refine_links(opt.threads, opt.refine_ef);
+      loaded->refine_links(opt.threads, opt.refine_ef, opt.refine_exact);
       std::printf("refined   pass %zu in %.2fs\n", pass + 1, seconds_since(t0) - refine_at);
     }
     if (opt.fill_after) {
