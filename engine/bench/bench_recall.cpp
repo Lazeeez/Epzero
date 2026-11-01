@@ -42,6 +42,7 @@ struct Options {
   bool keep_vectors = true;
   std::size_t nav_dim = 0;
   bool fill_links = false;
+  bool fast_build = false;
   std::size_t rerank = 0;
   std::size_t prefetch_depth = 0, prefetch_lines = 0;  // 0: the index's default
   std::vector<std::size_t> ef = {10, 20, 40, 80, 160, 320};
@@ -90,6 +91,7 @@ Options parse(int argc, char** argv) {
     else if (arg == "--rerank") o.rerank = std::stoul(value());
     else if (arg == "--nav-dim") o.nav_dim = std::stoul(value());
     else if (arg == "--fill-links") o.fill_links = true;
+    else if (arg == "--fast-build") o.fast_build = true;
     else if (arg == "--prefetch") {  // depth,lines
       const auto v = parse_list(value());
       if (v.size() != 2) throw std::invalid_argument("--prefetch takes depth,lines");
@@ -176,7 +178,8 @@ int main(int argc, char** argv) try {
   } else {
     HnswParams params{.dim = dim, .metric = opt.metric, .max_elements = base.n, .M = opt.M,
                       .ef_construction = opt.ef_construction, .quantization = opt.quantization,
-                      .keep_vectors = opt.keep_vectors, .nav_dim = opt.nav_dim, .fill_links = opt.fill_links};
+                      .keep_vectors = opt.keep_vectors, .nav_dim = opt.nav_dim, .fill_links = opt.fill_links,
+                      .fast_build = opt.fast_build};
     loaded = std::make_unique<HnswIndex>(params);
     t0 = Clock::now();
     loaded->train(base.data.data(), std::min<std::size_t>(base.n, 100'000));  // no-op unquantized
