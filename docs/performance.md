@@ -513,6 +513,39 @@ Where it doesn't help: `nav_dim` loses on low-dimensional data (SIFT1M, 60 direc
 0.943), and `fill_links` adds nothing there. Scoring the codes with the float kernel instead of the
 integer one changed recall by at most 0.0014 at `nav_dim` 128, so rounding isn't holding it back.
 
+**On the server.** The Gold 6226, by the rules of the comparison above
+(`bench/results/pace/gold6226/*-speed-round*.json`; the second pass and `fill_free_links` are not in
+these runs). Queries per second, with the multiple of Glass:
+
+| Dataset | Recall | Glass | SQ8 as shipped | Best variant here |
+|---|---|---|---|---|
+| GIST1M | 0.90 | 1,472 | 1,458 (0.99×) | 3,876 (2.63×), `nav_dim` 96 |
+| GIST1M | 0.95 | 678 | 789 (1.17×) | **2,136 (3.15×)**, `nav_dim` 192 |
+| DBpedia | 0.90 | 6,868 | 5,305 (0.77×) | 6,137 (0.89×), `nav_dim` 256 |
+| DBpedia | 0.95 | 4,055 | 3,291 (0.81×) | 4,160 (1.03×), `nav_dim` 256 |
+| DBpedia | 0.98 | 1,803 | 1,634 (0.91×) | 2,121 (1.18×), `nav_dim` 384 |
+| DEEP10M | 0.90 | 10,002 | 12,849 (1.28×) | shipped |
+| DEEP10M | 0.95 | 6,591 | 7,664 (1.16×) | shipped |
+| GloVe-100 | 0.90 | 2,863 | 2,390 (0.83×) | 2,562 (0.89×), `fill_links` + patience |
+
+The GIST1M variant builds in 117 s against Glass's 223 s, and `nav_dim` 256 on DBpedia in 108 s against
+299 s. Which `nav_dim` wins depends on the recall target: fewer directions at lower recall.
+
+Building on the codes is not free everywhere. It held up on GIST1M (`nav_dim` 128: 1,266 against 987
+QPS at recall 0.95, 47 s against 223 s to build), but on DBpedia it lost 5% with `nav_dim` 384 (3,438
+against 3,635, 95 s against 307 s) and 11% on plain SQ8, and 5% on DEEP10M on plain SQ8.
+
+`nav_dim` of about 60 was 0.60× Glass on DEEP10M at recall 0.95, so fitting a node's codes in one cache
+line doesn't pay.
+
+**The masked tail, settled.** A 256-bit VNNI kernel (`EPZERO_SQ8_KERNEL=avx512-256`) has the same
+arithmetic on 96 and 100 dimensions apart from a masked load for the last 4 on GloVe-100. It was 2.5%
+faster than the AVX2 kernel on DEEP10M and 31% slower on GloVe-100, at identical recall. So the masked
+load is the cost on these Xeons, not 512-bit throttling, and with the AVX2 kernel only 2.5% behind it,
+the kernel's arithmetic isn't what holds GloVe-100 back against Glass. Replacing the integer kernels'
+scalar tail with 16-, 8- and 4-byte vector loads gave +3-4% on GloVe-100 on the laptop, at identical
+recall (noise there is about 1%).
+
 Tried for the same goals and removed:
 
 - **The alpha-convergent pruning rule** (Fast-Convergent Proximity Graphs, as a slack `tau` and `alpha`
