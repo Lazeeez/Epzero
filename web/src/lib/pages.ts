@@ -49,7 +49,7 @@ export const PAGES = {
     title: "Vector search benchmarks: Epzero vs FAISS, hnswlib, Glass",
     description:
       "Recall vs queries per second for Epzero, hnswlib, FAISS, USearch, VSAG and Glass on SIFT1M, GIST1M, GloVe, OpenAI embeddings and DEEP10M, plus a lab.",
-    heading: "Faster than hnswlib and FAISS. Measured against the field.",
+    heading: "Faster than hnswlib and FAISS on SIFT1M. Measured against the field.",
   },
   blog: {
     path: "blog",
