@@ -77,7 +77,7 @@
   <header>
     <div>
       <h2 id="guard-title">Recall guard</h2>
-      <p>Holds recall at a target by moving ef, as the engine does in production.</p>
+      <p>Holds recall at a target by moving ef, as the engine's recall guard does.</p>
     </div>
     <button class="switch" role="switch" aria-checked={on} aria-label="Hold recall at a target" onclick={toggle}>
       <span></span>
