@@ -17,6 +17,8 @@
 #   sbatch --export=ALL,DATASET=dbpedia-openai-1000k-angular scripts/pace/speed.sbatch
 #   sbatch --export=ALL,DATASET=deep-image-96-angular --time=16:00:00 scripts/pace/speed.sbatch
 #   sbatch --export=ALL,DATASET=glove-100-angular scripts/pace/speed.sbatch
+# On another CPU, name it and override the constraint; it then builds its own indexes, in its own folders:
+#   sbatch --constraint=<feature> --export=ALL,DATASET=gist-960-euclidean,HW=<name> scripts/pace/speed.sbatch
 # LIBS=a,b,c overrides the sweep; TAG=name keeps a run apart (<dataset>-speed-name.json).
 # Each index holds a full copy of the vectors, so a sweep needs tens of GB of scratch while it runs
 # (about 30 GB on GIST1M, 50 GB on DBpedia, 35 GB on DEEP10M). The job deletes its experiment indexes
@@ -34,10 +36,13 @@ source scripts/pace/env.sh
 : "${DATASET:?pass the dataset: sbatch --export=ALL,DATASET=gist-960-euclidean ...}"
 VENV="$EPZERO_ROOT/.pace-bench"
 DATA="data/ann/$DATASET.hdf5"
-CACHE=data/indexes/compete-gold6226
+HW="${HW:-gold6226}"
+CACHE="data/indexes/compete-$HW"
 [ -x "$VENV/bin/python" ] || { echo "set up first: bash scripts/pace/bench-env.sh && bash scripts/pace/compete-env.sh"; exit 1; }
 [ -f "$DATA" ] || { echo "download first: scripts/download_ann_dataset.sh $DATASET"; exit 1; }
-ls "$CACHE/$DATASET-epzero-sq8-"*.idx > /dev/null || { echo "run compete.sbatch for $DATASET first"; exit 1; }
+if [ "$HW" = gold6226 ]; then
+  ls "$CACHE/$DATASET-epzero-sq8-"*.idx > /dev/null || { echo "run compete.sbatch for $DATASET first"; exit 1; }
+fi
 
 case "$DATASET" in
   gist-*)    SWEEP=nav128-r100,nav128-r100-fast,nav128-r100-fast-after,nav128-r100-fast-refine-after,nav128-r100-fast-refine-after-p3,nav192-r100-fast-refine-after,nav96-r100-fast-refine-after,fast-refine ;;
@@ -60,7 +65,8 @@ fi
 "$VENV/bin/pip" install --quiet --no-deps --force-reinstall "$EPZERO_ROOT/engine"
 flock -u 9
 
-OUT=pace-results/gold6226
+OUT="pace-results/$HW"
+lscpu > "$OUT.lscpu.txt" 2>/dev/null || true
 mkdir -p "$OUT"
 COMMON=(--data "$DATA" --cache "$CACHE" --M 16 --efc 200 --threads "$(nproc)" --libs "$LIBS")
 cleanup() {
