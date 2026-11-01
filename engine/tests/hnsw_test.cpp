@@ -504,6 +504,30 @@ TEST_F(HnswTest, RefineLinksRaisesRecallAndKeepsListsValid) {
   }
 }
 
+TEST_F(HnswTest, RerankStopScoresFewerAndKeepsTheResults) {
+  HnswIndex index(sq8_params(Metric::L2, true));
+  index.train(data_.base.data.data(), kBase);
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  std::size_t full = 0;
+  std::size_t stopped = 0;
+  std::size_t same = 0;
+  for (std::size_t q = 0; q < kQueries; ++q) {
+    SearchStats a;
+    SearchStats b;
+    const auto all = index.search(data_.queries.row(q), kK, {.ef = 200, .rerank = 200, .stats = &a});
+    const auto some = index.search(data_.queries.row(q), kK, {.ef = 200, .rerank = 200, .rerank_z = 3.0f, .stats = &b});
+    ASSERT_EQ(some.size(), kK);
+    for (std::size_t i = 1; i < kK; ++i) EXPECT_LE(some[i - 1].distance, some[i].distance);
+    full += a.full_distance_computations;
+    stopped += b.full_distance_computations;
+    for (const auto& r : some) {
+      same += std::any_of(all.begin(), all.end(), [&](const SearchResult& x) { return x.label == r.label; });
+    }
+  }
+  EXPECT_LT(stopped, full);
+  EXPECT_GE(static_cast<double>(same) / static_cast<double>(kQueries * kK), 0.97);
+}
+
 TEST_F(HnswTest, FastBuildKeepsRecall) {
   HnswParams p = sq8_params(Metric::L2, true);
   p.fast_build = true;
