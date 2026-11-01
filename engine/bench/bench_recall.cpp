@@ -45,6 +45,7 @@ struct Options {
   bool fast_build = false;
   bool fill_after = false;
   std::size_t refine = 0;
+  std::uint64_t seed = 42;
   float rerank_z = 0.0f;
   std::size_t refine_ef = 0;
   std::size_t rerank = 0;
@@ -98,6 +99,7 @@ Options parse(int argc, char** argv) {
     else if (arg == "--fast-build") o.fast_build = true;
     else if (arg == "--fill-after") o.fill_after = true;
     else if (arg == "--refine") o.refine = std::stoul(value());
+    else if (arg == "--seed") o.seed = std::stoull(value());
     else if (arg == "--rerank-z") o.rerank_z = std::stof(value());
     else if (arg == "--refine-ef") o.refine_ef = std::stoul(value());
     else if (arg == "--prefetch") {  // depth,lines
@@ -185,7 +187,7 @@ int main(int argc, char** argv) try {
     std::printf("load      %s in %.2fs\n", opt.load.c_str(), seconds_since(t0));
   } else {
     HnswParams params{.dim = dim, .metric = opt.metric, .max_elements = base.n, .M = opt.M,
-                      .ef_construction = opt.ef_construction, .quantization = opt.quantization,
+                      .ef_construction = opt.ef_construction, .seed = opt.seed, .quantization = opt.quantization,
                       .keep_vectors = opt.keep_vectors, .nav_dim = opt.nav_dim, .fill_links = opt.fill_links,
                       .fast_build = opt.fast_build};
     loaded = std::make_unique<HnswIndex>(params);
