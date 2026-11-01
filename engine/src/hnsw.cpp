@@ -1224,6 +1224,7 @@ void HnswIndex::connect(id_t id, const std::vector<Candidate>& neighbors, int la
   for (const Candidate& neighbor : neighbors) {
     std::lock_guard lock(node_locks_[neighbor.id]);
     copy_links(neighbor.id, layer, existing);
+    if (std::find(existing.begin(), existing.end(), id) != existing.end()) continue;  // refine_links revisits
     if (existing.size() < capacity) {
       id_t* links = links_of(neighbor.id, layer);
       store_link(links[1 + existing.size()], id);
@@ -1425,6 +1426,67 @@ std::unique_ptr<HnswIndex> HnswIndex::compacted(std::size_t threads) const {
     }
   });
   return out;
+}
+
+void HnswIndex::refine_links(std::size_t threads, std::size_t ef) {
+  if (ef == 0) ef = params_.ef_construction;
+  const std::uint64_t entry = entry_.load(std::memory_order_acquire);
+  if (entry == kEmpty) return;
+  const int top_level = static_cast<int>(entry >> 32) - 1;
+  parallel_for(0, size(), threads, [&](std::size_t i) {
+    const auto id = static_cast<id_t>(i);
+    if (is_deleted(id)) return;
+    thread_local std::vector<float> vector;
+    const float* v = nullptr;
+    if (has_full_vectors()) {
+      v = full_vector(id);
+    } else {
+      vector.resize(params_.dim);
+      decode(id, vector.data());
+      v = vector.data();
+    }
+    const Scorer scorer(*this, v, /*adc=*/!has_full_vectors() || params_.fast_build);
+    SearchStats unused;
+    id_t from = static_cast<id_t>(entry & 0xffffffffu);
+    if (top_level > 0) from = greedy_descend(scorer, from, top_level, 0, unused, nullptr);
+    std::vector<Candidate> candidates = search_layer(scorer, from, ef, 0, unused, nullptr);
+    std::erase_if(candidates, [id](const Candidate& c) { return c.id == id; });
+    if (!candidates.empty()) connect(id, select_neighbors(std::move(candidates), max_links0_), 0);
+  });
+}
+
+std::size_t HnswIndex::fill_free_links(std::size_t threads) {
+  std::atomic<std::size_t> added{0};
+  parallel_for(0, size(), threads, [&](std::size_t i) {
+    const auto id = static_cast<id_t>(i);
+    if (is_deleted(id)) return;
+    std::vector<id_t> links;
+    std::vector<id_t> hop;
+    copy_links(id, 0, links);
+    if (links.size() >= max_links0_) return;
+    std::vector<id_t> pool;
+    for (const id_t neighbor : links) {
+      copy_links(neighbor, 0, hop);
+      pool.insert(pool.end(), hop.begin(), hop.end());
+    }
+    std::sort(pool.begin(), pool.end());
+    pool.erase(std::unique(pool.begin(), pool.end()), pool.end());
+    std::vector<Candidate> scored;
+    scored.reserve(pool.size());
+    for (const id_t other : pool) {
+      if (other == id || is_deleted(other) || std::find(links.begin(), links.end(), other) != links.end()) continue;
+      scored.push_back({pair_distance(id, other), other});
+    }
+    const std::size_t free_slots = std::min(max_links0_ - links.size(), scored.size());
+    std::partial_sort(scored.begin(), scored.begin() + static_cast<std::ptrdiff_t>(free_slots), scored.end(),
+                      [](const Candidate& a, const Candidate& b) { return a.distance < b.distance; });
+    // Appended behind the existing links, so readers always see a valid list.
+    id_t* slots = links_of(id, 0);
+    for (std::size_t j = 0; j < free_slots; ++j) store_link(slots[1 + links.size() + j], scored[j].id);
+    store_link(slots[0], static_cast<id_t>(links.size() + free_slots));
+    added += free_slots;
+  });
+  return added;
 }
 
 bool HnswIndex::contains(std::uint64_t label) const {
