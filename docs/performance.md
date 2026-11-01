@@ -441,6 +441,47 @@ Measured on the Try page (local server, 12-thread laptop):
 - **No wasted first-visit download.** The very first visit reloads once to become cross-origin
   isolated (needed for WebAssembly threads); downloads now start after that reload.
 
+## Walking on principal directions
+
+Every library in the comparison reads a node's whole vector, or one code per dimension, at every
+step of the walk. Most of that work ranks candidates that a far cheaper signal could rank, because
+real embeddings keep their variance in far fewer directions than they have dimensions (share of
+variance in the top directions, measured on samples):
+
+| Data | Dimensions | Top 64 | Top 128 | Top 256 | Top 512 |
+|---|---|---|---|---|---|
+| SIFT1M | 128 | 94% | 100% | | |
+| GloVe-100 | 100 | 73% | | | |
+| GIST1M | 960 | 77% | 87% | 94% | 98% |
+| DBpedia OpenAI (37k sample) | 1,536 | 48% | 65% | 80% | 92% |
+
+`HnswParams::nav_dim` keeps the graph, built with exact distances, and walks it on 8-bit codes of
+that many principal directions (subspace iteration on a sample's covariance, [`pca.h`](../engine/src/pca.h),
+at `train()`). A node then costs `nav_dim` bytes to read and score, its record shrinks, and a wider
+re-rank with the full vectors recovers exact distances. Intel's LeanVec applies the same idea to its
+own graph index. The query's projection is one extra cost per search.
+
+`HnswParams::fill_links` is the second experiment. On GIST1M an average node uses 12.6 of its 32
+base-layer slots (GloVe-100: 23), because the diversity heuristic discards candidates even when
+slots are free; those slots are allocated either way. It fills them with the closest candidates the
+heuristic pruned, which also needs more pruning work while building.
+
+First results (laptop, one search thread, the SQ8 index as the baseline; server results to follow):
+
+| Change | Result at equal recall |
+|---|---|
+| GIST1M, `nav_dim` 256, re-rank 50 | 1.69× at recall 0.95 (2,260 vs 1,337 QPS), index 4.25 GB vs 4.95 GB |
+| GIST1M, `nav_dim` 128, re-rank 100 | about 2× at recall 0.95, index 4.12 GB |
+| GIST1M, `fill_links` | 1.1× at 0.95, 1.2× at 0.98, recall 0.988 vs 0.978 at `ef` 800; build about 40% slower |
+| GloVe-100, `fill_links` | none |
+| DBpedia sample, `nav_dim` 256, re-rank 50 | 1.0× at 0.95, 1.17× at 0.98 |
+
+The DBpedia sample has only 37,000 vectors, so a search is short and the projection takes a large
+share of it; [`scripts/pace/speed.sbatch`](../scripts/pace/speed.sbatch) measures the full sets beside
+Glass. A connectivity repair for GloVe was ruled out first: its base layer is connected (49 of 1.18M
+nodes unreachable, effectively no true neighbours among them), and recall keeps rising with effort (0.984 at
+`ef` 3200), so its 0.94 at `ef` 800 is a limit of effort, not of reach.
+
 ## Next levers
 
 1. **Graph-parameter tuning** (M, efConstruction) for the best
