@@ -57,7 +57,7 @@
         </p>
       {/if}
       <footer>
-        On SIFT1M (1M × 128-D), an exact scan is 128 million multiply-adds per query. Epzero answers in about 0.1 ms per query
+        On SIFT1M (1M × 128-D), an exact scan is 128 million multiply-adds per query. Epzero answers in about 175 µs per query
         on one core at 97% recall.
       </footer>
     </div>
