@@ -476,6 +476,7 @@ HnswIndex::HnswIndex(const HnswParams& params)
   if (params_.M < 2) throw std::invalid_argument("M must be >= 2");
   if (rabitq() && !params_.keep_vectors) throw std::invalid_argument("RaBitQ keeps the full vectors to re-rank");
   rbq_padded_ = rabitq::padded_dim(params_.dim);
+  walk_full_ = std::getenv("EPZERO_WALK_FULL") != nullptr;  // research: walk at full precision
   if (params_.fast_build && !sq8()) throw std::invalid_argument("fast_build needs SQ8");
   if (params_.nav_dim != 0) {
     if (!sq8() || !params_.keep_vectors) throw std::invalid_argument("nav_dim needs SQ8 with keep_vectors");
@@ -752,8 +753,11 @@ std::pair<std::size_t, std::size_t> HnswIndex::tune_prefetch(const float* querie
   const std::size_t max_lines = std::max<std::size_t>(1, (bytes + 63) / 64);
   std::vector<std::pair<std::size_t, std::size_t>> grid = {{kAll, 1}};  // the default first
   for (const std::size_t depth : {kAll, std::size_t{16}, std::size_t{8}, std::size_t{4}, std::size_t{2}}) {
-    for (const std::size_t lines : {std::size_t{1}, std::size_t{2}, std::size_t{4}, std::size_t{8}}) {
-      if (lines <= max_lines && !(depth == kAll && lines == 1)) grid.emplace_back(depth, lines);
+    // Always every line of a node: a record of 3, 5 or 7 lines must be able to prefetch all of them.
+    for (const std::size_t lines : {std::size_t{1}, std::size_t{2}, std::size_t{4}, max_lines}) {
+      if (lines > max_lines || (depth == kAll && lines == 1)) continue;
+      const std::pair setting{depth, lines};
+      if (std::find(grid.begin(), grid.end(), setting) == grid.end()) grid.push_back(setting);
     }
   }
   const auto time_pass = [&] {
@@ -1403,7 +1407,7 @@ std::vector<SearchResult> HnswIndex::search(const float* query, std::size_t k, c
   }
 
   SearchStats stats;
-  const Scorer scorer(*this, query, /*adc=*/quantized());
+  const Scorer scorer(*this, query, /*adc=*/quantized() && !walk_full_);
   const std::size_t ef = std::max(options.ef, k);
   std::vector<Candidate> candidates;
   if (options.filter == nullptr) {
