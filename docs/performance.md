@@ -552,12 +552,25 @@ now runs on 8 bits too: each direction and the query are rounded to int8 and sco
 SQ8 kernel. On the 37,000-vector DBpedia sample that gave +31-57% at 256 directions and +35-72% at 384
 (`ef` 80 to 20), with recall unchanged to 0.002; on GIST1M, where searches are longer, -1% to +6%.
 
+**Stopping the re-rank early.** `SearchOptions::rerank_z` scores candidates in blocks of 16 and stops
+when the next one, placed by this query's own gap between estimated and exact distances, is more than
+`rerank_z` standard deviations past the k-th best. At 3, against a fixed re-rank of 100, recall moved by
+at most 0.0004: GIST1M +24% at `ef` 100 and +11% at 200, level above; the DBpedia sample +13-14% at `ef` 80
+and 200, level below (laptop, medians of 5 interleaved rounds). `rerank` becomes a cap, not a setting to
+tune.
+
 Tried for the same goals and removed:
 
 - **The alpha-convergent pruning rule** (Fast-Convergent Proximity Graphs, as a slack `tau` and `alpha`
   on the heuristic). GloVe-100, `tau` 0.1: about 2,200 against 3,900 QPS at recall 0.90, and every other
   `tau` and `alpha` tried was also worse. The links kept are all short once the list is full at 32; the
   paper uses lists of 50-100. SIFT1M, `tau` 5: +5% at 0.95, too little for a per-dataset setting.
+- **Two-stage scoring of principal directions.** Score the first 32 or 64, predict the rest from its
+  mean and variance, and skip the rest if the node clearly can't enter the beam. GIST1M at 192 directions:
+  10-20% slower, as with z = 2-3 the rest's spread is too wide to reject much. DBpedia at 256: rejecting
+  more cost recall (0.931 to 0.889 at `ef` 20).
+- **Scale ranges from percentiles instead of extremes** (0.1% tails). Recall +0.003 on GIST1M, but -0.002
+  on DBpedia and -0.003 on GloVe-100 at high `ef`: those embeddings use their outlying values.
 - **Scoring a node's neighbours in one kernel call, and 8-byte beam items.** Identical recall, and speed
   within noise (-7% to +2% across SIFT1M, GloVe-100 and GIST1M), so per-node overhead isn't what limits
   search on this CPU.
