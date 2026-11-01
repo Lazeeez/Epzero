@@ -476,6 +476,27 @@ First results (laptop, one search thread, the SQ8 index as the baseline; server 
 | GloVe-100, `fill_links` | none |
 | DBpedia sample, `nav_dim` 256, re-rank 50 | 1.0× at 0.95, 1.17× at 0.98 |
 
+**Building on the codes.** `HnswParams::fast_build` searches for neighbours and prunes them on the
+codes instead of the full vectors, as Flash does with its compact codes. With `nav_dim` that was
+expected to trade graph quality for build time. It gave both instead: on GIST1M with `nav_dim` 128
+the build fell from 300 s to 52 s (12 threads), and recall at `ef` 400 rose from 0.943 to 0.960 at
+the same re-rank, about 1.25× the queries per second at recall 0.95. The working explanation is that
+the graph is then built in the same space the walk uses, so its links suit the walk's distances; that
+is not yet tested. Without `nav_dim`, on plain SQ8 codes, it left recall and speed unchanged on
+SIFT1M and GloVe-100.
+
+| GIST1M at recall 0.95, laptop | QPS | Build |
+|---|---|---|
+| SQ8, as shipped | 1,337 | |
+| `nav_dim` 128, re-rank 100 | about 2,750 | 300 s |
+| + `fast_build` | about 3,750 | 52 s |
+| + `fill_links` | about 4,060 (3×) | 127 s |
+
+Where it doesn't help: `nav_dim` loses on low-dimensional data (SIFT1M, 60 directions: 16,571 against
+19,920 QPS at a slightly lower recall; GloVe-100, 80 directions: recall 0.898 at `ef` 800 against
+0.943), and `fill_links` adds nothing there. Scoring the codes with the float kernel instead of the
+integer one changed recall by at most 0.0014 at `nav_dim` 128, so rounding isn't holding it back.
+
 The DBpedia sample has only 37,000 vectors, so a search is short and the projection takes a large
 share of it; [`scripts/pace/speed.sbatch`](../scripts/pace/speed.sbatch) measures the full sets beside
 Glass. A connectivity repair for GloVe was ruled out first: its base layer is connected (49 of 1.18M
