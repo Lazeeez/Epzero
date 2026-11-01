@@ -546,6 +546,12 @@ the kernel's arithmetic isn't what holds GloVe-100 back against Glass. Replacing
 scalar tail with 16-, 8- and 4-byte vector loads gave +3-4% on GloVe-100 on the laptop, at identical
 recall (noise there is about 1%).
 
+**The query's projection.** Projecting one query cost 28 us at 256 directions of 1,536 dimensions and
+48 us at 384 (laptop), a large share of a short search. It only sets the walk's 8-bit weights, so it
+now runs on 8 bits too: each direction and the query are rounded to int8 and scored with the integer
+SQ8 kernel. On the 37,000-vector DBpedia sample that gave +31-57% at 256 directions and +35-72% at 384
+(`ef` 80 to 20), with recall unchanged to 0.002; on GIST1M, where searches are longer, -1% to +6%.
+
 Tried for the same goals and removed:
 
 - **The alpha-convergent pruning rule** (Fast-Convergent Proximity Graphs, as a slack `tau` and `alpha`
