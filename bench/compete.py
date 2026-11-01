@@ -333,13 +333,15 @@ def experiment(name):
     epzero-sq8-fast          built on the codes instead of the full vectors
     epzero-sq8-after         free link slots filled in one pass after the build
     epzero-sq8-refine        a second pass: every node searches the finished graph and reconnects
+    epzero-sq8-r300-z3       re-ranks up to 300, stopping early at 3 standard deviations
+    epzero-sq8-pf8.2         prefetches 8 neighbours ahead, 2 lines each, instead of tuning (pfall: all)
     epzero-sq8-ymm           the 256-bit VNNI kernel (first AVX-512 Xeons; identical recall expected)
     epzero-sq8-nav128-r100-fast-fill-p3  all of them, with patience = ef / 3
     Variants that differ only in -r or -p share one saved index."""
-    match = re.fullmatch(r"epzero-sq8(-ymm)?(?:-nav(\d+))?(?:-r(\d+))?(-fast)?(-refine)?(-fill|-after)?(?:-p(\d+))?", name)
+    match = re.fullmatch(r"epzero-sq8(-ymm)?(?:-nav(\d+))?(?:-r(\d+))?(?:-z(\d+))?(-fast)?(-refine)?(-fill|-after)?(?:-p(\d+))?(?:-pf(\d+|all)\.(\d+))?", name)
     if match is None:
-        raise SystemExit(f"unknown library {name}; known: {', '.join(LIBRARIES)}, epzero-sq8[-ymm][-nav<dims>][-r<n>][-fast][-refine][-fill|-after][-p<div>]")
-    ymm, nav, rerank, fast, refine, fill, patience = match.groups()
+        raise SystemExit(f"unknown library {name}; known: {', '.join(LIBRARIES)}, epzero-sq8[-ymm][-nav<dims>][-r<n>][-z<n>][-fast][-refine][-fill|-after][-p<div>][-pf<depth>.<lines>]")
+    ymm, nav, rerank, stop, fast, refine, fill, patience, depth, lines = match.groups()
     index_name = "epzero-sq8" + (f"-nav{nav}" if nav else "") + (fast or "") + (refine or "") + (fill or "")
 
     class Variant(EpzeroSq8):
@@ -358,7 +360,13 @@ def experiment(name):
 
         def search(self, q, k, ef):
             effort = max(1, ef // int(patience)) if patience else 0
-            return self.index.search(q, k=k, ef=ef, threads=1, rerank=int(rerank or 0), patience=effort)[0]
+            return self.index.search(q, k=k, ef=ef, threads=1, rerank=int(rerank or 0), patience=effort, rerank_z=float(stop or 0))[0]
+
+        def _tune(self, base):
+            if depth is None:
+                super()._tune(base)
+            else:
+                self.index.set_prefetch(None if depth == "all" else int(depth), int(lines))
 
     Variant.name = name
     return Variant
