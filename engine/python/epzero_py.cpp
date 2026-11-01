@@ -166,6 +166,16 @@ class Index {
   void set_prefetch(const py::object& depth, std::size_t lines) {
     index_->set_prefetch(depth.is_none() ? std::numeric_limits<std::size_t>::max() : depth.cast<std::size_t>(), lines);
   }
+  void refine_links(std::size_t threads, std::size_t ef) {
+    py::gil_scoped_release release;
+    index_->refine_links(threads, ef);
+  }
+
+  std::size_t fill_free_links(std::size_t threads) {
+    py::gil_scoped_release release;
+    return index_->fill_free_links(threads);
+  }
+
   py::tuple tune_prefetch(const FloatArray& queries, std::size_t k, std::size_t ef) {
     std::size_t n;
     const float* rows = rows_of(queries, index_->params().dim, n);
@@ -468,6 +478,11 @@ PYBIND11_MODULE(_core, m) {
       .def_property_readonly("prefetch", &Index::prefetch, "(depth, lines): how far ahead the search prefetches.")
       .def("set_prefetch", &Index::set_prefetch, py::arg("depth") = py::none(), py::arg("lines") = 1,
            "Prefetch `lines` cache lines of `depth` neighbors ahead (None: every neighbor up front).")
+      .def("refine_links", &Index::refine_links, py::arg("threads") = 0, py::arg("ef") = 0,
+           "Once built: every node searches the finished graph and reconnects (ef 0: ef_construction).")
+      .def("fill_free_links", &Index::fill_free_links, py::arg("threads") = 0,
+           "Once built: gives each node's free layer-0 link slots to its closest two-hop neighbours.\n"
+           "Returns the number of links added.")
       .def("tune_prefetch", &Index::tune_prefetch, py::arg("queries"), py::arg("k") = 10, py::arg("ef") = 64,
            "Times searches of `queries` (a few hundred rows, e.g. sampled from the data) at a grid of\n"
            "prefetch settings and keeps the fastest if it beats the default by 3%. Returns the setting.")
