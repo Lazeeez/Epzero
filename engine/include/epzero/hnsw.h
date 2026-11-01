@@ -49,6 +49,9 @@ struct HnswParams {
   // Building: when the diversity heuristic leaves a node's link list short, fill the free slots with
   // the closest candidates it pruned. The slots are allocated either way. Not saved with the index.
   bool fill_links = false;
+  // Building, with SQ8: search for neighbours and prune them on the codes instead of the full
+  // vectors. Not saved with the index: later inserts use full vectors.
+  bool fast_build = false;
 };
 
 struct SearchResult {
