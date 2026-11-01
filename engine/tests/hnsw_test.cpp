@@ -31,10 +31,11 @@ HnswParams params_for(Metric metric, std::size_t max_elements = kBase) {
   return p;
 }
 
-double measure_recall(const HnswIndex& index, const SyntheticData& data, std::size_t ef, Metric metric) {
+double measure_recall(const HnswIndex& index, const SyntheticData& data, std::size_t ef, Metric metric,
+                      std::size_t rerank = 0) {
   std::vector<std::vector<SearchResult>> results;
   for (std::size_t q = 0; q < data.queries.n; ++q) {
-    results.push_back(index.search(data.queries.row(q), kK, {.ef = ef}));
+    results.push_back(index.search(data.queries.row(q), kK, {.ef = ef, .rerank = rerank}));
   }
   const auto truth = compute_ground_truth(data.base.data.data(), data.base.n, kDim, data.queries.data.data(),
                                           data.queries.n, kK, metric);
@@ -405,6 +406,72 @@ HnswParams rabitq_params(Metric metric, std::size_t max_elements = kBase) {
   HnswParams p = params_for(metric, max_elements);
   p.quantization = Quantization::RaBitQ;
   return p;
+}
+
+TEST_F(HnswTest, NavDimWalksOnFewerCodesAndKeepsRecall) {
+  HnswParams p = sq8_params(Metric::L2, true);
+  p.nav_dim = kDim / 2;
+  HnswIndex index(p);
+  index.train(data_.base.data.data(), kBase);
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  // This data has no low-dimensional structure, so half the dimensions need a wide re-rank.
+  EXPECT_GE(measure_recall(index, data_, 200, Metric::L2, 200), 0.9);
+  // The re-ranked distances are exact.
+  const auto results = index.search(data_.queries.row(0), kK, {.ef = 200, .rerank = 100});
+  const auto exact = brute_force_search(data_.base.data.data(), kBase, kDim, data_.queries.row(0), 1, Metric::L2);
+  EXPECT_EQ(results[0].label, exact[0].label);
+  EXPECT_NEAR(results[0].distance, exact[0].distance, 1e-3f);
+}
+
+TEST_F(HnswTest, NavDimSaveLoadAndCompaction) {
+  HnswParams p = sq8_params(Metric::Cosine, true);
+  p.nav_dim = kDim / 2;
+  HnswIndex index(p);
+  index.train(data_.base.data.data(), kBase);
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  const auto path = (std::filesystem::temp_directory_path() / "epzero_nav.idx").string();
+  index.save(path);
+  const auto loaded = HnswIndex::load(path);
+  std::filesystem::remove(path);
+  EXPECT_EQ(loaded->params().nav_dim, p.nav_dim);
+  const auto compacted = index.compacted(1);
+  for (std::size_t q = 0; q < 20; ++q) {
+    const auto before = index.search(data_.queries.row(q), kK, {.ef = 64});
+    const auto after = loaded->search(data_.queries.row(q), kK, {.ef = 64});
+    ASSERT_EQ(before.size(), after.size());
+    for (std::size_t i = 0; i < before.size(); ++i) EXPECT_EQ(before[i].label, after[i].label);
+    EXPECT_EQ(compacted->search(data_.queries.row(q), 1, {.ef = 64}).size(), 1u);
+  }
+}
+
+TEST_F(HnswTest, NavDimRejectsUnusableSettings) {
+  HnswParams p = sq8_params(Metric::L2, true);
+  p.nav_dim = kDim;
+  EXPECT_THROW(HnswIndex{p}, std::invalid_argument);
+  p = sq8_params(Metric::L2, false);
+  p.nav_dim = kDim / 2;
+  EXPECT_THROW(HnswIndex{p}, std::invalid_argument);
+  p = params_for(Metric::L2);
+  p.nav_dim = kDim / 2;
+  EXPECT_THROW(HnswIndex{p}, std::invalid_argument);
+}
+
+TEST_F(HnswTest, FillLinksUsesTheFreeSlots) {
+  const auto average_degree = [&](const HnswIndex& index) {
+    std::size_t links = 0;
+    for (std::size_t i = 0; i < kBase; ++i) links += index.neighbors_of(i, 0).size();
+    return static_cast<double>(links) / kBase;
+  };
+  HnswIndex plain(params_for(Metric::L2));
+  HnswParams p = params_for(Metric::L2);
+  p.fill_links = true;
+  HnswIndex filled(p);
+  for (std::size_t i = 0; i < kBase; ++i) {
+    plain.add(i, data_.base.row(i));
+    filled.add(i, data_.base.row(i));
+  }
+  EXPECT_GT(average_degree(filled), average_degree(plain));
+  EXPECT_GE(measure_recall(filled, data_, 100, Metric::L2), 0.9);
 }
 
 TEST_F(HnswTest, RabitqRequiresTrainingAndFullVectors) {
