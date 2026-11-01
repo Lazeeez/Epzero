@@ -294,6 +294,8 @@ class HnswIndex {
   // Bytes of SQ8 code per node, and the projection onto the walk's directions (nav_dim only).
   std::size_t code_dim() const noexcept { return params_.nav_dim != 0 ? params_.nav_dim : params_.dim; }
   void project(const float* v, float* out) const noexcept;
+  void project_query(const float* query, float* out) const;
+  void prepare_query_projection();
   const std::uint8_t* codes_of(id_t id) const noexcept {
     return reinterpret_cast<const std::uint8_t*>(record(id) + sizeof(float));
   }
@@ -368,6 +370,11 @@ class HnswIndex {
   std::vector<float> sq8_scale_;
   std::vector<float> nav_basis_;  // nav_dim: the directions, nav_dim rows of dim floats
   DistanceFn dot_ = nullptr;      // nav_dim: 1 - dot, to project a vector
+  // nav_dim, for queries: nav_basis_ rounded to int8, one row at a time, with each row's scale and
+  // sum. Not saved: rebuilt from nav_basis_.
+  std::vector<std::int8_t> nav_ibasis_;
+  std::vector<float> nav_iscale_;
+  std::vector<std::int64_t> nav_isum_;
   std::unique_ptr<float[], AlignedFree> full_;
 
   // RaBitQ: the centroid, the rotation's random signs, and the padded (power of two) dimension.
