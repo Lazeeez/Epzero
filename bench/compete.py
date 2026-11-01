@@ -25,6 +25,7 @@ import argparse
 import json
 import math
 import os
+import re
 import statistics
 import time
 
@@ -67,6 +68,7 @@ class Library:
 class Epzero(Library):
     name = "epzero"
     quantization = "none"
+    options = {}  # extra Index() arguments
 
     def __init__(self, dim, args):
         super().__init__(dim, args)
@@ -75,7 +77,7 @@ class Epzero(Library):
         self.mod = epzero
 
     def build(self, base):
-        self.index = self.mod.Index(self.dim, "l2", len(base), self.args.M, self.args.efc, quantization=self.quantization)
+        self.index = self.mod.Index(self.dim, "l2", len(base), self.args.M, self.args.efc, quantization=self.quantization, **self.options)
         if self.quantization != "none":
             self.index.train(base[: min(len(base), 200_000)])
         self.index.add(base, threads=self.args.threads)
@@ -319,6 +321,31 @@ class EpzeroSq8Avx512(EpzeroSq8):
 LIBRARIES = {cls.name: cls for cls in (*COMPARED, EpzeroSq8Default, EpzeroSq8Adaptive, EpzeroSq8Avx512)}
 
 
+def experiment(name):
+    """Epzero SQ8 variants for sweeps, from their names (not in the default comparison):
+    epzero-sq8-nav256        walks on 8-bit codes of 256 principal directions
+    epzero-sq8-nav256-r50    the same, re-ranking 50 candidates with full vectors
+    epzero-sq8-fill          free link slots filled with the closest pruned candidates
+    epzero-sq8-nav256-r50-fill-p3  both, with patience = ef / 3
+    Variants that differ only in -r or -p share one saved index."""
+    match = re.fullmatch(r"epzero-sq8(?:-nav(\d+))?(?:-r(\d+))?(-fill)?(?:-p(\d+))?", name)
+    if match is None:
+        raise SystemExit(f"unknown library {name}; known: {', '.join(LIBRARIES)}, epzero-sq8-nav<dims>[-r<n>][-fill][-p<div>]")
+    nav, rerank, fill, patience = match.groups()
+    index_name = "epzero-sq8" + (f"-nav{nav}" if nav else "") + (fill or "")
+
+    class Variant(EpzeroSq8):
+        options = {**({"nav_dim": int(nav)} if nav else {}), **({"fill_links": True} if fill else {})}
+        cache_name = index_name
+
+        def search(self, q, k, ef):
+            effort = max(1, ef // int(patience)) if patience else 0
+            return self.index.search(q, k=k, ef=ef, threads=1, rerank=int(rerank or 0), patience=effort)[0]
+
+    Variant.name = name
+    return Variant
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", required=True, help="an ann-benchmarks .hdf5 file")
@@ -343,7 +370,7 @@ def main():
     rebuild = set(filter(None, args.rebuild.split(",")))
     for name in args.libs.split(","):
         try:
-            lib = LIBRARIES[name](dim, args)
+            lib = (LIBRARIES.get(name) or experiment(name))(dim, args)
         except Exception as error:  # not installed here
             skipped[name] = f"{type(error).__name__}: {error}"
             print(f"{name:12s} skipped: {skipped[name]}")
