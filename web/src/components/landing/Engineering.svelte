@@ -26,7 +26,7 @@
       <p class="eyebrow">Under the hood</p>
       <h2 id="engineering-title" class="section-title">Engineered down to the cache line.</h2>
       <p class="section-lede">
-        Every optimization was kept only if an interleaved A/B test on SIFT1M showed a gain, and the negative results are
+        Each optimization was measured with an interleaved A/B test, mostly on SIFT1M, and the negative results are
         written up too.
       </p>
     </header>
@@ -70,7 +70,7 @@
         <h3><span class="big num">+48%</span> QPS, same recall</h3>
         <p>
           Per-dimension 8-bit codes scored with an asymmetric distance kernel, then the top candidates re-ranked exactly.
-          Recall stays at 0.9744; vectors shrink 4×.
+          Recall stays at 0.9744 with the full vectors kept for the re-rank. Without them the index is 58% smaller than float, at recall 0.9666.
         </p>
       </article>
 
@@ -78,7 +78,7 @@
         <span class="kicker">Concurrency</span>
         <h3>Lock-free reads</h3>
         <p>
-          Neighbour slots are <code>std::atomic_ref</code> with release/acquire ordering, so a search never waits behind an
+          Neighbour slots are atomics with release/acquire ordering, so a search never waits behind an
           insert. Verified with ThreadSanitizer under concurrent load.
         </p>
       </article>
@@ -108,7 +108,7 @@
           <p>
             C++ gRPC nodes replicate synchronously from primary to backup, with epochs as fencing tokens. A Go router shards
             writes, fans searches out with hedged requests, merges the top-k and promotes a backup when a primary dies. CI kills
-            a primary on every push and checks nothing is lost.
+            a primary on every engine or cluster change and checks nothing is lost.
           </p>
         </div>
         <svg class="topology" viewBox="0 0 300 170" aria-hidden="true">
