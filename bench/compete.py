@@ -102,7 +102,7 @@ class Epzero(Library):
         self._tune(base)
 
     def search(self, q, k, ef):
-        return self.index.search(q, k=k, ef=ef, threads=1)[0]
+        return self.index.search(q, k=k, ef=ef, threads=self.args.search_threads)[0]
 
 
 class EpzeroSq8(Epzero):
@@ -146,7 +146,7 @@ class Hnswlib(Library):
 
     def search(self, q, k, ef):
         self.index.set_ef(max(ef, k))
-        return self.index.knn_query(q, k=k, num_threads=1)[0]
+        return self.index.knn_query(q, k=k, num_threads=self.args.search_threads)[0]
 
 
 class FaissHnsw(Library):
@@ -220,7 +220,7 @@ class USearch(Library):
 
     def search(self, q, k, ef):
         self.index.expansion_search = max(ef, k)
-        return self.index.search(q, k, threads=1).keys
+        return self.index.search(q, k, threads=self.args.search_threads).keys
 
 
 class Vsag(Library):
@@ -289,7 +289,7 @@ class Glass(Library):
 
     def search(self, q, k, ef):
         self.searcher.set_ef(max(ef, k))
-        ids = self.searcher.batch_search(q, k, num_threads=1)
+        ids = self.searcher.batch_search(q, k, num_threads=self.args.search_threads)
         ids = ids[0] if isinstance(ids, tuple) else ids  # (ids, distances) in newer versions
         return np.asarray(ids).reshape(len(q), k)
 
@@ -303,7 +303,7 @@ class EpzeroSq8Adaptive(EpzeroSq8):
     cache_name = "epzero-sq8"
 
     def search(self, q, k, ef):
-        return self.index.search(q, k=k, ef=ef, threads=1, patience=max(1, ef // 3))[0]
+        return self.index.search(q, k=k, ef=ef, threads=self.args.search_threads, patience=max(1, ef // 3))[0]
 
 
 class EpzeroSq8Avx512(EpzeroSq8):
@@ -360,7 +360,7 @@ def experiment(name):
 
         def search(self, q, k, ef):
             effort = max(1, ef // int(patience)) if patience else 0
-            return self.index.search(q, k=k, ef=ef, threads=1, rerank=int(rerank or 0), patience=effort, rerank_z=float(stop or 0))[0]
+            return self.index.search(q, k=k, ef=ef, threads=self.args.search_threads, rerank=int(rerank or 0), patience=effort, rerank_z=float(stop or 0))[0]
 
         def _tune(self, base):
             if depth is None:
@@ -385,6 +385,7 @@ def main():
     parser.add_argument("--queries", type=int, default=10_000)
     parser.add_argument("--threads", type=int, default=os.cpu_count())
     parser.add_argument("--rounds", type=int, default=3)
+    parser.add_argument("--search-threads", type=int, default=1, help="threads per search call (the query set repeats to match)")
     parser.add_argument("--build-only", action="store_true", help="build and cache the indexes, then stop")
     args = parser.parse_args()
     dataset = os.path.splitext(os.path.basename(args.data))[0]
@@ -429,6 +430,7 @@ def main():
 
     recall = {(lib.name, p): recall_at_k(lib.search(queries, args.k, p), truth, args.k) for lib in libs for p in lib.params}
     samples = {key: [] for key in recall}
+    timed = np.tile(queries, (args.search_threads, 1))  # long enough to time on many threads
     for r in range(args.rounds):
         order = libs[r % len(libs):] + libs[: r % len(libs)]
         for i in range(max(len(lib.params) for lib in libs)):
@@ -437,8 +439,8 @@ def main():
                     continue
                 p = lib.params[i]
                 start = time.perf_counter()
-                lib.search(queries, args.k, p)
-                samples[(lib.name, p)].append(len(queries) / (time.perf_counter() - start))
+                lib.search(timed, args.k, p)
+                samples[(lib.name, p)].append(len(timed) / (time.perf_counter() - start))
         print(f"round {r + 1}/{args.rounds} done")
 
     results = {}
@@ -454,7 +456,7 @@ def main():
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w") as f:
         json.dump({"dataset": dataset, "n": n, "dim": dim, "metric": metric, "queries": len(queries), "k": args.k,
-                   "M": args.M, "ef_construction": args.efc, "build_threads": args.threads, "rounds": args.rounds,
+                   "M": args.M, "ef_construction": args.efc, "build_threads": args.threads, "search_threads": args.search_threads, "rounds": args.rounds,
                    "skipped": skipped, "libraries": results}, f, indent=2)
     print(f"wrote {args.out}")
 
