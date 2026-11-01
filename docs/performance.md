@@ -52,7 +52,7 @@ instruction-level changes.
 
 | Change | Result | Why it works |
 |---|---|---|
-| **Batched prefetch.** Filter a node's unvisited neighbors first, prefetch all their vectors, then score them | **+15%** | Up to 32 cache misses are in flight at once instead of one per distance call. Prefetching only the first line is enough: the hardware stream prefetcher follows once the kernel starts reading (64, 128, 256 and 512 bytes all measured the same; no prefetch at all was 14% slower) |
+| **Batched prefetch.** Filter a node's unvisited neighbors first, prefetch all their vectors, then score them | **+15%** | Up to 32 cache misses are in flight at once instead of one per distance call. On the laptop, prefetching only the first line was enough (64, 128, 256 and 512 bytes all measured the same; no prefetch at all was 14% slower). This does not hold across CPUs: see the prefetch section below |
 | **2 MiB transparent huge pages** for the layer-0 block (`madvise(MADV_HUGEPAGE)`, 2 MiB aligned) | **+13%**, p99 −16% | 764 MB spans ~190k 4 KiB pages, far more than the TLB covers, so almost every node visit was also a page walk. With huge pages it's ~380 pages. Verified via `AnonHugePages` in `/proc/<pid>/smaps_rollup` (672 MB huge-page backed) |
 | **Lock-free reads.** Neighbor-list slots are written with release stores and read with acquire loads (compiler atomic builtins) | +2% (noise) | No throughput gain: uncontended mutexes are cheap, and the profiler overstated them. Kept because a search now never waits behind an insert, and the memory-ordering argument is simple (see [`hnsw.h`](../engine/include/epzero/hnsw.h)). Checked with ThreadSanitizer under concurrent inserts and searches |
 | **8-bit visited tags** (1 MiB for 1M nodes vs 2 MiB) | −1% to +3% (noise) | Fits the P-core's 1.25 MiB L2 and halves per-search scratch memory. The extra full clear every 255 queries costs ~0.1 µs per query. Since replaced by one bit per node (below) |
@@ -592,6 +592,15 @@ ahead: on the Gold 6226, 2 lines (the whole 104-byte record) beat 1 line by 1.6-
 QPS at recall 0.90). On the laptop they tie (6,900 against 6,863 at `ef` 200, five rounds). A third line
 cost the laptop 15%. So `tune_prefetch` must be able to try a record's every line: it tested only 1, 2, 4
 and 8, which left records of 3, 5, 7 and 9 lines unreachable. That is now fixed.
+
+**Build cost.** Pruning decoded two 8-bit records for every pair, which at low dimension costs more than
+reading the real vectors. Pruning on full vectors (searching stays on the codes) cut builds at the same
+recall (within 0.0016; two seeds, laptop): GloVe-100 82 to 37 s and 231 to 87 s with `refine_links`, SIFT1M
+101 to 59 s, the DBpedia sample 22 to 7 s. `nav_dim` keeps pruning on the codes, which is the scan of `dim`
+floats it avoids. A second pass on full vectors after a first on the codes (`refine_links(exact)`)
+matched an all-exact build on the DBpedia sample (recall 0.9826, 20 s against 25 s) and beat refining on
+codes (0.9809). On GIST1M refining on the codes stayed ahead (0.9461 against 0.9447, 135 s against 415 s),
+so the best second pass depends on the dataset.
 
 Tried for the same goals and removed:
 
