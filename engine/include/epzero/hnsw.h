@@ -40,6 +40,15 @@ struct HnswParams {
   // SQ8: also keep full-precision vectors, used to build a better graph and to re-rank the final
   // candidates exactly. Without them the index stores ~4x less vector data. RaBitQ requires them.
   bool keep_vectors = true;
+  // SQ8: walk the graph on 8-bit codes of this many principal directions, learned by train(), instead
+  // of one code per dimension (0 = off). Each scored node then reads and computes nav_dim bytes, not
+  // dim, and the final re-rank with full vectors recovers exact distances. For embeddings whose
+  // variance sits in far fewer directions than they have dimensions. Needs keep_vectors, and
+  // usually a larger SearchOptions::rerank than the default.
+  std::size_t nav_dim = 0;
+  // Building: when the diversity heuristic leaves a node's link list short, fill the free slots with
+  // the closest candidates it pruned. The slots are allocated either way. Not saved with the index.
+  bool fill_links = false;
 };
 
 struct SearchResult {
@@ -270,6 +279,9 @@ class HnswIndex {
   // Full-precision vector: inside the layer-0 record (None) or in full_ (quantized + keep_vectors).
   const float* full_vector(id_t id) const noexcept;
   bool has_full_vectors() const noexcept { return !quantized() || params_.keep_vectors; }
+  // Bytes of SQ8 code per node, and the projection onto the walk's directions (nav_dim only).
+  std::size_t code_dim() const noexcept { return params_.nav_dim != 0 ? params_.nav_dim : params_.dim; }
+  void project(const float* v, float* out) const noexcept;
   const std::uint8_t* codes_of(id_t id) const noexcept {
     return reinterpret_cast<const std::uint8_t*>(record(id) + sizeof(float));
   }
@@ -342,6 +354,8 @@ class HnswIndex {
   // SQ8: per-dimension x = min + code * scale, and the kept full-precision vectors.
   std::vector<float> sq8_min_;
   std::vector<float> sq8_scale_;
+  std::vector<float> nav_basis_;  // nav_dim: the directions, nav_dim rows of dim floats
+  DistanceFn dot_ = nullptr;      // nav_dim: 1 - dot, to project a vector
   std::unique_ptr<float[], AlignedFree> full_;
 
   // RaBitQ: the centroid, the rotation's random signs, and the padded (power of two) dimension.
