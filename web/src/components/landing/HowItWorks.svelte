@@ -211,7 +211,7 @@
       <p class="eyebrow">How it works</p>
       <h2 id="how-title" class="section-title">Finding the needle without searching the haystack.</h2>
       <p class="section-lede">
-        Epzero implements HNSW, the graph index behind most production vector databases. Scroll to build one, then watch a real
+        Epzero implements HNSW, the graph index behind most production vector databases. Follow the steps to build one, then watch a real
         search run through it. This isn't an animation of the algorithm: it's the Epzero engine, in WebAssembly, indexing
         {count} points and recording every decision it makes.
       </p>
@@ -254,7 +254,7 @@
           </p>
           <p class="layers num">
             {#each perLayer as n, layer (layer)}
-              <span><i style:--c="var(--layer-{layer})"></i>Layer {layer}: {n} points</span>
+              <span><i style:--c="var(--layer-{layer})"></i>Layer {layer}: {n} {n === 1 ? "point" : "points"}</span>
             {/each}
           </p>
         </article>
