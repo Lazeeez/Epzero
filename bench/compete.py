@@ -327,17 +327,26 @@ def experiment(name):
     epzero-sq8-nav256-r50    the same, re-ranking 50 candidates with full vectors
     epzero-sq8-fill          free link slots filled with the closest pruned candidates
     epzero-sq8-fast          built on the codes instead of the full vectors
+    epzero-sq8-ymm           the 256-bit VNNI kernel (first AVX-512 Xeons; identical recall expected)
     epzero-sq8-nav128-r100-fast-fill-p3  all of them, with patience = ef / 3
     Variants that differ only in -r or -p share one saved index."""
-    match = re.fullmatch(r"epzero-sq8(?:-nav(\d+))?(?:-r(\d+))?(-fast)?(-fill)?(?:-p(\d+))?", name)
+    match = re.fullmatch(r"epzero-sq8(-ymm)?(?:-nav(\d+))?(?:-r(\d+))?(-fast)?(-fill)?(?:-p(\d+))?", name)
     if match is None:
-        raise SystemExit(f"unknown library {name}; known: {', '.join(LIBRARIES)}, epzero-sq8-nav<dims>[-r<n>][-fast][-fill][-p<div>]")
-    nav, rerank, fast, fill, patience = match.groups()
+        raise SystemExit(f"unknown library {name}; known: {', '.join(LIBRARIES)}, epzero-sq8[-ymm][-nav<dims>][-r<n>][-fast][-fill][-p<div>]")
+    ymm, nav, rerank, fast, fill, patience = match.groups()
     index_name = "epzero-sq8" + (f"-nav{nav}" if nav else "") + (fast or "") + (fill or "")
 
     class Variant(EpzeroSq8):
         options = {**({"nav_dim": int(nav)} if nav else {}), **({"fast_build": True} if fast else {}), **({"fill_links": True} if fill else {})}
         cache_name = index_name
+
+        def load(self, path, base):
+            if ymm:
+                os.environ["EPZERO_SQ8_KERNEL"] = "avx512-256"  # read when an index is made
+            try:
+                super().load(path, base)
+            finally:
+                os.environ.pop("EPZERO_SQ8_KERNEL", None)
 
         def search(self, q, k, ef):
             effort = max(1, ef // int(patience)) if patience else 0
