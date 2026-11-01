@@ -42,9 +42,10 @@ Instead, Epzero first filters a node's neighbours against the visited set, issue
 every surviving vector, and only then computes the distances. Up to 32 misses are now in flight
 at once instead of one at a time.
 
-A detail I didn't expect: prefetching only the *first* cache line of each vector is enough.
-Prefetching 64, 128, 256 or all 512 bytes measured the same, because the hardware stream
-prefetcher picks up the rest once the kernel starts reading. Prefetching nothing was 14% slower.
+A detail I didn't expect: on my laptop, prefetching only the *first* cache line of each vector was
+enough. Prefetching 64, 128, 256 or all 512 bytes measured the same, and prefetching nothing was 14%
+slower. That doesn't travel. Later, on a Xeon server, skipping the second cache line of an 8-bit record
+cost 40% on GloVe, while the laptop didn't notice. A prefetch setting is a fact about one CPU.
 
 ### 2. Make each miss cheaper: 2 MiB huge pages (+13% throughput, −16% p99)
 
@@ -65,8 +66,8 @@ embeddings, where 8 bits are less flattering, it's still +25%.
 
 ## What didn't work, and why that's the interesting part
 
-Every change was kept only if an interleaved A/B test (same graph, alternating binaries, median
-of several rounds) showed a gain.
+Each change was measured with an interleaved A/B test (same graph, alternating binaries, median
+of several rounds).
 
 | Idea | Result | Why |
 |---|---|---|
@@ -80,7 +81,7 @@ All four are reasonable ideas for compute-bound code. Here they had nothing to a
 The same lesson came back later with **RaBitQ**, a 2024 quantization scheme that stores one bit
 per dimension and estimates distances with a provable error bound. Used as a filter, it lets the
 search skip reading 27% of full vectors on SIFT1M and 64% on CLIP embeddings, with recall
-unchanged. It still wasn't faster. The vectors it can't skip live in a separate array, so each
+within 0.002. It still wasn't faster. The vectors it can't skip live in a separate array, so each
 remaining read is an extra cache miss, and computing the estimates isn't free. Skipping work
 only pays when the work you skip is what you're waiting on.
 
@@ -118,7 +119,7 @@ ends up close to what Epzero already did. Two other things weren't:
 
 - **It re-scores 15 candidates with full vectors; Epzero re-scored the whole beam.** At a beam of 400
   on 960-dimensional GIST, that was 400 extra reads of a 3.8 KB vector per query, and re-scoring
-  only 15–30 gave exactly the same recall.
+  only 15–30 gave the same recall, to within 0.0002.
 - **Its distances are integer arithmetic.** With 8-bit codes, a 960-dimensional node is 960 bytes:
   15 cache lines instead of the 60 of the float vector. Once the bytes shrink that much, the
   arithmetic is visible again, and Epzero's kernel spent about ten instructions per 32 dimensions
