@@ -548,6 +548,12 @@ line doesn't pay.
 | GloVe-100 | 0.90 | 2,922 | 2,541 (0.87×) | **3,293 (1.13×)** | |
 | GloVe-100 | 0.93 | 1,664 | 1,489 (0.89×) | **2,022 (1.22×)** | |
 
+| DBpedia | 0.85 | 9,135 | 7,043 (0.77×) | **10,629 (1.16×)**, `nav_dim` 256 | 148 s (299 s) |
+| DBpedia | 0.90 | 6,800 | 5,312 (0.78×) | **8,207 (1.21×)**, `nav_dim` 256 | 148 s |
+| DBpedia | 0.95 | 4,049 | 3,280 (0.81×) | **5,191 (1.28×)**, `nav_dim` 384 | 194 s |
+| DBpedia | 0.98 | 1,807 | 1,620 (0.90×) | **2,845 (1.57×)**, `nav_dim` 384 | 194 s |
+| DBpedia | 0.99 | 782 | 851 (1.09×) | **1,622 (2.07×)**, `nav_dim` 512 | 353 s |
+
 On GloVe-100 Epzero reaches recall 0.961 at `ef` 800, against 0.944 for Glass, at the same 32 links. The
 second pass made that build 3.3× longer than Glass's. The new kernel tail took plain SQ8 from 0.83× to
 0.87× of Glass at recall 0.90.
