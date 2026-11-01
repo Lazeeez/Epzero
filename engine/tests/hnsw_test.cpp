@@ -474,6 +474,18 @@ TEST_F(HnswTest, FillLinksUsesTheFreeSlots) {
   EXPECT_GE(measure_recall(filled, data_, 100, Metric::L2), 0.9);
 }
 
+TEST_F(HnswTest, FastBuildKeepsRecall) {
+  HnswParams p = sq8_params(Metric::L2, true);
+  p.fast_build = true;
+  HnswIndex index(p);
+  index.train(data_.base.data.data(), kBase);
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  EXPECT_GE(measure_recall(index, data_, 100, Metric::L2), 0.9);
+  HnswParams unquantized = params_for(Metric::L2);
+  unquantized.fast_build = true;
+  EXPECT_THROW(HnswIndex{unquantized}, std::invalid_argument);
+}
+
 TEST_F(HnswTest, RabitqRequiresTrainingAndFullVectors) {
   HnswIndex index(rabitq_params(Metric::L2));
   EXPECT_FALSE(index.trained());
