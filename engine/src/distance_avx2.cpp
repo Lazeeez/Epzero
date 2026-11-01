@@ -112,8 +112,9 @@ std::int32_t sq8_int_dot_avx2(const std::int8_t* w, const std::uint8_t* codes, s
     acc0 = _mm256_add_epi32(acc0, _mm256_madd_epi16(_mm256_maddubs_epi16(load(codes + i), load(w + i)), ones));
     i += 32;
   }
-  // The tail in 16-, 8- and 4-byte loads, which read nothing past the codes. A masked load here cost
-  // 31% on 100 dimensions on a Cascade Lake Xeon, and a scalar loop runs on every node scored.
+  // The tail in 16-, 8- and 4-byte loads, which read nothing past the codes. A 32-byte masked load
+  // here lost 31% on 100 dimensions on a Cascade Lake Xeon (it also crosses a cache line), and a scalar
+  // loop runs on every node scored.
   __m128i tail = _mm_setzero_si128();
   const auto dot128 = [&](__m128i c, __m128i x) { tail = _mm_add_epi32(tail, _mm_madd_epi16(_mm_maddubs_epi16(c, x), _mm_set1_epi16(1))); };
   if (i + 16 <= dim) {
