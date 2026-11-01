@@ -61,11 +61,6 @@
       why: "Lossless, but the horizontal sum at each checkpoint breaks the FMA pipeline, and the prefetcher already pulled the lines it would skip.",
     },
     { idea: "LTO and PGO", result: "±2%", why: "The code is memory-bound; better branch layout doesn't shorten DRAM latency." },
-    {
-      idea: "Chunked snapshot I/O",
-      result: "0.31 s → 0.31 s",
-      why: "Loading was dominated by allocating and zeroing 764 MB, not by parsing. Kept for its error handling, without claiming a speedup.",
-    },
   ];
 </script>
 
@@ -82,16 +77,16 @@
       />
     </div>
     <p class="eyebrow">Benchmarks</p>
-    <h1><span class="gradient-text">Faster than hnswlib and FAISS.</span><br />Measured against the field.</h1>
+    <h1><span class="gradient-text">Faster than hnswlib and FAISS on SIFT1M.</span><br />Measured against the field.</h1>
     <p class="section-lede">
       SIFT1M, the standard ANN benchmark: {compare.n.toLocaleString()} × {compare.dim}-D vectors, {compare.queries.toLocaleString()}
-      queries, exact ground truth. Every library builds the same graph (M = {compare.M}, efConstruction = {compare.ef_construction}) and
+      queries, exact ground truth. Every library builds with the same parameters (M = {compare.M}, efConstruction = {compare.ef_construction}) and
       is queried from one process on one thread, in {compare.rounds} interleaved rounds, on a dedicated server node ({MACHINE}).
     </p>
     <dl class="stats">
       <div use:spotlight><dt>vs hnswlib</dt><dd class="num" use:countUp>{vsHnswlib.toFixed(2)}×</dd><dd class="note">QPS at equal recall ({operating.recall.toFixed(3)})</dd></div>
       <div use:spotlight><dt>vs FAISS HNSW</dt><dd class="num" use:countUp>{vsFaiss.toFixed(2)}×</dd><dd class="note">QPS at equal recall ({operating.recall.toFixed(3)})</dd></div>
-      <div use:spotlight><dt>SQ8 + re-rank</dt><dd class="num" use:countUp>+48%</dd><dd class="note">QPS, identical recall</dd></div>
+      <div use:spotlight><dt>SQ8 + re-rank</dt><dd class="num" use:countUp>+48%</dd><dd class="note">QPS, identical recall, on the laptop</dd></div>
       <div use:spotlight><dt>Graph build</dt><dd class="num" use:countUp>{libs.epzero.build_seconds.toFixed(1)} s</dd><dd class="note">on {compare.build_threads} threads</dd></div>
     </dl>
   </header>
@@ -127,7 +122,7 @@
       </details>
     </div>
     <p class="caption" use:reveal>
-      All three implement the same algorithm, and graph quality is essentially identical: recall matches at every <code>ef</code>. The
+      All three implement the same algorithm, and graph quality is essentially identical: recall is within 0.01 at every <code>ef</code>. The
       difference is memory-system engineering: batched prefetching, the node layout and the visited set. On this server every library
       gets 2 MiB huge pages, because the kernel enables them for all programs. Where huge pages are opt-in, as on many desktops, only
       Epzero asks for them, and its lead grows to about 1.46× (measured on a laptop).
@@ -171,7 +166,7 @@
     <p class="caption" use:reveal>
       Epzero SQ8 is the fastest of the eight on GIST1M (1.08× Glass at recall 0.95) and DEEP10M (1.15× Glass). Glass leads on GloVe
       (1.18×) and DBpedia's OpenAI embeddings (1.31×); its runs vary by about 10%, as it rebuilds its graph each time. Like Epzero SQ8 and VSAG, it walks the graph on 8-bit codes and re-ranks with the full vectors; it also tunes
-      its prefetch distance to the machine before searching. Epzero is ahead of hnswlib, FAISS, VSAG and USearch on all four.
+      its prefetch distance to the machine before searching. Epzero SQ8 is ahead of hnswlib, FAISS, VSAG and USearch on all four. Building is not Epzero's strength here: hnswlib builds faster on GIST, DBpedia and DEEP10M.
       Uncompressed, it is level with hnswlib on the high-dimensional sets (GIST, DBpedia: within 2%) and ahead on the low-dimensional
       ones (DEEP10M, GloVe: 7–15%), where the memory work around each distance matters most. GloVe is compared at recall 0.90: at
       M = 16 no library but VSAG reaches 0.95 by <code>ef</code> = 800. How the engine got here, and what didn't help:
@@ -338,7 +333,7 @@
 
   <section class="container block" aria-labelledby="removed-title">
     <h2 id="removed-title" class="block-title" use:reveal>Tried and removed</h2>
-    <p class="caption lead" use:reveal>A change was kept only if the interleaved A/B showed a gain beyond ~3% noise. These didn't.</p>
+    <p class="caption lead" use:reveal>These were measured with interleaved A/B tests and showed no gain beyond ~3% noise.</p>
     <div class="removed">
       {#each removed as r, i (r.idea)}
         <article class="card" use:reveal={i * 0.06} use:spotlight>
