@@ -7,7 +7,7 @@
   <div class="container inner">
     <div class="about">
       <a class="brand" href={router.href("home")}><Logo size={20} /><span>Epzero</span></a>
-      <p>An HNSW vector database written from scratch in C++20, compiled to WebAssembly for this site. Nothing you search leaves your browser.</p>
+      <p>An HNSW vector database written from scratch in C++20, compiled to WebAssembly for this site. Searches run on your device; result photos load from Flickr, and the site uses Cloudflare's page analytics.</p>
     </div>
     <nav aria-label="Footer">
       <a href={router.href("home")}>Home</a>
