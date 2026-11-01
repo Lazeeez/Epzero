@@ -222,7 +222,8 @@ class HnswIndex {
 
   // Once the index is built: every node searches the finished graph and reconnects, as its first
   // neighbours were chosen from a sparser one. Must not run concurrently with add() or remove().
-  void refine_links(std::size_t threads = 0, std::size_t ef = 0);  // ef 0: ef_construction
+  // `exact` searches and prunes on full vectors even on an index built with fast_build.
+  void refine_links(std::size_t threads = 0, std::size_t ef = 0, bool exact = false);  // ef 0: ef_construction
 
   void save(const std::string& path) const;
   // Loads a snapshot; corrupt or truncated files throw. With max_bytes, a snapshot whose index
@@ -373,6 +374,7 @@ class HnswIndex {
   std::vector<float> sq8_min_;
   std::vector<float> sq8_scale_;
   bool walk_full_ = false;
+  bool build_exact_ = false;  // refine_links(exact): pair_distance uses full vectors for now
   std::vector<float> nav_basis_;  // nav_dim: the directions, nav_dim rows of dim floats
   DistanceFn dot_ = nullptr;      // nav_dim: 1 - dot, to project a vector
   // nav_dim, for queries: nav_basis_ rounded to int8, one row at a time, with each row's scale and
