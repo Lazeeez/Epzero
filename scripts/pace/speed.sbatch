@@ -3,7 +3,7 @@
 # dataset, interleaved in one process on a dedicated Gold 6226 (bench/compete.py's rules):
 #   epzero-sq8-nav<dims>  walks the graph on 8-bit codes of that many principal directions
 #   -r<n>                 re-ranks n candidates with full vectors
-#   -ymm                  the 256-bit VNNI kernel
+#   -avx2                 the integer kernels without AVX-512
 #   -fast                 built on the codes instead of the full vectors
 #   -fill                 free link slots filled with the closest pruned candidates
 #   -after                free link slots filled in one pass after the build
@@ -47,8 +47,8 @@ fi
 case "$DATASET" in
   gist-*)    SWEEP=nav128-r100,nav128-r100-fast,nav128-r100-fast-after,nav128-r100-fast-refine-after,nav128-r100-fast-refine-after-p3,nav192-r100-fast-refine-after,nav96-r100-fast-refine-after,fast-refine ;;
   dbpedia-*) SWEEP=nav384-r100,nav384-r100-fast,nav256-r100-fast-refine-after,nav384-r50-fast-refine-after,nav384-r100-fast-refine-after,nav512-r50-fast-refine-after,nav512-r100-fast-refine-after,fast-refine ;;
-  deep-*)    SWEEP=ymm,ymm-p3,fast,fast-refine,ymm-fast-refine,ymm-fast-refine-p3,nav60-r50-fast-refine ;;
-  glove-*)   SWEEP=ymm,ymm-p3,fast,fast-refine,ymm-fast-refine,ymm-fast-refine-p3 ;;
+  deep-*)    SWEEP=fast,fast-refine,fast-refine-p3 ;;
+  glove-*)   SWEEP=fast,fast-refine,fast-refine-p3 ;;
   *)         SWEEP=fast,fill ;;
 esac
 DEFAULT=epzero-sq8,glass
@@ -70,7 +70,7 @@ lscpu > "$OUT.lscpu.txt" 2>/dev/null || true
 mkdir -p "$OUT"
 COMMON=(--data "$DATA" --cache "$CACHE" --M 16 --efc 200 --threads "$(nproc)" --libs "$LIBS")
 cleanup() {
-  [ -n "${KEEP:-}" ] || rm -f "${CACHE:?}/${DATASET:?}-epzero-sq8-"{ymm,nav,fast,fill,after,refine}*
+  [ -n "${KEEP:-}" ] || rm -f "${CACHE:?}/${DATASET:?}-epzero-sq8-"{avx2,nav,fast,fill,after,refine}*
 }
 trap cleanup EXIT
 echo "== build the new indexes on $(nproc) cores"
