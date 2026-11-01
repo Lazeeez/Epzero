@@ -167,7 +167,7 @@ Sq8IntDotFn get_sq8_int_dot_fn(SimdLevel level, std::size_t dim) noexcept {
 #if defined(EPZERO_HAVE_AVX512VNNI)
       // On the first AVX-512 Xeons only for whole 64-byte blocks: on a Gold 6226 (Cascade Lake),
       // SQ8 search with the AVX2 integer kernel was 61% faster on GloVe-100 and 73% on DEEP10M (100
-      // and 96 dimensions: the AVX-512 kernel's masked tail), while on GIST1M and DBpedia (960 and
+      // and 96 dimensions: the AVX-512 kernel's tail, which reads past the record's lines), while on GIST1M and DBpedia (960 and
       // 1,536) the AVX-512 kernel was 3-5% faster. Float search stays on AVX-512 throughout.
       // EPZERO_SQ8_KERNEL=avx512 forces it and =avx2 avoids it (for A/B runs).
       if (cpu_has_avx512_vnni()) {
