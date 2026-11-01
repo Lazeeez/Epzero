@@ -29,7 +29,6 @@ float sq8_dot_avx512(const float* w, const std::uint8_t* codes, std::size_t dim)
 std::int32_t sq8_int_dot_avx2(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept;
 std::int32_t sq8_int_dot_avxvnni(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept;
 std::int32_t sq8_int_dot_avx512vnni(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept;
-std::int32_t sq8_int_dot_avx512vnni_256(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept;
 #endif
 
 #if defined(__aarch64__)
