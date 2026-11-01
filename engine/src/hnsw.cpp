@@ -18,6 +18,7 @@
 #endif
 
 #include "epzero/parallel.h"
+#include "pca.h"
 #include "rabitq.h"
 #include "visited_pool.h"
 
@@ -27,7 +28,10 @@ namespace {
 constexpr char kMagic[8] = {'E', 'P', 'Z', 'R', 'H', 'N', 'S', 'W'};
 // Written before the project was renamed from Oryx; still loaded.
 constexpr char kLegacyMagic[8] = {'O', 'R', 'Y', 'X', 'H', 'N', 'S', 'W'};
-constexpr std::uint32_t kFormatVersion = 2;  // v2: quantization + tombstones; v1 files still load
+// v2: quantization + tombstones. v3: nav_dim and its directions (written only by indexes that use
+// it, so others stay readable by older builds). v1 and v2 files still load.
+constexpr std::uint32_t kFormatVersion = 2;
+constexpr std::uint32_t kFormatVersionNav = 3;
 constexpr int kMaxLevel = 31;
 
 std::size_t round_up(std::size_t value, std::size_t multiple) {
@@ -293,13 +297,19 @@ class HnswIndex::Scorer {
  public:
   Scorer(const HnswIndex& index, const float* query, bool adc) : index_(index), query_(query), adc_(adc) {
     if (!adc_) return;
-    const std::size_t dim = index.params_.dim;
+    std::size_t dim = index.params_.dim;
     l2_ = index.params_.metric == Metric::L2;
     if (index.rabitq()) {
       rabitq::prepare(query, dim, index.rbq_center_.data(), index.rbq_signs_.data(), index.rbq_padded_, rbq_);
       rbq_words_ = rabitq::words(index.rbq_padded_);
       for (const float c : index.rbq_center_) center_sq_ += c * c;
       return;
+    }
+    if (index.params_.nav_dim != 0) {
+      dim = index.params_.nav_dim;
+      projected_.resize(dim);
+      index.project(query, projected_.data());
+      query = projected_.data();
     }
     weights_.resize(dim);
     float c = 0.0f;
@@ -417,6 +427,7 @@ class HnswIndex::Scorer {
   bool adc_;
   bool l2_ = false;
   float base_ = 0.0f;
+  std::vector<float> projected_;  // nav_dim: the query in the walk's directions
   std::vector<float> weights_;
   std::vector<std::int8_t> iweights_;  // integer SQ8 (empty: the float kernel)
   float w_scale_ = 1.0f;
@@ -452,7 +463,7 @@ HnswIndex::HnswIndex(const HnswParams& params)
       simd_level_(active_simd_level()),
       dist_(get_distance_fn(params.metric, simd_level_)),
       sq8_dot_(get_sq8_dot_fn(simd_level_)),
-      sq8_int_dot_(choose_sq8_int_dot(simd_level_, params.dim)),
+      sq8_int_dot_(choose_sq8_int_dot(simd_level_, params.nav_dim != 0 ? params.nav_dim : params.dim)),
       rabitq_ip_(get_rabitq_ip_fn(simd_level_)),
       max_links0_(2 * params.M),
       level_mult_(params.M > 1 ? 1.0 / std::log(static_cast<double>(params.M)) : 1.0),
@@ -465,11 +476,16 @@ HnswIndex::HnswIndex(const HnswParams& params)
   if (params_.M < 2) throw std::invalid_argument("M must be >= 2");
   if (rabitq() && !params_.keep_vectors) throw std::invalid_argument("RaBitQ keeps the full vectors to re-rank");
   rbq_padded_ = rabitq::padded_dim(params_.dim);
+  if (params_.nav_dim != 0) {
+    if (!sq8() || !params_.keep_vectors) throw std::invalid_argument("nav_dim needs SQ8 with keep_vectors");
+    if (params_.nav_dim >= params_.dim) throw std::invalid_argument("nav_dim must be less than dim");
+    dot_ = get_distance_fn(Metric::InnerProduct, simd_level_);
+  }
 
   // Record layout. None: [float x dim][links]. SQ8: [float norm][uint8 x dim][links].
   // RaBitQ: [factors][bits, one per padded dimension][links].
   links0_offset_ = rabitq() ? rabitq_record_bytes()
-                   : sq8()  ? round_up(sizeof(float) + params_.dim, sizeof(id_t))
+                   : sq8()  ? round_up(sizeof(float) + code_dim(), sizeof(id_t))
                             : params_.dim * sizeof(float);
   node_stride_ = round_up(links0_offset_ + (1 + max_links0_) * sizeof(id_t), 64);
   level0_ = allocate_level0();
@@ -537,28 +553,47 @@ void HnswIndex::train(const float* data, std::size_t n) {
     rbq_signs_ = rabitq::random_signs(rbq_padded_, params_.seed);
     return;
   }
-  std::vector<float> lo(dim, std::numeric_limits<float>::max());
-  std::vector<float> hi(dim, std::numeric_limits<float>::lowest());
+  const auto stored = [&](std::size_t r, float* out) {  // train on what gets stored
+    std::copy(data + r * dim, data + (r + 1) * dim, out);
+    if (params_.metric == Metric::Cosine) normalize(out, dim);
+  };
+  if (params_.nav_dim != 0) nav_basis_ = pca::top_directions(stored, n, dim, params_.nav_dim, params_.seed);
+  const std::size_t codes = code_dim();
+  std::vector<float> lo(codes, std::numeric_limits<float>::max());
+  std::vector<float> hi(codes, std::numeric_limits<float>::lowest());
   std::vector<float> row(dim);
+  std::vector<float> walked(codes);
   for (std::size_t r = 0; r < n; ++r) {
-    std::copy(data + r * dim, data + (r + 1) * dim, row.begin());
-    if (params_.metric == Metric::Cosine) normalize(row.data(), dim);  // train on what gets stored
-    for (std::size_t i = 0; i < dim; ++i) {
-      lo[i] = std::min(lo[i], row[i]);
-      hi[i] = std::max(hi[i], row[i]);
+    stored(r, row.data());
+    if (params_.nav_dim != 0) project(row.data(), walked.data());
+    const float* v = params_.nav_dim != 0 ? walked.data() : row.data();
+    for (std::size_t i = 0; i < codes; ++i) {
+      lo[i] = std::min(lo[i], v[i]);
+      hi[i] = std::max(hi[i], v[i]);
     }
   }
   sq8_min_ = lo;
-  sq8_scale_.resize(dim);
-  for (std::size_t i = 0; i < dim; ++i) {
+  sq8_scale_.resize(codes);
+  for (std::size_t i = 0; i < codes; ++i) {
     const float range = hi[i] - lo[i];
     sq8_scale_[i] = range > 0.0f ? range / 255.0f : 1.0f;
   }
 }
 
+void HnswIndex::project(const float* v, float* out) const noexcept {
+  const std::size_t dim = params_.dim;
+  for (std::size_t r = 0; r < params_.nav_dim; ++r) out[r] = 1.0f - dot_(nav_basis_.data() + r * dim, v, dim);
+}
+
 void HnswIndex::encode(const float* v, std::uint8_t* codes, float* norm) const noexcept {
+  thread_local std::vector<float> walked;
+  if (params_.nav_dim != 0) {
+    walked.resize(params_.nav_dim);
+    project(v, walked.data());
+    v = walked.data();
+  }
   float sum = 0.0f;
-  for (std::size_t i = 0; i < params_.dim; ++i) {
+  for (std::size_t i = 0; i < code_dim(); ++i) {
     const float q = std::nearbyint((v[i] - sq8_min_[i]) / sq8_scale_[i]);
     const auto code = static_cast<std::uint8_t>(std::clamp(q, 0.0f, 255.0f));
     codes[i] = code;
@@ -570,7 +605,7 @@ void HnswIndex::encode(const float* v, std::uint8_t* codes, float* norm) const n
 
 void HnswIndex::decode(id_t id, float* out) const noexcept {
   const std::uint8_t* codes = codes_of(id);
-  for (std::size_t i = 0; i < params_.dim; ++i) out[i] = sq8_min_[i] + codes[i] * sq8_scale_[i];
+  for (std::size_t i = 0; i < code_dim(); ++i) out[i] = sq8_min_[i] + codes[i] * sq8_scale_[i];
 }
 
 float HnswIndex::pair_distance(id_t a, id_t b) const noexcept {
@@ -664,7 +699,7 @@ std::pair<std::size_t, std::size_t> HnswIndex::tune_prefetch(const float* querie
   constexpr std::size_t kAll = std::numeric_limits<std::size_t>::max();
   if (n == 0 || size() == 0) return prefetch_settings();
   // What one scored node reads: its codes (quantized) or its full vector.
-  const std::size_t bytes = sq8() ? params_.dim + sizeof(float) : rabitq() ? rabitq_record_bytes() : params_.dim * sizeof(float);
+  const std::size_t bytes = sq8() ? code_dim() + sizeof(float) : rabitq() ? rabitq_record_bytes() : params_.dim * sizeof(float);
   const std::size_t max_lines = std::max<std::size_t>(1, (bytes + 63) / 64);
   std::vector<std::pair<std::size_t, std::size_t>> grid = {{kAll, 1}};  // the default first
   for (const std::size_t depth : {kAll, std::size_t{16}, std::size_t{8}, std::size_t{4}, std::size_t{2}}) {
@@ -1146,6 +1181,7 @@ std::vector<HnswIndex::Candidate> HnswIndex::select_neighbors(std::vector<Candid
             [](const Candidate& a, const Candidate& b) { return a.distance < b.distance; });
 
   std::vector<Candidate> kept;
+  std::vector<Candidate> pruned;
   kept.reserve(max_count);
   for (const Candidate& candidate : candidates) {
     bool diverse = true;
@@ -1158,8 +1194,11 @@ std::vector<HnswIndex::Candidate> HnswIndex::select_neighbors(std::vector<Candid
     if (diverse) {
       kept.push_back(candidate);
       if (kept.size() == max_count) break;
+    } else if (params_.fill_links) {
+      pruned.push_back(candidate);
     }
   }
+  for (std::size_t i = 0; i < pruned.size() && kept.size() < max_count; ++i) kept.push_back(pruned[i]);
   return kept;
 }
 
@@ -1366,6 +1405,7 @@ std::unique_ptr<HnswIndex> HnswIndex::compacted(std::size_t threads) const {
   auto out = std::make_unique<HnswIndex>(params_);
   out->sq8_min_ = sq8_min_;
   out->sq8_scale_ = sq8_scale_;
+  out->nav_basis_ = nav_basis_;
   out->rbq_center_ = rbq_center_;
   out->rbq_signs_ = rbq_signs_;
   std::vector<id_t> live;
@@ -1421,7 +1461,7 @@ std::size_t HnswIndex::estimated_bytes(const HnswParams& params) noexcept {
   const bool sq8 = params.quantization == Quantization::SQ8;
   const bool rbq = params.quantization == Quantization::RaBitQ;
   const std::size_t links0 = rbq ? sizeof(rabitq::Factors) + rabitq::padded_dim(params.dim) / 8
-                             : sq8 ? round_up(sizeof(float) + params.dim, sizeof(id_t))
+                             : sq8 ? round_up(sizeof(float) + (params.nav_dim != 0 ? params.nav_dim : params.dim), sizeof(id_t))
                                    : params.dim * sizeof(float);
   const std::size_t stride = round_up(links0 + (1 + 2 * params.M) * sizeof(id_t), 64);
   std::size_t bytes = stride * params.max_elements;
@@ -1432,6 +1472,7 @@ std::size_t HnswIndex::estimated_bytes(const HnswParams& params) noexcept {
 std::size_t HnswIndex::memory_bytes() const noexcept {
   std::size_t bytes = node_stride_ * params_.max_elements;
   if (full_) bytes += params_.max_elements * params_.dim * sizeof(float);
+  bytes += nav_basis_.size() * sizeof(float);
   bytes += params_.max_elements * (sizeof(std::uint64_t) + sizeof(std::int8_t) + sizeof(std::uint8_t) +
                                    sizeof(std::mutex) + sizeof(std::unique_ptr<id_t[]>));
   const std::size_t count = size();
@@ -1455,7 +1496,7 @@ std::size_t HnswIndex::memory_bytes() const noexcept {
 void HnswIndex::save(const std::string& path) const {
   ChunkedWriter out(path);
   out.write(kMagic, sizeof(kMagic));
-  out.pod(kFormatVersion);
+  out.pod(params_.nav_dim != 0 ? kFormatVersionNav : kFormatVersion);
   out.pod<std::uint64_t>(params_.dim);
   out.pod<std::uint32_t>(static_cast<std::uint32_t>(params_.metric));
   out.pod<std::uint64_t>(params_.max_elements);
@@ -1464,6 +1505,7 @@ void HnswIndex::save(const std::string& path) const {
   out.pod<std::uint64_t>(params_.seed);
   out.pod<std::uint32_t>(static_cast<std::uint32_t>(params_.quantization));
   out.pod<std::uint8_t>(params_.keep_vectors ? 1 : 0);
+  if (params_.nav_dim != 0) out.pod<std::uint64_t>(params_.nav_dim);
   const std::size_t count = size();
   out.pod<std::uint64_t>(count);
   out.pod<std::uint64_t>(entry_.load(std::memory_order_acquire));
@@ -1471,8 +1513,9 @@ void HnswIndex::save(const std::string& path) const {
   if (sq8()) {
     out.pod<std::uint8_t>(sq8_scale_.empty() ? 0 : 1);
     if (!sq8_scale_.empty()) {
-      out.array(sq8_min_.data(), params_.dim);
-      out.array(sq8_scale_.data(), params_.dim);
+      out.array(sq8_min_.data(), code_dim());
+      out.array(sq8_scale_.data(), code_dim());
+      if (params_.nav_dim != 0) out.array(nav_basis_.data(), nav_basis_.size());
     }
   }
   if (rabitq()) {
@@ -1489,7 +1532,7 @@ void HnswIndex::save(const std::string& path) const {
       out.array(reinterpret_cast<const std::uint8_t*>(record(id)), rabitq_record_bytes());
     } else if (sq8()) {
       out.pod(code_norm(id));
-      out.array(codes_of(id), params_.dim);
+      out.array(codes_of(id), code_dim());
     } else {
       out.array(full_vector(id), params_.dim);
     }
@@ -1527,7 +1570,7 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
     throw std::runtime_error(path + " is not an Epzero index");
   }
   const auto version = in.pod<std::uint32_t>();
-  if (version != 1 && version != 2) throw std::runtime_error(path + ": unsupported format version");
+  if (version < 1 || version > kFormatVersionNav) throw std::runtime_error(path + ": unsupported format version");
 
   HnswParams params;
   params.dim = in.pod<std::uint64_t>();
@@ -1542,6 +1585,7 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
     params.quantization = static_cast<Quantization>(quantization);
     params.keep_vectors = in.pod<std::uint8_t>() != 0;
   }
+  if (version >= kFormatVersionNav) params.nav_dim = in.pod<std::uint64_t>();
   const std::size_t count = in.pod<std::uint64_t>();
   const std::uint64_t entry = in.pod<std::uint64_t>();
   if (version >= 2) (void)in.pod<std::uint64_t>();  // deleted count, recomputed from the flags
@@ -1555,7 +1599,7 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
   const bool rbq_file = params.quantization == Quantization::RaBitQ;
   if (rbq_file && !params.keep_vectors) throw std::runtime_error(path + ": corrupt header");
   const std::size_t per_node = (rbq_file  ? sizeof(rabitq::Factors) + rabitq::padded_dim(params.dim) / 8
-                                : sq8_file ? sizeof(float) + params.dim
+                                : sq8_file ? sizeof(float) + (params.nav_dim != 0 ? params.nav_dim : params.dim)
                                            : params.dim * sizeof(float)) +
                                (1 + 2 * params.M) * sizeof(id_t) + sizeof(std::uint64_t) + 1;
   if (count > std::filesystem::file_size(path) / per_node) throw std::runtime_error(path + ": truncated");
@@ -1566,10 +1610,14 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
 
   auto index = std::make_unique<HnswIndex>(params);
   if (index->sq8() && in.pod<std::uint8_t>() != 0) {
-    index->sq8_min_.resize(params.dim);
-    index->sq8_scale_.resize(params.dim);
-    in.array(index->sq8_min_.data(), params.dim);
-    in.array(index->sq8_scale_.data(), params.dim);
+    index->sq8_min_.resize(index->code_dim());
+    index->sq8_scale_.resize(index->code_dim());
+    in.array(index->sq8_min_.data(), index->code_dim());
+    in.array(index->sq8_scale_.data(), index->code_dim());
+    if (params.nav_dim != 0) {
+      index->nav_basis_.resize(params.nav_dim * params.dim);
+      in.array(index->nav_basis_.data(), index->nav_basis_.size());
+    }
   }
   if (index->rabitq() && in.pod<std::uint8_t>() != 0) {
     index->rbq_center_.resize(params.dim);
@@ -1585,7 +1633,7 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
     if (index->rabitq()) {
       in.read(index->record(id), index->rabitq_record_bytes());
     } else if (index->sq8()) {
-      in.read(index->record(id), sizeof(float) + params.dim);
+      in.read(index->record(id), sizeof(float) + index->code_dim());
     } else {
       in.array(reinterpret_cast<float*>(index->record(id)), params.dim);
     }
