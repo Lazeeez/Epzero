@@ -80,7 +80,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
       a = _mm256_dpbusd_avx_epi32(a, a, a);
       return _mm256_extract_epi32(a, 0);
     }]] EPZERO_TOOLCHAIN_AVXVNNI)
-  set(CMAKE_REQUIRED_FLAGS "-mavx512f -mavx512bw -mavx512vnni")
+  set(CMAKE_REQUIRED_FLAGS "-mavx512f -mavx512bw -mavx512vl -mavx512vnni")
   check_cxx_source_compiles([[
     #include <immintrin.h>
     int main(int argc, char**) {
@@ -96,7 +96,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
   endif()
   if(EPZERO_TOOLCHAIN_AVX512VNNI)
     target_sources(epzero_engine PRIVATE src/distance_avx512vnni.cpp)
-    set_source_files_properties(src/distance_avx512vnni.cpp PROPERTIES COMPILE_OPTIONS "-mavx512f;-mavx512bw;-mavx512vnni")
+    set_source_files_properties(src/distance_avx512vnni.cpp PROPERTIES COMPILE_OPTIONS "-mavx512f;-mavx512bw;-mavx512vl;-mavx512vnni")
     set_property(SOURCE src/distance.cpp APPEND PROPERTY COMPILE_DEFINITIONS EPZERO_HAVE_AVX512VNNI)
   endif()
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
