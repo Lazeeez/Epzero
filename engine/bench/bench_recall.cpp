@@ -45,6 +45,7 @@ struct Options {
   bool fast_build = false;
   bool fill_after = false;
   std::size_t refine = 0;
+  float rerank_z = 0.0f;
   std::size_t refine_ef = 0;
   std::size_t rerank = 0;
   std::size_t prefetch_depth = 0, prefetch_lines = 0;  // 0: the index's default
@@ -97,6 +98,7 @@ Options parse(int argc, char** argv) {
     else if (arg == "--fast-build") o.fast_build = true;
     else if (arg == "--fill-after") o.fill_after = true;
     else if (arg == "--refine") o.refine = std::stoul(value());
+    else if (arg == "--rerank-z") o.rerank_z = std::stof(value());
     else if (arg == "--refine-ef") o.refine_ef = std::stoul(value());
     else if (arg == "--prefetch") {  // depth,lines
       const auto v = parse_list(value());
@@ -253,7 +255,7 @@ int main(int argc, char** argv) try {
         const std::size_t q = i % queries.n;
         SearchStats stats;
         const auto start = Clock::now();
-        auto found = index.search(queries.row(q), opt.k, {.ef = ef, .rerank = opt.rerank, .stats = &stats});
+        auto found = index.search(queries.row(q), opt.k, {.ef = ef, .rerank = opt.rerank, .rerank_z = opt.rerank_z, .stats = &stats});
         latencies[i] = std::chrono::duration<double, std::micro>(Clock::now() - start).count();
         distances_per_query[i] = stats.distance_computations;
         full_per_query[i] = stats.full_distance_computations;
