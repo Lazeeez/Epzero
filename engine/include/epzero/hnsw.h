@@ -372,6 +372,7 @@ class HnswIndex {
   // SQ8: per-dimension x = min + code * scale, and the kept full-precision vectors.
   std::vector<float> sq8_min_;
   std::vector<float> sq8_scale_;
+  bool walk_full_ = false;
   std::vector<float> nav_basis_;  // nav_dim: the directions, nav_dim rows of dim floats
   DistanceFn dot_ = nullptr;      // nav_dim: 1 - dot, to project a vector
   // nav_dim, for queries: nav_basis_ rounded to int8, one row at a time, with each row's scale and
