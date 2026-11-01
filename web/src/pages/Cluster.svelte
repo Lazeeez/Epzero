@@ -84,7 +84,7 @@
     <p class="lede">
       The Epzero router runs here, the same Go code that fronts the real cluster, compiled to WebAssembly. Its data nodes and the network
       between them are simulated in memory, and they replicate like the real C++ nodes. Kill a node, cut it off or slow it down:
-      searches keep returning exact answers, and a linearizability checker audits every read and write.
+      searches keep returning exact answers, and a linearizability checker audits the reads and writes when you ask it to.
     </p>
   </header>
 
@@ -209,7 +209,7 @@
       <h2>What's real here</h2>
       <ul>
         <li>
-          <b>The router is the production code.</b> Health checks, failover by epoch, hedged reads, write routing and the shard map are
+          <b>The router is the real code.</b> Health checks, failover by epoch, hedged reads, write routing and the shard map are
           package <code>cluster/router</code>, unchanged, talking to nodes through an interface.
         </li>
         <li>
