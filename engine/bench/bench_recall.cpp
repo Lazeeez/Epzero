@@ -43,6 +43,9 @@ struct Options {
   std::size_t nav_dim = 0;
   bool fill_links = false;
   bool fast_build = false;
+  bool fill_after = false;
+  std::size_t refine = 0;
+  std::size_t refine_ef = 0;
   std::size_t rerank = 0;
   std::size_t prefetch_depth = 0, prefetch_lines = 0;  // 0: the index's default
   std::vector<std::size_t> ef = {10, 20, 40, 80, 160, 320};
@@ -92,6 +95,9 @@ Options parse(int argc, char** argv) {
     else if (arg == "--nav-dim") o.nav_dim = std::stoul(value());
     else if (arg == "--fill-links") o.fill_links = true;
     else if (arg == "--fast-build") o.fast_build = true;
+    else if (arg == "--fill-after") o.fill_after = true;
+    else if (arg == "--refine") o.refine = std::stoul(value());
+    else if (arg == "--refine-ef") o.refine_ef = std::stoul(value());
     else if (arg == "--prefetch") {  // depth,lines
       const auto v = parse_list(value());
       if (v.size() != 2) throw std::invalid_argument("--prefetch takes depth,lines");
@@ -191,6 +197,16 @@ int main(int argc, char** argv) try {
       });
     }
     for (auto& b : builders) b.join();
+    for (std::size_t pass = 0; pass < opt.refine; ++pass) {
+      const double refine_at = seconds_since(t0);
+      loaded->refine_links(opt.threads, opt.refine_ef);
+      std::printf("refined   pass %zu in %.2fs\n", pass + 1, seconds_since(t0) - refine_at);
+    }
+    if (opt.fill_after) {
+      const double links_at = seconds_since(t0);
+      const std::size_t added = loaded->fill_free_links(opt.threads);
+      std::printf("filled    %zu links in %.2fs\n", added, seconds_since(t0) - links_at);
+    }
     build_s = seconds_since(t0);
     std::printf("build     %.2fs, %.0f inserts/s (%zu threads, M=%zu, efc=%zu)\n", build_s, base.n / build_s,
                 opt.threads, opt.M, opt.ef_construction);
