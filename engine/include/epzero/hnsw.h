@@ -211,6 +211,15 @@ class HnswIndex {
   // where the decoded approximations are used instead).
   std::unique_ptr<HnswIndex> compacted(std::size_t threads = 0) const;
 
+  // Once the index is built: gives each node's free layer-0 link slots to its closest two-hop
+  // neighbours. A cheaper way than fill_links to the same end, as links added here are never pruned
+  // again. Must not run concurrently with add() or remove(). Returns the number of links added.
+  std::size_t fill_free_links(std::size_t threads = 0);
+
+  // Once the index is built: every node searches the finished graph and reconnects, as its first
+  // neighbours were chosen from a sparser one. Must not run concurrently with add() or remove().
+  void refine_links(std::size_t threads = 0, std::size_t ef = 0);  // ef 0: ef_construction
+
   void save(const std::string& path) const;
   // Loads a snapshot; corrupt or truncated files throw. With max_bytes, a snapshot whose index
   // would allocate more than that is refused before allocating (for untrusted files).
