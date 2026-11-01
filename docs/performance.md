@@ -281,8 +281,8 @@ masked or scalar tail) was +1-2% on the laptop and **-34% on GloVe-100 and -38% 
 server: a 96-dimension node's codes sit in bytes 4-99 of its record, two cache lines, and reading
 128 of them touched a third on every distance, a miss on these memory-bound sets. Reverted. On
 GIST1M and DBpedia (multiples of 64, nothing padded) the AVX-512 integer kernel was 3-5% faster
-than the AVX2 one, so its trouble on short vectors is the masked tail; a tail that stays inside the
-record's existing cache lines is the way to use it there. Meanwhile these Xeons use the AVX-512
+than the AVX2 one, so its trouble on short vectors is in the tail, by a masked load or a read past the
+record's existing cache lines (unresolved, below); a tail that stays inside those lines is the way to use it. Meanwhile these Xeons use the AVX-512
 kernel when the dimension is a multiple of 64, and the AVX2 one otherwise.
 
 Server results from the same run ([`scripts/pace/variants.sbatch`](../scripts/pace/variants.sbatch),
@@ -480,9 +480,11 @@ First results (laptop, one search thread, the SQ8 index as the baseline; server 
 codes instead of the full vectors, as Flash does with its compact codes. With `nav_dim` that was
 expected to trade graph quality for build time. It gave both instead: on GIST1M with `nav_dim` 128
 the build fell from 300 s to 52 s (12 threads), and recall at `ef` 400 rose from 0.943 to 0.960 at
-the same re-rank, about 1.25× the queries per second at recall 0.95. The working explanation is that
-the graph is then built in the same space the walk uses, so its links suit the walk's distances; that
-is not yet tested. Without `nav_dim`, on plain SQ8 codes, it left recall and speed unchanged on
+the same re-rank, about 1.25× the queries per second at recall 0.95. An early explanation here, that the
+graph suits the space it was built in, was tested and is wrong: walked at full precision, the code-built
+GIST1M graph still wins (recall 0.848 against 0.826 at `ef` 100, 5 and 3 seeds, deviations under 0.004),
+while on the DBpedia sample the graph built on full vectors wins under both walks (0.952 against 0.940 at
+`ef` 20). Why is an open question: see [the research plan](research-plan.md). Without `nav_dim`, on plain SQ8 codes, it left recall and speed unchanged on
 SIFT1M and GloVe-100.
 
 | GIST1M at recall 0.95, laptop | QPS | Build |
@@ -561,11 +563,14 @@ On GloVe-100 Epzero reaches recall 0.961 at `ef` 800, against 0.944 for Glass, a
 second pass made that build 3.3× longer than Glass's. The new kernel tail took plain SQ8 from 0.83× to
 0.87× of Glass at recall 0.90.
 
-**The masked tail, settled.** A 256-bit VNNI kernel (removed since) had the same
-arithmetic on 96 and 100 dimensions apart from a masked load for the last 4 on GloVe-100. It was 2.5%
-faster than the AVX2 kernel on DEEP10M and 31% slower on GloVe-100, at identical recall. So the masked
-load is the cost on these Xeons, not 512-bit throttling, and with the AVX2 kernel only 2.5% behind it,
-the kernel's arithmetic isn't what holds GloVe-100 back against Glass. Replacing the integer kernels'
+**The 31% tail: cause unresolved.** A 256-bit VNNI kernel (removed since) was 2.5% faster than the AVX2
+kernel on DEEP10M and 31% slower on GloVe-100, at identical recall. The two differ in dataset as well
+as in the last 4 dimensions, so this is not a controlled test. This log first blamed the masked load
+and called the question settled; that was too strong. On Cascade Lake a masked load costs only about
+one extra micro-operation, which can't explain 31%. The tail load also covers record bytes 100-131 and
+crosses the cache line at byte 128 on every node, and reading a third line cost 34-38% in the padding
+test above, so a line split is the likelier cause. It needs a controlled test before any claim.
+Replacing the integer kernels'
 scalar tail with 16-, 8- and 4-byte vector loads gave +3-4% on GloVe-100 on the laptop, at identical
 recall (noise there is about 1%).
 
@@ -581,6 +586,12 @@ when the next one, placed by this query's own gap between estimated and exact di
 at most 0.0004: GIST1M +24% at `ef` 100 and +11% at 200, level above; the DBpedia sample +13-14% at `ef` 80
 and 200, level below (laptop, medians of 5 interleaved rounds). `rerank` becomes a cap, not a setting to
 tune.
+
+**Prefetch lines depend on the CPU.** The same grid on the same kind of GloVe-100 graph, with 8 neighbours
+ahead: on the Gold 6226, 2 lines (the whole 104-byte record) beat 1 line by 1.6-1.7× (3,304 against 1,960
+QPS at recall 0.90). On the laptop they tie (6,900 against 6,863 at `ef` 200, five rounds). A third line
+cost the laptop 15%. So `tune_prefetch` must be able to try a record's every line: it tested only 1, 2, 4
+and 8, which left records of 3, 5, 7 and 9 lines unreachable. That is now fixed.
 
 Tried for the same goals and removed:
 
