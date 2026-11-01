@@ -591,6 +591,10 @@ Tried for the same goals and removed:
   more cost recall (0.931 to 0.889 at `ef` 20).
 - **Scale ranges from percentiles instead of extremes** (0.1% tails). Recall +0.003 on GIST1M, but -0.002
   on DBpedia and -0.003 on GloVe-100 at high `ef`: those embeddings use their outlying values.
+- **Re-ranking from 16-bit floats** (a prototype on a copy of the vectors, converted with F16C on the
+  laptop). Recall identical to four decimals on GIST1M and the DBpedia sample, and speed within noise:
+  reading half the bytes is paid back converting them. It would halve the memory for full vectors, so
+  it remains worth having for that; CPUs with AVX-512 FP16 may also gain speed, which is untested.
 - **Scoring a node's neighbours in one kernel call, and 8-byte beam items.** Identical recall, and speed
   within noise (-7% to +2% across SIFT1M, GloVe-100 and GIST1M), so per-node overhead isn't what limits
   search on this CPU.
