@@ -126,6 +126,10 @@ struct SearchOptions {
   // and as re-scoring all ef of them, to within 0.0003, and 3-13% more queries per second than 3 x k
   // where full vectors are large). Ignored otherwise.
   std::size_t rerank = 0;
+  // Stops the re-rank early (0 = off): candidates are scored in blocks, and scoring ends once the
+  // next one, placed by this query's gap between estimated and exact distances, is more than this
+  // many standard deviations past the k-th best. `rerank` is then only a cap. 3 is a safe value.
+  float rerank_z = 0.0f;
   SearchStats* stats = nullptr;     // optional
   SearchTrace* trace = nullptr;     // optional; costs nothing when null
   // Optional: only labels the filter allows are returned. Must come from this index's make_filter().
