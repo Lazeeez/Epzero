@@ -80,7 +80,7 @@
     <h1 id="hero-title"><span class="gradient-text">A vector database,</span><br />built from scratch.</h1>
     <p class="lede">
       Epzero is an HNSW search engine I wrote in C++20: hand-tuned SIMD, lock-free reads, 8-bit quantization, a crash-safe
-      write-ahead log and replication. Behind this text, it's indexing <strong>{(engine.count || 29825).toLocaleString()} photos</strong>
+      write-ahead log and replication. Behind this text, it's searching <strong>{(engine.count || 29825).toLocaleString()} photos</strong>
       on your CPU, compiled to WebAssembly.
     </p>
     <div class="actions">
