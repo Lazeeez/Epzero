@@ -476,6 +476,7 @@ HnswIndex::HnswIndex(const HnswParams& params)
   if (params_.M < 2) throw std::invalid_argument("M must be >= 2");
   if (rabitq() && !params_.keep_vectors) throw std::invalid_argument("RaBitQ keeps the full vectors to re-rank");
   rbq_padded_ = rabitq::padded_dim(params_.dim);
+  if (params_.fast_build && !sq8()) throw std::invalid_argument("fast_build needs SQ8");
   if (params_.nav_dim != 0) {
     if (!sq8() || !params_.keep_vectors) throw std::invalid_argument("nav_dim needs SQ8 with keep_vectors");
     if (params_.nav_dim >= params_.dim) throw std::invalid_argument("nav_dim must be less than dim");
@@ -609,13 +610,13 @@ void HnswIndex::decode(id_t id, float* out) const noexcept {
 }
 
 float HnswIndex::pair_distance(id_t a, id_t b) const noexcept {
-  if (has_full_vectors()) return dist_(full_vector(a), full_vector(b), params_.dim);
+  if (has_full_vectors() && !params_.fast_build) return dist_(full_vector(a), full_vector(b), params_.dim);
   thread_local std::vector<float> va, vb;
-  va.resize(params_.dim);
-  vb.resize(params_.dim);
+  va.resize(code_dim());
+  vb.resize(code_dim());
   decode(a, va.data());
   decode(b, vb.data());
-  return dist_(va.data(), vb.data(), params_.dim);
+  return dist_(va.data(), vb.data(), code_dim());
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1289,7 +1290,7 @@ void HnswIndex::add(std::uint64_t label, const float* vector) {
 
   // Build with exact distances whenever full-precision vectors exist: a better graph costs
   // nothing at query time.
-  const Scorer scorer(*this, vector, /*adc=*/!has_full_vectors());
+  const Scorer scorer(*this, vector, /*adc=*/!has_full_vectors() || params_.fast_build);
   id_t entry_point = static_cast<id_t>(entry & 0xffffffffu);
   const int top_level = static_cast<int>(entry >> 32) - 1;
   SearchStats unused;
