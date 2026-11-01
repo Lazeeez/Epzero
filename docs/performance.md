@@ -548,6 +548,9 @@ line doesn't pay.
 | GloVe-100 | 0.90 | 2,922 | 2,541 (0.87×) | **3,293 (1.13×)** | |
 | GloVe-100 | 0.93 | 1,664 | 1,489 (0.89×) | **2,022 (1.22×)** | |
 
+| DEEP10M | 0.85 | 13,277 | 18,389 (1.38×) | **19,673 (1.48×)**, `fast_build` + `refine_links` | 850 s (462 s) |
+| DEEP10M | 0.95 | 6,576 | 7,591 (1.15×) | **8,960 (1.36×)** | |
+| DEEP10M | 0.99 | 1,874 | 2,378 (1.27×) | **2,918 (1.56×)** | |
 | DBpedia | 0.85 | 9,135 | 7,043 (0.77×) | **10,629 (1.16×)**, `nav_dim` 256 | 148 s (299 s) |
 | DBpedia | 0.90 | 6,800 | 5,312 (0.78×) | **8,207 (1.21×)**, `nav_dim` 256 | 148 s |
 | DBpedia | 0.95 | 4,049 | 3,280 (0.81×) | **5,191 (1.28×)**, `nav_dim` 384 | 194 s |
@@ -558,7 +561,7 @@ On GloVe-100 Epzero reaches recall 0.961 at `ef` 800, against 0.944 for Glass, a
 second pass made that build 3.3× longer than Glass's. The new kernel tail took plain SQ8 from 0.83× to
 0.87× of Glass at recall 0.90.
 
-**The masked tail, settled.** A 256-bit VNNI kernel (`EPZERO_SQ8_KERNEL=avx512-256`) has the same
+**The masked tail, settled.** A 256-bit VNNI kernel (removed since) had the same
 arithmetic on 96 and 100 dimensions apart from a masked load for the last 4 on GloVe-100. It was 2.5%
 faster than the AVX2 kernel on DEEP10M and 31% slower on GloVe-100, at identical recall. So the masked
 load is the cost on these Xeons, not 512-bit throttling, and with the AVX2 kernel only 2.5% behind it,
