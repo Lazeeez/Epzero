@@ -50,10 +50,11 @@ epzero::SyncMode parse_sync(const std::string& name) {
 
 epzero::HnswParams make_params(std::size_t dim, const std::string& metric, std::size_t max_elements, std::size_t M,
                              std::size_t ef_construction, std::uint64_t seed, const std::string& quantization,
-                             bool keep_vectors, std::size_t nav_dim = 0, bool fill_links = false) {
+                             bool keep_vectors, std::size_t nav_dim = 0, bool fill_links = false, bool fast_build = false) {
   return {.dim = dim, .metric = parse_metric(metric), .max_elements = max_elements, .M = M,
           .ef_construction = ef_construction, .seed = seed, .quantization = parse_quantization(quantization),
-          .keep_vectors = keep_vectors, .nav_dim = nav_dim, .fill_links = fill_links};
+          .keep_vectors = keep_vectors, .nav_dim = nav_dim, .fill_links = fill_links,
+          .fast_build = fast_build};
 }
 
 const float* rows_of(const FloatArray& data, std::size_t dim, std::size_t& n) {
@@ -113,9 +114,9 @@ class Index {
  public:
   Index(std::size_t dim, const std::string& metric, std::size_t max_elements, std::size_t M,
         std::size_t ef_construction, std::uint64_t seed, const std::string& quantization, bool keep_vectors,
-        std::size_t nav_dim, bool fill_links)
+        std::size_t nav_dim, bool fill_links, bool fast_build)
       : index_(std::make_unique<epzero::HnswIndex>(make_params(dim, metric, max_elements, M, ef_construction, seed,
-                                                               quantization, keep_vectors, nav_dim, fill_links))) {}
+                                                               quantization, keep_vectors, nav_dim, fill_links, fast_build))) {}
 
   explicit Index(std::unique_ptr<epzero::HnswIndex> index) : index_(std::move(index)) {}
 
@@ -447,10 +448,11 @@ PYBIND11_MODULE(_core, m) {
 
   py::class_<Index>(m, "Index")
       .def(py::init<std::size_t, const std::string&, std::size_t, std::size_t, std::size_t, std::uint64_t,
-                    const std::string&, bool, std::size_t, bool>(),
+                    const std::string&, bool, std::size_t, bool, bool>(),
            py::arg("dim"), py::arg("metric") = "l2", py::arg("max_elements") = 1'000'000, py::arg("M") = 16,
            py::arg("ef_construction") = 200, py::arg("seed") = 42, py::arg("quantization") = "none",
-           py::arg("keep_vectors") = true, py::arg("nav_dim") = 0, py::arg("fill_links") = false)
+           py::arg("keep_vectors") = true, py::arg("nav_dim") = 0, py::arg("fill_links") = false,
+           py::arg("fast_build") = false)
       .def("train", &Index::train, py::arg("data"), "SQ8: learn per-dimension ranges before the first add().")
       .def("add", &Index::add, py::arg("data"), py::arg("labels") = py::none(), py::arg("threads") = 0,
            "Insert rows of `data`; labels default to consecutive ids starting at the number of slots used.")
