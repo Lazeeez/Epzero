@@ -149,12 +149,12 @@ class Index {
   }
 
   py::tuple search(const FloatArray& queries, std::size_t k, std::size_t ef, std::size_t rerank, std::size_t threads,
-                   const py::object& filter, const std::string& strategy, std::size_t patience) const {
+                   const py::object& filter, const std::string& strategy, std::size_t patience, float rerank_z) const {
     const epzero::FilterStrategy chosen = parse_strategy(strategy);
     epzero::SearchFilter compiled;
     const epzero::SearchFilter* active = resolve_filter(filter, compiled);
     return batch_search(queries, index_->params().dim, k, threads, [&](const float* q, std::size_t kk) {
-      return index_->search(q, kk, {.ef = ef, .patience = patience, .rerank = rerank, .filter = active, .strategy = chosen});
+      return index_->search(q, kk, {.ef = ef, .patience = patience, .rerank = rerank, .rerank_z = rerank_z, .filter = active, .strategy = chosen});
     });
   }
 
@@ -469,7 +469,7 @@ PYBIND11_MODULE(_core, m) {
       .def("remove", &Index::remove, py::arg("label"), "Tombstone a label; returns False if it is absent.")
       .def("search", &Index::search, py::arg("queries"), py::arg("k") = 10, py::arg("ef") = 64,
            py::arg("rerank") = 0, py::arg("threads") = 1, py::arg("filter") = py::none(), py::arg("strategy") = "auto",
-           py::arg("patience") = 0,
+           py::arg("patience") = 0, py::arg("rerank_z") = 0.0f,
            "Returns (labels, distances), each of shape (n, k). With `filter` (an epzero.Filter or a list of\n"
            "allowed labels), only those labels are returned; `strategy` forces 'exact', 'inline' or\n"
            "'two-hop' instead of choosing by selectivity. With `patience`, each unfiltered query stops once\n"
