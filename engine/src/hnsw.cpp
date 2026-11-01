@@ -32,6 +32,7 @@ constexpr char kLegacyMagic[8] = {'O', 'R', 'Y', 'X', 'H', 'N', 'S', 'W'};
 // it, so others stay readable by older builds). v1 and v2 files still load.
 constexpr std::uint32_t kFormatVersion = 2;
 constexpr std::uint32_t kFormatVersionNav = 3;
+constexpr std::size_t kRerankBlock = 16;
 constexpr int kMaxLevel = 31;
 
 std::size_t round_up(std::size_t value, std::size_t multiple) {
@@ -415,7 +416,6 @@ class HnswIndex::Scorer {
     return index_.dist_(query_, index_.full_vector(id), index_.params_.dim);
   }
   bool bounded_mode() const noexcept { return rbq_words_ != 0; }
-
   // What the distance computation will read first, for prefetching.
   const void* address(id_t id) const noexcept {
     return adc_ ? static_cast<const void*>(index_.record(id)) : static_cast<const void*>(index_.full_vector(id));
@@ -1432,9 +1432,40 @@ std::vector<SearchResult> HnswIndex::search(const float* query, std::size_t k, c
   if (quantized() && full_ && !candidates.empty() && !beam_exact) {
     std::size_t rerank = options.rerank == 0 ? 2 * k : std::max(options.rerank, k);
     rerank = std::min(rerank, candidates.size());
-    for (std::size_t i = 0; i < rerank; ++i) prefetch(full_vector(candidates[i].id));
-    for (std::size_t i = 0; i < rerank; ++i) {
-      candidates[i].distance = dist_(query, full_vector(candidates[i].id), params_.dim);
+    if (options.rerank_z > 0.0f && rerank > k + kRerankBlock) {
+      // In blocks, stopping when the rest can't reach the top k: the gap between estimated and exact
+      // distances, learned from this query's own candidates, says where the next one would land.
+      double gap = 0.0;
+      double gap_sq = 0.0;
+      std::vector<float> best;
+      best.reserve(k + 1);
+      std::size_t scored = 0;
+      while (scored < rerank) {
+        const std::size_t end = std::min(rerank, scored + kRerankBlock);
+        for (std::size_t i = scored; i < end; ++i) prefetch(full_vector(candidates[i].id));
+        for (std::size_t i = scored; i < end; ++i) {
+          const float estimate = candidates[i].distance;
+          const float d = dist_(query, full_vector(candidates[i].id), params_.dim);
+          candidates[i].distance = d;
+          const double g = static_cast<double>(d) - estimate;
+          gap += g;
+          gap_sq += g * g;
+          best.insert(std::upper_bound(best.begin(), best.end(), d), d);
+          if (best.size() > k) best.pop_back();
+        }
+        scored = end;
+        if (scored >= rerank || best.size() < k) continue;
+        const double n = static_cast<double>(scored);
+        const double mean = gap / n;
+        const double spread = std::sqrt(std::max(0.0, gap_sq / n - mean * mean));
+        if (candidates[scored].distance + mean - options.rerank_z * spread > best.back()) break;
+      }
+      rerank = scored;
+    } else {
+      for (std::size_t i = 0; i < rerank; ++i) prefetch(full_vector(candidates[i].id));
+      for (std::size_t i = 0; i < rerank; ++i) {
+        candidates[i].distance = dist_(query, full_vector(candidates[i].id), params_.dim);
+      }
     }
     stats.distance_computations += rerank;
     stats.full_distance_computations += rerank;
