@@ -50,7 +50,7 @@
             <span>{fmt(e.qps)} QPS at recall {run.recall.toFixed(2)}</span>
             {#if !e.epzero}<span>{(e.qps / epzero.qps!).toFixed(2)}× Epzero (fp32)</span>{/if}
           {:else}
-            <span>Best recall {e.best.toFixed(3)} in the sweep</span>
+            <span>Best recall {e.best.toFixed(4)} in the sweep</span>
           {/if}
           <span>Built in {e.build.toFixed(0)} s on 24 threads</span>
         </span>
