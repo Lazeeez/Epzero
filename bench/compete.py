@@ -335,13 +335,13 @@ def experiment(name):
     epzero-sq8-refine        a second pass: every node searches the finished graph and reconnects
     epzero-sq8-r300-z3       re-ranks up to 300, stopping early at 3 standard deviations
     epzero-sq8-pf8.2         prefetches 8 neighbours ahead, 2 lines each, instead of tuning (pfall: all)
-    epzero-sq8-ymm           the 256-bit VNNI kernel (first AVX-512 Xeons; identical recall expected)
+    epzero-sq8-avx2          the integer kernels without AVX-512 (identical recall expected)
     epzero-sq8-nav128-r100-fast-fill-p3  all of them, with patience = ef / 3
     Variants that differ only in -r or -p share one saved index."""
-    match = re.fullmatch(r"epzero-sq8(-ymm)?(?:-nav(\d+))?(?:-r(\d+))?(?:-z(\d+))?(-fast)?(-refine)?(-fill|-after)?(?:-p(\d+))?(?:-pf(\d+|all)\.(\d+))?", name)
+    match = re.fullmatch(r"epzero-sq8(-avx2)?(?:-nav(\d+))?(?:-r(\d+))?(?:-z(\d+))?(-fast)?(-refine)?(-fill|-after)?(?:-p(\d+))?(?:-pf(\d+|all)\.(\d+))?", name)
     if match is None:
-        raise SystemExit(f"unknown library {name}; known: {', '.join(LIBRARIES)}, epzero-sq8[-ymm][-nav<dims>][-r<n>][-z<n>][-fast][-refine][-fill|-after][-p<div>][-pf<depth>.<lines>]")
-    ymm, nav, rerank, stop, fast, refine, fill, patience, depth, lines = match.groups()
+        raise SystemExit(f"unknown library {name}; known: {', '.join(LIBRARIES)}, epzero-sq8[-avx2][-nav<dims>][-r<n>][-z<n>][-fast][-refine][-fill|-after][-p<div>][-pf<depth>.<lines>]")
+    avx2, nav, rerank, stop, fast, refine, fill, patience, depth, lines = match.groups()
     index_name = "epzero-sq8" + (f"-nav{nav}" if nav else "") + (fast or "") + (refine or "") + (fill or "")
 
     class Variant(EpzeroSq8):
@@ -351,8 +351,8 @@ def experiment(name):
         cache_name = index_name
 
         def load(self, path, base):
-            if ymm:
-                os.environ["EPZERO_SQ8_KERNEL"] = "avx512-256"  # read when an index is made
+            if avx2:
+                os.environ["EPZERO_SQ8_KERNEL"] = "avx2"  # read when an index is made
             try:
                 super().load(path, base)
             finally:
