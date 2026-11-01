@@ -22,7 +22,7 @@
       <h2 id="architecture-title" class="section-title">One engine, two homes.</h2>
       <p class="section-lede">
         The same C++ core compiles to a native server and to the WebAssembly running on this page. Nothing here calls a
-        backend: the model, the index and the search all run on your device.
+        backend for search: the model, the index and the search all run on your device.
       </p>
     </header>
 
