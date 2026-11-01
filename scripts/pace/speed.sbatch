@@ -6,6 +6,8 @@
 #   -ymm                  the 256-bit VNNI kernel
 #   -fast                 built on the codes instead of the full vectors
 #   -fill                 free link slots filled with the closest pruned candidates
+#   -after                free link slots filled in one pass after the build
+#   -refine               a second pass: every node searches the finished graph and reconnects
 #   -p<div>               per-query effort, patience = ef / div
 # Each index is built on all cores first, then searched from one pinned thread.
 # Result: pace-results/gold6226/<dataset>-speed.json (untracked; copy it back with scp)
@@ -38,10 +40,10 @@ CACHE=data/indexes/compete-gold6226
 ls "$CACHE/$DATASET-epzero-sq8-"*.idx > /dev/null || { echo "run compete.sbatch for $DATASET first"; exit 1; }
 
 case "$DATASET" in
-  gist-*)    SWEEP=nav128-r100,nav96-r100-fast-fill,nav128-r100-fast,nav128-r100-fast-fill,nav128-r100-fast-fill-p3,nav128-r200-fast-fill,nav192-r100-fast-fill,nav256-r50-fast-fill,fast ;;
-  dbpedia-*) SWEEP=nav384-r100,nav256-r50-fast-fill,nav256-r100-fast-fill,nav384-r50-fast-fill,nav384-r100-fast-fill,nav512-r50-fast-fill,nav512-r100-fast-fill,nav384-r100-fast,fast ;;
-  deep-*)    SWEEP=ymm,ymm-p3,nav60-r50-fast-fill,fast,fast-fill,fill ;;
-  glove-*)   SWEEP=ymm,ymm-p3,fast,fast-fill,fast-fill-p3,fill-p3 ;;
+  gist-*)    SWEEP=nav128-r100,nav128-r100-fast,nav128-r100-fast-after,nav128-r100-fast-refine-after,nav128-r100-fast-refine-after-p3,nav192-r100-fast-refine-after,nav96-r100-fast-refine-after,fast-refine ;;
+  dbpedia-*) SWEEP=nav384-r100,nav384-r100-fast,nav256-r100-fast-refine-after,nav384-r50-fast-refine-after,nav384-r100-fast-refine-after,nav512-r50-fast-refine-after,nav512-r100-fast-refine-after,fast-refine ;;
+  deep-*)    SWEEP=ymm,ymm-p3,fast,fast-refine,ymm-fast-refine,ymm-fast-refine-p3,nav60-r50-fast-refine ;;
+  glove-*)   SWEEP=ymm,ymm-p3,fast,fast-refine,ymm-fast-refine,ymm-fast-refine-p3 ;;
   *)         SWEEP=fast,fill ;;
 esac
 DEFAULT=epzero-sq8,glass
@@ -62,7 +64,7 @@ OUT=pace-results/gold6226
 mkdir -p "$OUT"
 COMMON=(--data "$DATA" --cache "$CACHE" --M 16 --efc 200 --threads "$(nproc)" --libs "$LIBS")
 cleanup() {
-  [ -n "${KEEP:-}" ] || rm -f "${CACHE:?}/${DATASET:?}-epzero-sq8-"{nav,fast,fill}*
+  [ -n "${KEEP:-}" ] || rm -f "${CACHE:?}/${DATASET:?}-epzero-sq8-"{ymm,nav,fast,fill,after,refine}*
 }
 trap cleanup EXIT
 echo "== build the new indexes on $(nproc) cores"
