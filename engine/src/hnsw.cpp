@@ -659,7 +659,12 @@ void HnswIndex::decode(id_t id, float* out) const noexcept {
 }
 
 float HnswIndex::pair_distance(id_t a, id_t b) const noexcept {
-  if (has_full_vectors() && !params_.fast_build) return dist_(full_vector(a), full_vector(b), params_.dim);
+  // Building on nav_dim codes prunes on them too, as a scan of dim floats is the cost it avoids. With a
+  // code per dimension it doesn't: decoding two nodes costs more than reading their vectors (2-3× the
+  // build time on GloVe-100, SIFT1M and DBpedia, at the same recall).
+  if (has_full_vectors() && (!params_.fast_build || build_exact_ || params_.nav_dim == 0)) {
+    return dist_(full_vector(a), full_vector(b), params_.dim);
+  }
   thread_local std::vector<float> va, vb;
   va.resize(code_dim());
   vb.resize(code_dim());
@@ -1512,7 +1517,8 @@ std::unique_ptr<HnswIndex> HnswIndex::compacted(std::size_t threads) const {
   return out;
 }
 
-void HnswIndex::refine_links(std::size_t threads, std::size_t ef) {
+void HnswIndex::refine_links(std::size_t threads, std::size_t ef, bool exact) {
+  build_exact_ = exact;
   if (ef == 0) ef = params_.ef_construction;
   const std::uint64_t entry = entry_.load(std::memory_order_acquire);
   if (entry == kEmpty) return;
@@ -1529,7 +1535,7 @@ void HnswIndex::refine_links(std::size_t threads, std::size_t ef) {
       decode(id, vector.data());
       v = vector.data();
     }
-    const Scorer scorer(*this, v, /*adc=*/!has_full_vectors() || params_.fast_build);
+    const Scorer scorer(*this, v, /*adc=*/!has_full_vectors() || (params_.fast_build && !exact));
     SearchStats unused;
     id_t from = static_cast<id_t>(entry & 0xffffffffu);
     if (top_level > 0) from = greedy_descend(scorer, from, top_level, 0, unused, nullptr);
@@ -1537,6 +1543,7 @@ void HnswIndex::refine_links(std::size_t threads, std::size_t ef) {
     std::erase_if(candidates, [id](const Candidate& c) { return c.id == id; });
     if (!candidates.empty()) connect(id, select_neighbors(std::move(candidates), max_links0_), 0);
   });
+  build_exact_ = false;
 }
 
 std::size_t HnswIndex::fill_free_links(std::size_t threads) {
