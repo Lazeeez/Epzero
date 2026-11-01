@@ -14,7 +14,7 @@
 #   sbatch --export=ALL,DATASET=dbpedia-openai-1000k-angular scripts/pace/speed.sbatch
 #   sbatch --export=ALL,DATASET=deep-image-96-angular --time=16:00:00 scripts/pace/speed.sbatch
 #   sbatch --export=ALL,DATASET=glove-100-angular scripts/pace/speed.sbatch
-# LIBS=a,b,c overrides the sweep.
+# LIBS=a,b,c overrides the sweep; TAG=name keeps a run apart (<dataset>-speed-name.json).
 #SBATCH --job-name=epzero-speed
 #SBATCH --nodes=1
 #SBATCH --exclusive
@@ -59,7 +59,7 @@ mkdir -p "$OUT"
 COMMON=(--data "$DATA" --cache "$CACHE" --M 16 --efc 200 --threads "$(nproc)" --libs "$LIBS")
 echo "== build the new indexes on $(nproc) cores"
 # Without Glass, which is rebuilt for its search run anyway (see compete.py).
-"$VENV/bin/python" bench/compete.py "${COMMON[@]}" --libs "${LIBS//glass,/}" --build-only --out "$OUT/$DATASET-speed.json"
+"$VENV/bin/python" bench/compete.py "${COMMON[@]}" --libs "${LIBS//glass,/}" --build-only --out "$OUT/$DATASET-speed${TAG:+-$TAG}.json"
 echo "== search, one thread, pinned to socket 0"
 numactl --cpunodebind=0 --membind=0 \
-  "$VENV/bin/python" bench/compete.py "${COMMON[@]}" --rounds 3 --out "$OUT/$DATASET-speed.json"
+  "$VENV/bin/python" bench/compete.py "${COMMON[@]}" --rounds 3 --out "$OUT/$DATASET-speed${TAG:+-$TAG}.json"
