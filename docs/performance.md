@@ -538,6 +538,20 @@ against 3,635, 95 s against 307 s) and 11% on plain SQ8, and 5% on DEEP10M on pl
 `nav_dim` of about 60 was 0.60× Glass on DEEP10M at recall 0.95, so fitting a node's codes in one cache
 line doesn't pay.
 
+**With the second pass, on the server** (`*-speed-round4.json`, with the new kernel tail):
+
+| Dataset | Recall | Glass | SQ8 as shipped | Best variant here | Build (Glass) |
+|---|---|---|---|---|---|
+| GIST1M | 0.90 | 1,509 | 1,509 (1.00×) | **4,640 (3.08×)**, `nav_dim` 96 | 90 s (223 s) |
+| GIST1M | 0.95 | 723 | 811 (1.12×) | **2,590 (3.58×)**, `nav_dim` 192 | 127 s |
+| GloVe-100 | 0.80 | 9,770 | 8,227 (0.84×) | 9,675 (0.99×), `fast_build` + `refine_links` | 127 s (38 s) |
+| GloVe-100 | 0.90 | 2,922 | 2,541 (0.87×) | **3,293 (1.13×)** | |
+| GloVe-100 | 0.93 | 1,664 | 1,489 (0.89×) | **2,022 (1.22×)** | |
+
+On GloVe-100 Epzero reaches recall 0.961 at `ef` 800, against 0.944 for Glass, at the same 32 links. The
+second pass made that build 3.3× longer than Glass's. The new kernel tail took plain SQ8 from 0.83× to
+0.87× of Glass at recall 0.90.
+
 **The masked tail, settled.** A 256-bit VNNI kernel (`EPZERO_SQ8_KERNEL=avx512-256`) has the same
 arithmetic on 96 and 100 dimensions apart from a masked load for the last 4 on GloVe-100. It was 2.5%
 faster than the AVX2 kernel on DEEP10M and 31% slower on GloVe-100, at identical recall. So the masked
