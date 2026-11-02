@@ -602,6 +602,25 @@ matched an all-exact build on the DBpedia sample (recall 0.9826, 20 s against 25
 codes (0.9809). On GIST1M refining on the codes stayed ahead (0.9461 against 0.9447, 135 s against 415 s),
 so the best second pass depends on the dataset.
 
+**A tuner that could not fetch a whole record.** `tune_prefetch` tried 1, 2, 4 and 8 lines, so a record of
+3, 5, 7 or 9 lines was never fetched whole. That explains why 128 directions on GIST1M ran far behind both
+96 and 192. Fixed settings on the Gold 6226 (`*-speed-prefetch.json`), the second column at the tuner's old pick:
+
+| At recall 0.95 | Tuner's pick | Best fixed setting | Gain |
+|---|---|---|---|
+| GIST1M, 128 directions (3 lines) | 1,751 (`all`, 2 lines) | 2,935 (8 ahead, 3 lines) | +68% |
+| DBpedia, 384 directions (7 lines) | 5,315 (`all`, 1 line) | 6,581 (4 ahead, 7 lines) | +24% |
+| DBpedia, 256 directions (5 lines) | 5,159 (2 ahead, 4 lines) | 6,511 (8 ahead, 5 lines) | +26% |
+
+On the DBpedia runs that is 1.49-2.39× Glass from recall 0.85 to 0.99 (9,082 to 809 QPS), and on GIST1M
+2.83× and 3.69× at 0.90 and 0.95 (1,670 and 795 QPS). Glass's figures come from the run just before, and
+Epzero's settings were picked on the test queries, so these are development numbers.
+
+**The re-rank stop on the server** (`*-speed-round5.json`; `z` 3, on the tuner's old prefetch picks): GIST1M
+at 96 directions +25% at recall 0.95, and its highest recall rose from 0.9689 to 0.9927, as a fixed re-rank
+of 100 was capping it; at 192 directions +2-4%. DBpedia at 384 directions, against a fixed 50: +4% at 0.90-0.95,
++4-12% at 0.98-0.99. At 256, against a fixed 100: level at 0.90, +7% at 0.98 and +19% at 0.99.
+
 Tried for the same goals and removed:
 
 - **The alpha-convergent pruning rule** (Fast-Convergent Proximity Graphs, as a slack `tau` and `alpha`
