@@ -48,6 +48,45 @@ def load_dataset(path, max_queries):
     return base, queries, truth, metric
 
 
+def rss_mb():
+    """This process's resident memory, in MB (Linux; 0 elsewhere)."""
+    try:
+        with open("/proc/self/statm") as f:
+            return int(f.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 2**20
+    except (OSError, ValueError):
+        return 0.0
+
+
+def environment():
+    """What a result needs to be reproduced: code, libraries, CPU and huge-page setting."""
+    import importlib.metadata
+    import platform
+    import subprocess
+
+    def read(path):
+        try:
+            with open(path) as f:
+                return f.read().strip()
+        except OSError:
+            return None
+
+    def commit():
+        try:
+            return subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        except (OSError, subprocess.CalledProcessError):
+            return None
+
+    versions = {}
+    for package in ("epzero", "hnswlib", "faiss-cpu", "usearch", "pyvsag", "glass", "numpy"):
+        try:
+            versions[package] = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError:
+            pass
+    cpu = next((line.split(":", 1)[1].strip() for line in (read("/proc/cpuinfo") or "").splitlines() if line.startswith("model name")), None)
+    return {"commit": commit(), "versions": versions, "cpu": cpu, "kernel": platform.release(), "cores": os.cpu_count(),
+            "transparent_hugepage": read("/sys/kernel/mm/transparent_hugepage/enabled")}
+
+
 def recall_at_k(found, truth, k):
     hits = sum(len(set(np.asarray(f[:k]).tolist()) & set(t[:k].tolist())) for f, t in zip(found, truth))
     return hits / (len(found) * k)
@@ -393,7 +432,7 @@ def main():
     n, dim = base.shape
     print(f"{dataset}: {n} x {dim} ({metric}), {len(queries)} queries, M={args.M}, efc={args.efc}, threads={args.threads}")
 
-    libs, builds, skipped = [], {}, {}
+    libs, builds, skipped, memory = [], {}, {}, {}
     rebuild = set(filter(None, args.rebuild.split(",")))
     for name in args.libs.split(","):
         try:
@@ -405,6 +444,7 @@ def main():
         cache_name = getattr(lib, "cache_name", name)  # variants share their library's saved index
         path = os.path.join(args.cache, f"{dataset}-{cache_name}-M{args.M}-efc{args.efc}.idx") if args.cache else None
         cached = path is not None and os.path.exists(path + ".json") and name not in rebuild
+        before = rss_mb()
         if cached and lib.saves and os.path.exists(path):
             lib.load(path, base)
             with open(path + ".json") as f:
@@ -424,6 +464,9 @@ def main():
                     lib.save(path)
                 with open(path + ".json", "w") as f:
                     json.dump({"build_seconds": builds[name], "threads": args.threads}, f)
+        # What the index adds to the process. Approximate when freed memory is reused, or after a build,
+        # which leaves garbage; for a clean figure, load one library per process (--libs).
+        memory[name] = rss_mb() - before
         libs.append(lib)
     if args.build_only:
         return
@@ -447,7 +490,7 @@ def main():
     for lib in libs:
         sweep = [{lib.param_name: p, "recall": recall[(lib.name, p)], "qps": statistics.median(samples[(lib.name, p)]),
                   "qps_samples": samples[(lib.name, p)]} for p in lib.params]
-        results[lib.name] = {"build_seconds": builds[lib.name], "param": lib.param_name, "sweep": sweep}
+        results[lib.name] = {"build_seconds": builds[lib.name], "memory_mb": memory[lib.name], "param": lib.param_name, "sweep": sweep}
         if lib.note:
             results[lib.name]["note"] = lib.note
         best = max((s for s in sweep if s["recall"] >= 0.95), key=lambda s: s["qps"], default=None)
@@ -457,7 +500,7 @@ def main():
     with open(args.out, "w") as f:
         json.dump({"dataset": dataset, "n": n, "dim": dim, "metric": metric, "queries": len(queries), "k": args.k,
                    "M": args.M, "ef_construction": args.efc, "build_threads": args.threads, "search_threads": args.search_threads, "rounds": args.rounds,
-                   "skipped": skipped, "libraries": results}, f, indent=2)
+                   "skipped": skipped, "environment": environment(), "libraries": results}, f, indent=2)
     print(f"wrote {args.out}")
 
 
