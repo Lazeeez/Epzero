@@ -618,7 +618,7 @@ Epzero's settings were picked on the test queries, so these are development numb
 
 **The re-rank stop on the server** (`*-speed-round5.json`; `z` 3, on the tuner's old prefetch picks): GIST1M
 at 96 directions +25% at recall 0.95, and its highest recall rose from 0.9689 to 0.9927, as a fixed re-rank
-of 100 was capping it; at 192 directions +2-4%. DBpedia at 384 directions, against a fixed 50: +4% at 0.90-0.95,
+of 100 was capping it; at 192 directions +1-4%. DBpedia at 384 directions, against a fixed 50: +4% at 0.90-0.95,
 +4-12% at 0.98-0.99. At 256, against a fixed 100: level at 0.90, +7% at 0.98 and +19% at 0.99.
 
 Tried for the same goals and removed:
