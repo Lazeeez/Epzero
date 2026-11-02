@@ -11,6 +11,8 @@
 # 2. AMD EPYC 7513 and Xeon 6740P: Glass, shipped SQ8 and the best settings, on all four datasets. On the
 #    Xeon, GloVe also runs with AVX2 kernels: does AVX-512 still lose on short vectors there?
 # 3. Throughput on many threads, on DBpedia, on all three CPUs.
+# PACE caps cores x time per job, and these jobs take whole nodes: 24 cores x 16 h is known to pass, so
+# 64 cores get 6 h and 96 get 4.
 set -euo pipefail
 last="${AFTER:-}"
 FROM="${1:-all}"
@@ -49,11 +51,11 @@ machine() {  # hw glove-extra sbatch-args...
   queue speed $GLOVE "$hw" round5 "glass,$S,$LOW$extra" "$@"
   queue speed $GIST "$hw" round5 "glass,$S,$GIST_A,$GIST_B" "$@"
   queue speed $DBP "$hw" round5 "glass,$S,$DBP_A,$DBP_B" "$@"
-  queue speed $DEEP "$hw" round5 "glass,$S,$LOW" --time=16:00:00 "$@"
+  queue speed $DEEP "$hw" round5 "glass,$S,$LOW" "$@"
 }
-[ "$FROM" != all ] || machine epyc7513 "" -p ice-cpu -C epyc7513
-machine xeon6740p ",$S-avx2,$LOW-avx2" -p ice-bw-cpu -C core96
+[ "$FROM" != all ] || machine epyc7513 "" -p ice-cpu -C epyc7513 --time=6:00:00
+machine xeon6740p ",$S-avx2,$LOW-avx2" -p ice-bw-cpu -C core96 --time=4:00:00
 
 queue throughput $DBP gold6226 "" ""
-queue throughput $DBP epyc7513 "" "" -p ice-cpu -C epyc7513
-queue throughput $DBP xeon6740p "" "" -p ice-bw-cpu -C core96
+queue throughput $DBP epyc7513 "" "" -p ice-cpu -C epyc7513 --time=6:00:00
+queue throughput $DBP xeon6740p "" "" -p ice-bw-cpu -C core96 --time=4:00:00
