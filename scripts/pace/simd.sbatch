@@ -30,7 +30,10 @@ ls "$CACHE/$DATASET-epzero-sq8-"*.idx > /dev/null || { echo "run compete.sbatch 
 exec 9>"$VENV/.install.lock"
 flock 9
 if [ -d "$VENV/src/pyglass/python" ]; then
-  "$VENV/bin/pip" install --quiet --no-build-isolation --no-deps --force-reinstall "$VENV/src/pyglass/python"
+  # Compiled for this node: a build left from another CPU (AVX-512 on the Gold) crashed the AMD nodes with
+  # an illegal instruction, so drop old objects and pip's cached wheel.
+  rm -rf "${VENV:?}/src/pyglass/python/build"
+  "$VENV/bin/pip" install --quiet --no-cache-dir --no-build-isolation --no-deps --force-reinstall "$VENV/src/pyglass/python"
 fi
 "$VENV/bin/pip" install --quiet --no-deps --force-reinstall "$EPZERO_ROOT/engine"
 flock -u 9
