@@ -19,6 +19,7 @@
 #   sbatch --export=ALL,DATASET=glove-100-angular scripts/pace/speed.sbatch
 # On another CPU, name it and override the constraint; it then builds its own indexes, in its own folders:
 #   sbatch --constraint=<feature> --export=ALL,DATASET=gist-960-euclidean,HW=<name> scripts/pace/speed.sbatch
+# LOCAL=1 puts the indexes on the node's local $TMPDIR (rebuilt every job, scratch untouched).
 # LIBS=a,b,c overrides the sweep; TAG=name keeps a run apart (<dataset>-speed-name.json).
 # Each index holds a full copy of the vectors, so a sweep needs tens of GB of scratch while it runs
 # (about 30 GB on GIST1M, 50 GB on DBpedia, 35 GB on DEEP10M). The job deletes its experiment indexes
@@ -38,9 +39,14 @@ VENV="$EPZERO_ROOT/.pace-bench"
 DATA="data/ann/$DATASET.hdf5"
 HW="${HW:-gold6226}"
 CACHE="data/indexes/compete-$HW"
+if [ -n "${LOCAL:-}" ] && [ -n "${TMPDIR:-}" ] && [ -w "$TMPDIR" ]; then
+  # LOCAL=1: indexes on the node's own disk, wiped with the job, which keeps them off scratch.
+  CACHE="$TMPDIR/epzero-indexes"
+  echo "index cache: $CACHE ($(df -h "$TMPDIR" | awk 'NR==2{print $4" free"}'))"
+fi
 [ -x "$VENV/bin/python" ] || { echo "set up first: bash scripts/pace/bench-env.sh && bash scripts/pace/compete-env.sh"; exit 1; }
 [ -f "$DATA" ] || { echo "download first: scripts/download_ann_dataset.sh $DATASET"; exit 1; }
-if [ "$HW" = gold6226 ]; then
+if [ "$HW" = gold6226 ] && [ -z "${LOCAL:-}" ]; then
   ls "$CACHE/$DATASET-epzero-sq8-"*.idx > /dev/null || { echo "run compete.sbatch for $DATASET first"; exit 1; }
 fi
 
