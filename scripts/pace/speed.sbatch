@@ -40,8 +40,10 @@ DATA="data/ann/$DATASET.hdf5"
 HW="${HW:-gold6226}"
 CACHE="data/indexes/compete-$HW"
 if [ -n "${LOCAL:-}" ] && [ -n "${TMPDIR:-}" ] && [ -w "$TMPDIR" ]; then
-  # LOCAL=1: indexes on the node's own disk, wiped with the job, which keeps them off scratch.
-  CACHE="$TMPDIR/epzero-indexes"
+  # LOCAL=1: indexes on the node's own disk, which keeps them off scratch. On PACE that is the node's
+  # shared /tmp, not a per-job folder, so the job makes its own and deletes it when it ends.
+  CACHE="${TMPDIR:?}/epzero-${SLURM_JOB_ID:?}"
+  trap 'rm -rf "${TMPDIR:?}/epzero-${SLURM_JOB_ID:?}"' EXIT
   echo "index cache: $CACHE ($(df -h "$TMPDIR" | awk 'NR==2{print $4" free"}'))"
 fi
 [ -x "$VENV/bin/python" ] || { echo "set up first: bash scripts/pace/bench-env.sh && bash scripts/pace/compete-env.sh"; exit 1; }
@@ -81,7 +83,9 @@ COMMON=(--data "$DATA" --cache "$CACHE" --M 16 --efc 200 --threads "$(nproc)" --
 cleanup() {
   [ -n "${KEEP:-}" ] || rm -f "${CACHE:?}/${DATASET:?}-epzero-sq8-"{avx2,nav,fast,fill,after,refine}*
 }
-trap cleanup EXIT
+if [ "$CACHE" = "data/indexes/compete-$HW" ]; then
+  trap cleanup EXIT
+fi
 echo "== build the new indexes on $(nproc) cores"
 # Without Glass, which is rebuilt for its search run anyway (see compete.py).
 "$VENV/bin/python" bench/compete.py "${COMMON[@]}" --libs "${LIBS//glass,/}" --build-only --out "$OUT/$DATASET-speed${TAG:+-$TAG}.json"
