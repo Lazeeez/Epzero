@@ -25,12 +25,17 @@ VENV="$EPZERO_ROOT/.pace-bench"
 DATA="data/ann/$DATASET.hdf5"
 HW="${HW:-gold6226}"
 CACHE="data/indexes/compete-$HW"
+if [ -n "${LOCAL:-}" ] && [ -n "${TMPDIR:-}" ] && [ -w "$TMPDIR" ]; then
+  # LOCAL=1: indexes on the node's own disk, wiped with the job, which keeps them off scratch.
+  CACHE="$TMPDIR/epzero-indexes"
+  echo "index cache: $CACHE ($(df -h "$TMPDIR" | awk 'NR==2{print $4" free"}'))"
+fi
 [ -x "$VENV/bin/python" ] || { echo "set up first: bash scripts/pace/bench-env.sh && bash scripts/pace/compete-env.sh"; exit 1; }
 [ -f "$DATA" ] || { echo "download first: scripts/download_ann_dataset.sh $DATASET"; exit 1; }
 
 case "$DATASET" in
-  gist-*)    BEST=epzero-sq8-nav192-r100-fast-refine-after ;;
-  dbpedia-*) BEST=epzero-sq8-nav384-r100-fast-refine-after ;;
+  gist-*)    BEST=epzero-sq8-nav192-r400-z3-fast-refine-after ;;
+  dbpedia-*) BEST=epzero-sq8-nav384-r300-z3-fast-refine-after ;;
   *)         BEST=epzero-sq8-fast-refine ;;
 esac
 LIBS="${LIBS:-glass,$BEST}"
