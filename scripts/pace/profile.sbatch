@@ -30,7 +30,8 @@ echo "perf $(perf --version); perf_event_paranoid=$(cat /proc/sys/kernel/perf_ev
 exec 9>"$VENV/.install.lock"
 flock 9
 "$VENV/bin/pip" install --quiet --no-index --no-build-isolation --no-deps --force-reinstall "$VENV"/src/hnswlib-*.tar.gz
-"$VENV/bin/pip" install --quiet --no-build-isolation --no-deps --force-reinstall "$VENV/src/pyglass/python"
+rm -rf "${VENV:?}/src/pyglass/python/build"  # compiled for this node, not a previous one
+"$VENV/bin/pip" install --quiet --no-cache-dir --no-build-isolation --no-deps --force-reinstall "$VENV/src/pyglass/python"
 "$VENV/bin/pip" install --quiet --no-deps --force-reinstall "$EPZERO_ROOT/engine"
 flock -u 9
 
