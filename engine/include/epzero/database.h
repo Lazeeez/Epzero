@@ -107,6 +107,7 @@ class Database {
  private:
   Database(std::string dir, const HnswParams& params, const DatabaseOptions& options);
   void recover();
+  void check_upserts(const std::uint64_t* labels, std::size_t n) const;
   void append(const std::vector<std::uint8_t>& bytes, bool sync);
   void apply_upsert(std::uint64_t label, const float* vector);
   void apply_record(const LogRecord& record);
