@@ -667,9 +667,37 @@ queries):
 | GIST1M 200k | 0.951 | 0.957 | 3.89× |
 | GloVe-100 200k | 0.951 | 0.948 | 1.15× |
 
-The build is still slower than plain SQ8 where the second pass dominates (GloVe 23 s against 12 s);
-on GIST it was faster (40 s against 49 s). `bench/compete.py` runs it as `epzero-auto`, adding the
-calibrated beam width to the sweep so each server run checks the target on the real queries.
+The configuration now lives in the engine (`build_auto` in [`auto.h`](../engine/include/epzero/auto.h)),
+and is saved in the index file (format v4) with the reason for each setting; `epzero.build` wraps it.
+`bench/compete.py` runs it as `epzero-auto`, adding the calibrated beam width to the sweep so each
+server run checks the target on the real queries.
+
+**Faster automatic builds.** Three measured changes, laptop, 200k-row samples:
+
+- *PCA as blocked matrix products.* The covariance read the whole sample once per dimension and the
+  subspace iteration read the covariance once per direction (tens of GB at 960 dimensions), and
+  Gram-Schmidt started a thread pool per direction. Blocked products and Cholesky QR: choosing the
+  directions on GIST1M 4.21 to 0.85 s, training 96 of them 3.26 to 1.53 s, recall unchanged (0.9367
+  against 0.9366 at `ef` 80). Training's ranges now run on every core too.
+- *The second pass at half the beam* when the walk uses every dimension. GloVe-100: 7.7 s against 10.5 s,
+  recall within 0.001 at every `ef` (and 38% more queries per second than no second pass at recall
+  0.945). With principal directions it saved only 5% and cost 0.002-0.004 recall on GIST1M, so
+  those keep the full beam.
+- *Prefetch timed on 300 queries, not 1,000.* It was a third of an automatic GloVe-100 build.
+
+| Automatic build | Before | After | Plain SQ8 | Recall on unseen queries (target 0.95) |
+|---|---|---|---|---|
+| DBpedia sample | 24 s | 14 s | 7 s | 0.952 |
+| GIST1M 200k | 44 s | 33 s | 43 s | 0.951 |
+| GloVe-100 200k | 23 s | 12 s | 11 s | 0.959 |
+
+At those recalls it was 1.91×, 3.44× and 1.38× plain SQ8's queries per second.
+
+**Memory placement on many-socket servers.** Index memory was zeroed on one thread, which on Linux
+puts every page on that thread's NUMA node: a whole index on one of the EPYC 7513's eight. Every build
+thread then shared one node's bandwidth, the likeliest reason its default build took 698 s on GIST1M
+against 212 s on the 24-core Gold. Large blocks are now zeroed on every core. Not yet measured on the
+EPYC (round 7).
 
 Tried for the same goals and removed:
 
