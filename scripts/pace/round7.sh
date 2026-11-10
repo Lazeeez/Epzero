@@ -31,9 +31,11 @@ machine() {  # hw sbatch-args...
   queue dbpedia-openai-1000k-angular "$hw" "glass,epzero-auto,$S-nav256-r300-z3-fast-refine-after" "$@"
   queue deep-image-96-angular "$hw" "glass,epzero-auto,$S-fast-refine" "$@"
 }
+# The Threadripper first: its Glass build is the newest fix, so a failure shows within minutes. The EPYC
+# last: its nodes are the most often shared, so its jobs may wait longest for a whole one.
+machine threadripper -p ice-gpu -C threadripper --gres=gpu:1 --mem=0 --time=6:00:00
 machine gold6226 --time=10:00:00
 machine epyc7513 -p ice-cpu -C epyc7513 --time=7:30:00
-machine threadripper -p ice-gpu -C threadripper --gres=gpu:1 --mem=0 --time=6:00:00
 
 # Throughput on many threads on the EPYC (moved from round 6, whose job never got a whole node): the
 # first run with index memory spread across its eight NUMA nodes.
