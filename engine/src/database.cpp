@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <cstring>
@@ -219,6 +220,23 @@ void Database::recover() {
   wal_bytes_ = good;
 }
 
+// A write must be checked before it is logged: a logged record that then fails to apply would fail
+// again on every recovery, and the database could never be opened.
+void Database::check_upserts(const std::uint64_t* labels, std::size_t n) const {
+  std::shared_lock lock(index_lock_);
+  if (!index_->trained()) throw std::logic_error("a quantized database must be trained before the first upsert");
+  std::size_t added = 0;
+  for (std::size_t i = 0; i < n; ++i) added += index_->contains(labels[i]) ? 0 : 1;
+  if (index_->live_count() + added > params_.max_elements) throw std::length_error("database is full");
+  if (n > 1) {
+    std::vector<std::uint64_t> sorted(labels, labels + n);
+    std::sort(sorted.begin(), sorted.end());
+    if (std::adjacent_find(sorted.begin(), sorted.end()) != sorted.end()) {
+      throw std::invalid_argument("a batch lists the same label twice");
+    }
+  }
+}
+
 void Database::append(const std::vector<std::uint8_t>& bytes, bool sync) {
   write_all(wal_fd_, bytes.data(), bytes.size());
   wal_bytes_ += bytes.size();
@@ -240,10 +258,15 @@ void Database::apply_upsert(std::uint64_t label, const float* vector) {
       return;
     }
   }
-  compact_if_needed(/*force=*/true);  // every slot is used; reclaim tombstones
+  // Every slot is used. The old vector becomes a tombstone first, so compaction reclaims its slot too:
+  // a replace in a full database then always fits (check_upserts made sure of the rest).
+  {
+    std::shared_lock lock(index_lock_);
+    index_->remove(label);
+  }
+  compact_if_needed(/*force=*/true);
   std::shared_lock lock(index_lock_);
   if (index_->size() >= params_.max_elements) throw std::length_error("database is full");
-  index_->remove(label);
   index_->add(label, vector);
 }
 
@@ -258,6 +281,7 @@ void Database::apply_record(const LogRecord& record) {
 
 LogRecord Database::upsert(std::uint64_t label, const float* vector) {
   std::lock_guard lock(write_lock_);
+  check_upserts(&label, 1);
   LogRecord record{LogRecord::Type::Upsert, lsn_ + 1, label, std::vector<float>(vector, vector + params_.dim)};
   std::vector<std::uint8_t> bytes;
   frame(bytes, record);
@@ -271,11 +295,7 @@ LogRecord Database::upsert(std::uint64_t label, const float* vector) {
 std::vector<LogRecord> Database::upsert_batch(const std::uint64_t* labels, const float* vectors, std::size_t n,
                                               std::size_t threads) {
   std::lock_guard lock(write_lock_);
-  {
-    std::shared_lock shared(index_lock_);
-    if (index_->live_count() + n > params_.max_elements) throw std::length_error("database is full");
-  }
-  if (index_->size() + n > params_.max_elements) compact_if_needed(/*force=*/true);
+  check_upserts(labels, n);
 
   std::vector<LogRecord> records(n);
   std::vector<std::uint8_t> bytes;
@@ -288,8 +308,13 @@ std::vector<LogRecord> Database::upsert_batch(const std::uint64_t* labels, const
   append(bytes, options_.sync != SyncMode::None);  // one write, one fsync for the whole batch
   lsn_ += n;
 
+  // Replaced vectors become tombstones before any slot is reclaimed, so the batch always fits.
+  {
+    std::shared_lock shared(index_lock_);
+    for (std::size_t i = 0; i < n; ++i) index_->remove(labels[i]);
+  }
+  if (index_->size() + n > params_.max_elements) compact_if_needed(/*force=*/true);
   std::shared_lock shared(index_lock_);
-  for (std::size_t i = 0; i < n; ++i) index_->remove(labels[i]);
   parallel_for(0, n, threads, [&](std::size_t i) { index_->add(labels[i], vectors + i * params_.dim); });
   shared.unlock();
   maybe_checkpoint();
