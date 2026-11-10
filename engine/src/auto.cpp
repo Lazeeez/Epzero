@@ -27,7 +27,9 @@ constexpr std::size_t kNavRound = 32;  // whole SIMD blocks
 constexpr std::size_t kNavRerank = 300;
 constexpr float kNavRerankZ = 3.0f;
 constexpr std::size_t kCalibrationQueries = 500;
-constexpr std::size_t kTuneQueries = 1000;
+// Timing prefetch settings on 1,000 queries was a third of an automatic GloVe-100 build; 300 keep
+// each timed pass well above timer noise.
+constexpr std::size_t kTuneQueries = 300;
 constexpr std::size_t kMaxEf = 4096;
 
 std::string percent(double share) { return std::to_string(static_cast<int>(share * 100.0 + 0.5)) + "%"; }
@@ -223,7 +225,14 @@ std::unique_ptr<HnswIndex> build_auto(const float* data, const std::uint64_t* la
   parallel_for(0, n, threads, [&](std::size_t i) {
     if (!is_held[i]) index->add(label(i), data + i * dim);
   });
-  if (profile.refined) index->refine_links(threads);
+  if (profile.refined) {
+    // Without principal directions the second pass is most of the build, and half the beam gives the
+    // same graph: GloVe-100 at 200k, recall within 0.001 at every ef, 7.7 s against 10.5 s. With them
+    // it saved 5% and cost 0.002-0.004 recall (GIST1M), so they keep the full beam.
+    const std::size_t ef = plan.params.nav_dim == 0 ? std::max<std::size_t>(plan.params.ef_construction / 2, 2 * plan.params.M)
+                                                    : plan.params.ef_construction;
+    index->refine_links(threads, ef);
+  }
   if (profile.filled) index->fill_free_links(threads);
 
   if (plan.calibrate) {
