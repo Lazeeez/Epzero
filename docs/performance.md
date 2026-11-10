@@ -647,6 +647,30 @@ Three losses remain:
   (212 s on the Gold) and 705 s on DBpedia, against Glass's 363 and 510 s. Glass slows on that node
   too, but less.
 
+**Automatic configuration** (`epzero.build`, [`epzero/auto.py`](../engine/python/epzero/auto.py)). The
+rules from the rounds above, applied from the data. These are 8-bit codes always, a build on the codes,
+and the second pass. Principal directions are used at 256 dimensions or more, enough to hold 80% of the
+variance and only if that is at most a quarter of the dimensions. With them come the re-rank up to 300
+with the early stop and the free links filled after. The beam width is calibrated for a recall
+target, and prefetch is timed on the machine. On the laptop it chose what the hand-tuned runs chose
+(256 directions on the DBpedia sample, 96 on GIST, none on GloVe).
+
+Calibrating on rows already in the graph misled. A node is linked to its own nearest neighbours, so
+its search is easy: GloVe reached 0.95 that way and 0.87 on held-out rows. Calibration rows now
+join the graph only after calibration. Recall on queries the build never saw, at the calibrated beam
+width for 0.95 (laptop, 200k-row samples of GIST1M and GloVe-100, the 37k DBpedia sample with its real
+queries):
+
+| Dataset | Recall at calibration | Recall on unseen queries | Against plain SQ8 at that recall |
+|---|---|---|---|
+| DBpedia (real queries) | 0.955 | 0.945 | 1.94× |
+| GIST1M 200k | 0.951 | 0.957 | 3.89× |
+| GloVe-100 200k | 0.951 | 0.948 | 1.15× |
+
+The build is still slower than plain SQ8 where the second pass dominates (GloVe 23 s against 12 s);
+on GIST it was faster (40 s against 49 s). `bench/compete.py` runs it as `epzero-auto`, adding the
+calibrated beam width to the sweep so each server run checks the target on the real queries.
+
 Tried for the same goals and removed:
 
 - **The alpha-convergent pruning rule** (Fast-Convergent Proximity Graphs, as a slack `tau` and `alpha`
