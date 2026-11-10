@@ -22,12 +22,40 @@ pip install epzero                 # the engine
 pip install "epzero[langchain]"    # plus the LangChain vector store
 ```
 
-## Quick start
+## Quick start: let it configure itself
 
 ```python
 import numpy as np
 import epzero
 
+vectors = np.random.rand(100_000, 768).astype(np.float32)
+index = epzero.build(vectors, metric="cosine")       # chooses every setting (below)
+labels, distances = index.search(vectors[:5], k=10)  # at the effort calibrated for recall 0.95
+print(index.plan)                                    # what it chose, and why
+```
+
+`build` decides from the data: 8-bit compression, whether to walk on principal directions (high
+dimensions with a concentrated spectrum), the build passes, the re-rank, and the beam width that
+reaches your recall target, measured on rows held out of the graph. From the machine: the SIMD
+kernel, the prefetch setting (timed on this CPU) and every core. Change anything:
+
+```python
+index = epzero.build(vectors, metric="cosine", recall=0.99)           # a different target
+index = epzero.build(vectors, metric="cosine", queries=my_queries)    # calibrate on real queries
+index = epzero.build(vectors, metric="cosine", nav_dim=0, refine=False, M=32)  # override choices
+plan = epzero.plan(vectors, metric="cosine")         # look before building, edit, then pass it in
+index = epzero.build(vectors, plan=plan.replace(ef_construction=400))
+labels, distances = index.search(queries, k=50, ef=200)               # per-call overrides
+index.save("my.epz")                                 # the plan is saved beside it (my.epz.plan.json)
+index = epzero.AutoIndex.load("my.epz")
+```
+
+If your queries differ from your data (text queries against image vectors, say), pass a few
+hundred of them as `queries=`: recall calibrated on data rows is optimistic for those.
+
+## Configured by hand
+
+```python
 vectors = np.random.rand(100_000, 128).astype(np.float32)
 index = epzero.Index(dim=128, metric="l2", max_elements=100_000, M=16, ef_construction=200)
 index.add(vectors)                                   # labels 0..n-1 (or pass labels=)
