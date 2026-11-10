@@ -31,7 +31,7 @@ exec 9>"$VENV/.install.lock"
 flock 9
 "$VENV/bin/pip" install --quiet --no-index --no-build-isolation --no-deps --force-reinstall "$VENV"/src/hnswlib-*.tar.gz
 rm -rf "${VENV:?}/src/pyglass/python/build"  # compiled for this node, not a previous one
-CFLAGS="$(glass_cflags)" "$VENV/bin/pip" install --quiet --no-cache-dir --no-build-isolation --no-deps --force-reinstall "$VENV/src/pyglass/python"
+echo "glass flags: [$(glass_cflags)]"; CFLAGS="$(glass_cflags)" CXXFLAGS="$(glass_cflags)" "$VENV/bin/pip" install --quiet --no-cache-dir --no-build-isolation --no-deps --force-reinstall "$VENV/src/pyglass/python"
 "$VENV/bin/pip" install --quiet --no-deps --force-reinstall "$EPZERO_ROOT/engine"
 flock -u 9
 
