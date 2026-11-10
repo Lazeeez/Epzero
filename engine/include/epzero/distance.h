@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -28,6 +29,10 @@ bool simd_level_supported(SimdLevel level) noexcept;
 // Best supported level, detected once per process. Setting EPZERO_SIMD=scalar|avx2|avx512|neon|wasm
 // forces a specific (supported) level, which is how the benchmarks measure SIMD speedups.
 SimdLevel active_simd_level() noexcept;
+
+// The running CPU's model name ("" if unknown) and the active SIMD level, e.g. "AMD EPYC 7513 32-Core
+// Processor/avx2": what machine-specific settings, such as prefetching, were measured on.
+std::string machine_name();
 
 // Returns nullptr if `level` is not supported on this machine.
 DistanceFn get_distance_fn(Metric metric, SimdLevel level) noexcept;
