@@ -157,6 +157,27 @@ std::string_view to_string(MissExplanation::Cause cause) noexcept;
 
 // Hierarchical Navigable Small World index (Malkov & Yashunin, 2016).
 //
+// How an index was configured, and why, saved in its file. search() callers that pass no settings
+// use k, ef, rerank and rerank_z from here (bindings fill them in; the C++ SearchOptions defaults are
+// unchanged). build_auto() fills it in; set_profile() sets it by hand.
+struct IndexProfile {
+  std::size_t k = 10;
+  std::size_t ef = 64;
+  std::size_t rerank = 0;
+  float rerank_z = 0.0f;
+  float recall_target = 0.0f;    // the recall ef was calibrated for (0: not calibrated)
+  float recall_measured = 0.0f;  // what calibration reached
+  bool built_on_codes = false;   // the build searched and pruned on 8-bit codes (fast_build)
+  bool refined = false;          // refine_links ran after the build
+  bool filled = false;           // fill_free_links ran after the build
+  // The prefetch setting chosen on `machine` (see machine_name()); a loaded index applies it only
+  // on the same kind of machine.
+  std::size_t prefetch_depth = std::numeric_limits<std::size_t>::max();
+  std::size_t prefetch_lines = 1;
+  std::string machine;
+  std::vector<std::pair<std::string, std::string>> notes;  // setting, why it was chosen
+};
+
 // Thread safety: add(), remove() and search() may be called concurrently from any number of
 // threads. train(), save() and compacted() must not run concurrently with add() or remove().
 //
@@ -267,6 +288,10 @@ class HnswIndex {
   // Measured: +17% on GloVe-100 at full precision, nothing on GIST1M with SQ8. Returns the setting.
   std::pair<std::size_t, std::size_t> tune_prefetch(const float* queries, std::size_t n, std::size_t k = 10,
                                                     std::size_t ef = 64);
+
+  const IndexProfile& profile() const noexcept { return profile_; }
+  // Not thread-safe against concurrent searches that read it; set it before serving.
+  void set_profile(IndexProfile profile) { profile_ = std::move(profile); }
 
  private:
   using id_t = std::uint32_t;
@@ -411,6 +436,7 @@ class HnswIndex {
 
   std::size_t prefetch_depth_ = std::numeric_limits<std::size_t>::max();  // everything up front
   std::size_t prefetch_lines_ = 1;
+  IndexProfile profile_;
 };
 
 }  // namespace epzero
