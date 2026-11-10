@@ -161,6 +161,43 @@ class EpzeroSq8Default(EpzeroSq8):
         print(f"{self.name:12s} prefetch {self.index.prefetch} (default, not tuned)")
 
 
+class EpzeroAuto(Library):
+    """epzero.build: every setting chosen from the data and this machine, with M and efConstruction
+    fixed to the run's for a fair comparison. The sweep adds the beam width it calibrated for recall
+    0.95, so the result shows whether that target holds on the real queries."""
+
+    name = "epzero-auto"
+
+    def __init__(self, dim, args):
+        super().__init__(dim, args)
+        import epzero
+
+        self.mod = epzero
+
+    def _describe(self):
+        p = self.auto.plan
+        self.params = sorted(set(Library.params) | {p.ef})
+        self.note = (f"nav_dim {p.nav_dim}, rerank {p.rerank}, rerank_z {p.rerank_z}, refine {p.refine}, "
+                     f"fill_after {p.fill_after}, prefetch {p.prefetch}, calibrated ef {p.ef} for recall {p.recall} "
+                     f"({p.measured.get('recall at calibration')} at calibration)")
+        print(f"{self.name:12s} {self.note}")
+
+    def build(self, base):
+        self.auto = self.mod.build(base, "l2", M=self.args.M, ef_construction=self.args.efc, threads=self.args.threads)
+        self._describe()
+
+    def save(self, path):
+        self.auto.save(path)
+
+    def load(self, path, base):
+        sample = np.random.default_rng(0).choice(len(base), min(len(base), 1000), replace=False)
+        self.auto = self.mod.AutoIndex.load(path, queries=base[sample])
+        self._describe()
+
+    def search(self, q, k, ef):
+        return self.auto.search(q, k=k, ef=ef, threads=self.args.search_threads)[0]
+
+
 class Hnswlib(Library):
     name = "hnswlib"
 
@@ -361,7 +398,7 @@ class EpzeroSq8Avx512(EpzeroSq8):
             del os.environ["EPZERO_SQ8_KERNEL"]
 
 
-LIBRARIES = {cls.name: cls for cls in (*COMPARED, EpzeroSq8Default, EpzeroSq8Adaptive, EpzeroSq8Avx512)}
+LIBRARIES = {cls.name: cls for cls in (*COMPARED, EpzeroAuto, EpzeroSq8Default, EpzeroSq8Adaptive, EpzeroSq8Avx512)}
 
 
 def experiment(name):
