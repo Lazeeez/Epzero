@@ -149,3 +149,14 @@ def test_bad_input():
 
 def test_machine_is_named():
     assert "/" in epzero.machine()
+
+
+def test_explain_and_trace_use_the_profile():
+    base = clustered(3000, 512, 16)
+    index = epzero.build(base, threads=4)
+    assert index.plan.nav_dim > 0
+    labels, _ = index.search(base[:20], k=1)
+    hit = int(np.sum(labels[:, 0] == np.arange(20)))
+    explained = [index.explain(base[i], 1, i)["cause"] for i in range(20)]
+    assert explained.count("returned") == hit  # the same search as search() runs
+    assert index.trace(base[0], k=1)["results"][0][0] == labels[0, 0]
