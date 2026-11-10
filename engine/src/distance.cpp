@@ -59,13 +59,9 @@ namespace {
 // Intel's first AVX-512 cores (Skylake-SP, Cascade Lake), as against Ice Lake and later and AMD Zen 4:
 // the newer ones are also the ones with VBMI2. On the older ones the AVX-512 integer SQ8 kernel is
 // slow on short vectors (see get_sq8_int_dot_fn).
-bool avx512_runs_at_full_clock() noexcept {
 #if defined(__x86_64__) || defined(_M_X64)
-  return __builtin_cpu_supports("avx512vbmi2");
-#else
-  return false;
+bool avx512_runs_at_full_clock() noexcept { return __builtin_cpu_supports("avx512vbmi2"); }
 #endif
-}
 
 SimdLevel detect_simd_level() noexcept {
   if (const char* forced = std::getenv("EPZERO_SIMD")) {
@@ -203,7 +199,7 @@ std::vector<std::pair<std::string_view, Sq8IntDotFn>> sq8_int_dot_variants() {
   return out;
 }
 
-Sq8IntDotFn get_sq8_int_dot_fn(SimdLevel level, std::size_t dim) noexcept {
+Sq8IntDotFn get_sq8_int_dot_fn(SimdLevel level, [[maybe_unused]] std::size_t dim) noexcept {
   if (!simd_level_supported(level)) return nullptr;
   switch (level) {
     case SimdLevel::Scalar: return kernels::sq8_int_dot_scalar;
