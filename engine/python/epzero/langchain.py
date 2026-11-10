@@ -122,7 +122,7 @@ class EpzeroVectorStore(VectorStore):
         first = len(self._ids)
         self._ensure_capacity(first + len(texts))
         labels = np.arange(first, first + len(texts), dtype=np.uint64)
-        self._vectors = np.concatenate([self._vectors, vectors])
+        self._append_vectors(vectors, first)
         self._ids.extend(ids)
         self._labels.update({id_: int(label) for id_, label in zip(ids, labels)})
         self._texts.extend(texts)
@@ -297,6 +297,24 @@ class EpzeroVectorStore(VectorStore):
 
     def __len__(self) -> int:
         return len(self._labels)
+
+    # The vectors, row = label, in a buffer that doubles as it fills: appending batch by batch with
+    # np.concatenate copied every stored vector on each add, quadratic in the size of the store.
+    @property
+    def _vectors(self) -> np.ndarray:
+        return self._store[: len(self._ids)]
+
+    @_vectors.setter
+    def _vectors(self, value: np.ndarray) -> None:
+        self._store = np.ascontiguousarray(value, dtype=np.float32)
+
+    def _append_vectors(self, vectors: np.ndarray, first: int) -> None:
+        needed = first + len(vectors)
+        if needed > len(self._store):
+            grown = np.zeros((max(needed, 2 * len(self._store), 16), self._dim), dtype=np.float32)
+            grown[:first] = self._store[:first]
+            self._store = grown
+        self._store[first:needed] = vectors
 
     def _new_index(self, capacity: int) -> Index:
         return Index(dim=self._dim, metric=self.metric, max_elements=capacity, M=self.M, ef_construction=self.ef_construction)
