@@ -283,17 +283,19 @@ class Index {
     });
   }
 
-  py::dict explain(const FloatArray& query, std::size_t k, std::uint64_t label, std::size_t ef,
+  py::dict explain(const FloatArray& query, std::size_t k, std::uint64_t label, const py::object& ef_arg,
                    const py::object& filter) const {
     std::size_t n;
     const float* row = rows_of(query, index_->params().dim, n);
     if (n != 1) throw std::invalid_argument("explain takes exactly one query");
     epzero::SearchFilter compiled;
     const epzero::SearchFilter* active = resolve_filter(filter, compiled);
+    const epzero::IndexProfile& p = index_->profile();
+    const std::size_t ef = ef_arg.is_none() ? std::max(p.ef, k) : ef_arg.cast<std::size_t>();  // needs the GIL
     epzero::MissExplanation why;
     {
       py::gil_scoped_release release;
-      why = index_->explain(row, k, label, {.ef = ef, .filter = active});
+      why = index_->explain(row, k, label, {.ef = ef, .rerank = p.rerank, .rerank_z = p.rerank_z, .filter = active});
     }
     py::dict out;
     out["cause"] = std::string(epzero::to_string(why.cause));
@@ -317,13 +319,16 @@ class Index {
   }
 
   // One query with its full traversal, for the visualizer and debugging.
-  py::dict trace(const FloatArray& query, std::size_t k, std::size_t ef) const {
+  py::dict trace(const FloatArray& query, std::size_t k, const py::object& ef_arg) const {
     std::size_t n;
     const float* row = rows_of(query, index_->params().dim, n);
     if (n != 1) throw std::invalid_argument("trace takes exactly one query");
     epzero::SearchTrace trace;
     epzero::SearchStats stats;
-    const auto results = index_->search(row, k, {.ef = ef, .stats = &stats, .trace = &trace});
+    const epzero::IndexProfile& p = index_->profile();
+    const std::size_t ef = ef_arg.is_none() ? std::max(p.ef, k) : ef_arg.cast<std::size_t>();
+    const auto results =
+        index_->search(row, k, {.ef = ef, .rerank = p.rerank, .rerank_z = p.rerank_z, .stats = &stats, .trace = &trace});
 
     py::list events;
     for (const auto& e : trace.events) {
@@ -643,12 +648,12 @@ PYBIND11_MODULE(_core, m) {
            "Compiles the allowed labels into an epzero.Filter, reusable across searches.")
       .def("exact_search", &Index::exact_search, py::arg("queries"), py::arg("k") = 10, py::arg("threads") = 1,
            py::arg("filter") = py::none(), "Exact (labels, distances) by scanning every live vector: the ground truth.")
-      .def("explain", &Index::explain, py::arg("query"), py::arg("k"), py::arg("label"), py::arg("ef") = 64,
+      .def("explain", &Index::explain, py::arg("query"), py::arg("k"), py::arg("label"), py::arg("ef") = py::none(),
            py::arg("filter") = py::none(),
            "Why `label` is or isn't among search(query, k, ef)'s results. 'cause' is one of returned,\n"
            "not-in-index, filtered-out, not-near-enough (the search was right) or search-missed, with\n"
            "the label's exact rank, whether the walk scored it, and the beam width that finds it.")
-      .def("trace", &Index::trace, py::arg("query"), py::arg("k") = 10, py::arg("ef") = 64)
+      .def("trace", &Index::trace, py::arg("query"), py::arg("k") = 10, py::arg("ef") = py::none())
       .def("compact", &Index::compact, py::arg("threads") = 0, "A new index without deleted vectors.")
       .def("save", &Index::save, py::arg("path"))
       .def_static("load", &Index::load, py::arg("path"))
