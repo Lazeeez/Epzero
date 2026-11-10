@@ -106,6 +106,17 @@ project was called Oryx until October 2026.)
 
 ## Highlights
 
+- **Configures itself:** `epzero.build(vectors)` chooses 8-bit compression, whether to walk the
+  graph on principal directions, the build passes, the re-rank and the beam width that reaches a
+  recall target (calibrated on rows held out of the graph, or on your queries), and times memory
+  prefetching on the machine. It saves those choices, with the reason for each, inside the index;
+  any of them can be overridden ([how it decides](engine/include/epzero/auto.h)).
+- **Faster than Glass, the fastest library we compared, on every dataset and both CPU families
+  measured:** at equal recall on one thread, 2.8-4.2× on GIST1M (recall 0.90-0.95), 1.6-2.7× on
+  OpenAI DBpedia and 1.4-1.5× on DEEP10M (0.90-0.98), and 1.0-1.3× on GloVe-100 (0.80-0.93), on a
+  Xeon Gold 6226 and an AMD EPYC 7513 with the same code. Builds are faster too, except on GloVe-100
+  and on DEEP10M on the Gold. These are each dataset's best settings, chosen on the queries they are
+  measured on; the [scoreboard](docs/scoreboard.md) lists every run and every loss.
 - **Recall you can see and keep:** live recall estimates with confidence
   intervals from sampled exact checks, a guard that holds a recall target as
   the workload drifts, and an explanation for any miss
@@ -129,7 +140,7 @@ project was called Oryx until October 2026.)
 - **Hardened against malformed files:** libFuzzer runs on every parser of
   untrusted bytes in CI; it found four crash bugs in the index loaders, all
   fixed and kept as regression cases.
-- **Faster than the reference libraries** on SIFT1M, at every recall level: 1.08×
+- **Ahead of hnswlib and FAISS** on SIFT1M at full precision, at every recall level: 1.08×
   hnswlib's and 1.12× FAISS's queries per second at recall 0.95 on a dedicated
   server, and the fastest 1M-vector build (24.0 s on 24 threads, against 27.8 s
   and 37.8 s). Where huge pages are opt-in, Epzero asks for them and the others
@@ -344,8 +355,15 @@ pip install ./engine               # or build from this repository
 ```
 
 ```python
-import numpy as np, epzero as epzero
+import numpy as np, epzero
 
+# Configured for the data and this machine; search() then uses the calibrated settings
+index = epzero.build(vectors, metric="cosine", recall=0.95)
+labels, distances = index.search(queries, k=10)
+print(index.plan)                               # every setting and why; pass any to override:
+index = epzero.build(vectors, metric="cosine", nav_dim=0, M=32, queries=sample_queries)
+
+# Or by hand
 index = epzero.Index(dim=128, metric="l2", max_elements=1_000_000, M=16, ef_construction=200)
 index.add(vectors, threads=12)                  # labels default to 0..n-1
 labels, distances = index.search(queries, k=10, ef=80, threads=1)
@@ -552,7 +570,9 @@ dedicated-server runs are in [`scripts/pace/`](scripts/pace/).
 15. ✅ Per-query guard and one index copy per socket measured on the server
 16. ✅ The comparison re-run with the integer SQ8 kernel: level with Glass on GIST1M, +34% on DBpedia
 17. ✅ The outlier split gated per query, measured on the server: SQ8 +25% on DEEP10M, +17% on GloVe
-18. Why Glass's lead on low-dimensional data grows on the server (level on a laptop); an ann-benchmarks submission (`ann-benchmarks/`)
+18. ✅ Walking on principal directions, a second build pass, the early re-rank stop and prefetch tuned per CPU: ahead of Glass on all four datasets, on Intel and AMD
+19. ✅ Automatic configuration in the engine (`build_auto`, `epzero.build`), saved with the index; a public scoreboard
+20. Modern and out-of-distribution datasets (CLIP text-to-image, 1536-3072-dimensional text embeddings); held-out queries for the final comparison; ARM servers; an ann-benchmarks and VIBE submission (`ann-benchmarks/`)
 
 ## License
 
