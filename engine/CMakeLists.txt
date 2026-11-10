@@ -48,6 +48,7 @@ endif()
 find_package(Threads REQUIRED)
 
 add_library(epzero_engine
+  src/auto.cpp
   src/distance.cpp
   src/distance_scalar.cpp
   src/hnsw.cpp
@@ -118,7 +119,7 @@ if(EPZERO_BUILD_TESTS)
   FetchContent_MakeAvailable(googletest)
 
   enable_testing()
-  add_executable(epzero_tests tests/distance_test.cpp tests/hnsw_test.cpp tests/recall_test.cpp tests/dataset_test.cpp tests/database_test.cpp tests/text_test.cpp)
+  add_executable(epzero_tests tests/auto_test.cpp tests/distance_test.cpp tests/hnsw_test.cpp tests/recall_test.cpp tests/dataset_test.cpp tests/database_test.cpp tests/text_test.cpp)
   target_link_libraries(epzero_tests PRIVATE epzero_engine GTest::gtest_main)
   if(EMSCRIPTEN)
     # Runs under Node (CMAKE_CROSSCOMPILING_EMULATOR); workers are pre-spawned for the
