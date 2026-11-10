@@ -7,6 +7,7 @@
 
 #include <limits>
 
+#include "epzero/auto.h"
 #include "epzero/database.h"
 #include "epzero/hnsw.h"
 #include "epzero/parallel.h"
@@ -110,6 +111,82 @@ py::tuple batch_search(const FloatArray& queries, std::size_t dim, std::size_t k
   return py::make_tuple(labels, distances);
 }
 
+std::string quantization_name(epzero::Quantization q) {
+  switch (q) {
+    case epzero::Quantization::None: return "none";
+    case epzero::Quantization::SQ8: return "sq8";
+    case epzero::Quantization::RaBitQ: return "rabitq";
+  }
+  return "unknown";
+}
+
+py::object prefetch_object(std::size_t depth, std::size_t lines) {
+  return py::make_tuple(depth == std::numeric_limits<std::size_t>::max() ? py::object(py::none()) : py::int_(depth), lines);
+}
+
+py::dict params_dict(const epzero::HnswParams& p) {
+  py::dict d;
+  d["dim"] = p.dim;
+  d["metric"] = std::string(epzero::to_string(p.metric));
+  d["max_elements"] = p.max_elements;
+  d["M"] = p.M;
+  d["ef_construction"] = p.ef_construction;
+  d["seed"] = p.seed;
+  d["quantization"] = quantization_name(p.quantization);
+  d["keep_vectors"] = p.keep_vectors;
+  d["nav_dim"] = p.nav_dim;
+  d["fast_build"] = p.fast_build;
+  return d;
+}
+
+py::dict profile_dict(const epzero::IndexProfile& p) {
+  py::dict d;
+  d["k"] = p.k;
+  d["ef"] = p.ef;
+  d["rerank"] = p.rerank;
+  d["rerank_z"] = p.rerank_z;
+  d["recall_target"] = p.recall_target;
+  d["recall_measured"] = p.recall_measured;
+  d["fast_build"] = p.built_on_codes;
+  d["refine"] = p.refined;
+  d["fill_after"] = p.filled;
+  d["prefetch"] = prefetch_object(p.prefetch_depth, p.prefetch_lines);
+  d["machine"] = p.machine;
+  py::dict notes;
+  for (const auto& [setting, why] : p.notes) notes[py::str(setting)] = why;
+  d["notes"] = notes;
+  return d;
+}
+
+// AutoOptions from build()'s arguments; `fixed` holds the settings the caller chose.
+epzero::AutoOptions auto_options(const std::string& metric, std::size_t M, std::size_t ef_construction, std::size_t k,
+                                 float recall, std::size_t threads, std::size_t capacity, std::uint64_t seed,
+                                 const py::dict& fixed) {
+  epzero::AutoOptions o{.metric = parse_metric(metric), .M = M, .ef_construction = ef_construction, .k = k,
+                        .recall = recall, .threads = threads, .capacity = capacity, .seed = seed};
+  for (const auto& [key, value] : fixed) {
+    const auto name = key.cast<std::string>();
+    if (value.is_none()) continue;
+    if (name == "quantization") o.fixed.quantization = parse_quantization(value.cast<std::string>());
+    else if (name == "nav_dim") o.fixed.nav_dim = value.cast<std::size_t>();
+    else if (name == "fast_build") o.fixed.fast_build = value.cast<bool>();
+    else if (name == "refine") o.fixed.refine = value.cast<bool>();
+    else if (name == "fill_after") o.fixed.fill_after = value.cast<bool>();
+    else if (name == "rerank") o.fixed.rerank = value.cast<std::size_t>();
+    else if (name == "rerank_z") o.fixed.rerank_z = value.cast<float>();
+    else if (name == "ef") o.fixed.ef = value.cast<std::size_t>();
+    else if (name == "prefetch") {
+      const auto pair = value.cast<py::tuple>();
+      if (pair.size() != 2) throw std::invalid_argument("prefetch must be (depth, lines)");
+      const std::size_t depth = pair[0].is_none() ? std::numeric_limits<std::size_t>::max() : pair[0].cast<std::size_t>();
+      o.fixed.prefetch = std::make_pair(depth, pair[1].cast<std::size_t>());
+    } else {
+      throw std::invalid_argument("unknown setting: " + name);
+    }
+  }
+  return o;
+}
+
 class Index {
  public:
   Index(std::size_t dim, const std::string& metric, std::size_t max_elements, std::size_t M,
@@ -148,8 +225,17 @@ class Index {
     return &storage;
   }
 
-  py::tuple search(const FloatArray& queries, std::size_t k, std::size_t ef, std::size_t rerank, std::size_t threads,
-                   const py::object& filter, const std::string& strategy, std::size_t patience, float rerank_z) const {
+  // Settings left as None come from the index's profile (see IndexProfile): a hand-built index has
+  // the old defaults (k 10, ef 64, re-rank 2 x k), an automatic one what build() calibrated.
+  py::tuple search(const FloatArray& queries, const py::object& k_arg, const py::object& ef_arg,
+                   const py::object& rerank_arg, std::size_t threads, const py::object& filter,
+                   const std::string& strategy, std::size_t patience, const py::object& rerank_z_arg) const {
+    const epzero::IndexProfile& p = index_->profile();
+    const std::size_t k = k_arg.is_none() ? p.k : k_arg.cast<std::size_t>();
+    // The profile's beam was calibrated for its k; a larger k needs at least k candidates.
+    const std::size_t ef = ef_arg.is_none() ? std::max(p.ef, k) : ef_arg.cast<std::size_t>();
+    const std::size_t rerank = rerank_arg.is_none() ? p.rerank : rerank_arg.cast<std::size_t>();
+    const float rerank_z = rerank_z_arg.is_none() ? p.rerank_z : rerank_z_arg.cast<float>();
     const epzero::FilterStrategy chosen = parse_strategy(strategy);
     epzero::SearchFilter compiled;
     const epzero::SearchFilter* active = resolve_filter(filter, compiled);
@@ -159,10 +245,12 @@ class Index {
   }
 
   // Prefetch settings: depth None means every neighbor up front (the default).
-  py::tuple prefetch() const {
+  py::object prefetch() const {
     const auto [depth, lines] = index_->prefetch_settings();
-    return py::make_tuple(depth == std::numeric_limits<std::size_t>::max() ? py::object(py::none()) : py::int_(depth), lines);
+    return prefetch_object(depth, lines);
   }
+  py::dict profile() const { return profile_dict(index_->profile()); }
+  py::dict params() const { return params_dict(index_->params()); }
   void set_prefetch(const py::object& depth, std::size_t lines) {
     index_->set_prefetch(depth.is_none() ? std::numeric_limits<std::size_t>::max() : depth.cast<std::size_t>(), lines);
   }
@@ -446,6 +534,65 @@ PYBIND11_MODULE(_core, m) {
   m.doc() = "Epzero: HNSW vector search engine";
   m.def("simd_level", [] { return std::string(epzero::to_string(epzero::active_simd_level())); },
         "SIMD instruction set used by the distance kernels on this CPU");
+  m.def("machine", &epzero::machine_name,
+        "This CPU's model and SIMD level: what machine-specific settings (prefetching) are measured on.");
+
+  m.def(
+      "_plan_auto",
+      [](const FloatArray& data, const std::string& metric, std::size_t M, std::size_t ef_construction, std::size_t k,
+         float recall, std::size_t threads, std::size_t capacity, std::uint64_t seed, bool with_queries,
+         const py::dict& fixed) {
+        if (data.ndim() != 2 || data.shape(0) == 0 || data.shape(1) == 0) {
+          throw std::invalid_argument("data must be a non-empty 2-D array (rows of vectors)");
+        }
+        auto options = auto_options(metric, M, ef_construction, k, recall, threads, capacity, seed, fixed);
+        static const float marker = 0.0f;  // only whether queries were given changes the plan
+        if (with_queries) {
+          options.queries = &marker;
+          options.query_count = 1;
+        }
+        epzero::AutoPlan plan;
+        {
+          py::gil_scoped_release release;
+          plan = epzero::plan_auto(data.data(), static_cast<std::size_t>(data.shape(0)),
+                                   static_cast<std::size_t>(data.shape(1)), options);
+        }
+        py::dict out;
+        out["params"] = params_dict(plan.params);
+        out["profile"] = profile_dict(plan.profile);
+        out["calibrate"] = plan.calibrate;
+        out["tune"] = plan.tune;
+        return out;
+      },
+      py::arg("data"), py::arg("metric"), py::arg("M"), py::arg("ef_construction"), py::arg("k"), py::arg("recall"),
+      py::arg("threads"), py::arg("capacity"), py::arg("seed"), py::arg("with_queries"), py::arg("fixed"));
+  m.def(
+      "_build_auto",
+      [](const FloatArray& data, const py::object& labels, const std::string& metric, std::size_t M,
+         std::size_t ef_construction, std::size_t k, float recall, std::size_t threads, std::size_t capacity,
+         std::uint64_t seed, const py::object& queries, const py::dict& fixed) {
+        if (data.ndim() != 2 || data.shape(0) == 0 || data.shape(1) == 0) {
+          throw std::invalid_argument("data must be a non-empty 2-D array (rows of vectors)");
+        }
+        const auto n = static_cast<std::size_t>(data.shape(0));
+        const auto dim = static_cast<std::size_t>(data.shape(1));
+        const auto ids = labels_of(labels, n, 0);
+        auto options = auto_options(metric, M, ef_construction, k, recall, threads, capacity, seed, fixed);
+        FloatArray query_rows;
+        if (!queries.is_none()) {
+          query_rows = queries.cast<FloatArray>();
+          options.queries = rows_of(query_rows, dim, options.query_count);
+        }
+        std::unique_ptr<epzero::HnswIndex> built;
+        {
+          py::gil_scoped_release release;
+          built = epzero::build_auto(data.data(), ids.data(), n, dim, options);
+        }
+        return Index(std::move(built));
+      },
+      py::arg("data"), py::arg("labels"), py::arg("metric"), py::arg("M"), py::arg("ef_construction"), py::arg("k"),
+      py::arg("recall"), py::arg("threads"), py::arg("capacity"), py::arg("seed"), py::arg("queries"),
+      py::arg("fixed"));
 
   py::class_<epzero::SearchFilter>(m, "Filter",
                                  "The labels a search may return, compiled by Index.filter() for reuse across queries.")
@@ -467,15 +614,21 @@ PYBIND11_MODULE(_core, m) {
       .def("add", &Index::add, py::arg("data"), py::arg("labels") = py::none(), py::arg("threads") = 0,
            "Insert rows of `data`; labels default to consecutive ids starting at the number of slots used.")
       .def("remove", &Index::remove, py::arg("label"), "Tombstone a label; returns False if it is absent.")
-      .def("search", &Index::search, py::arg("queries"), py::arg("k") = 10, py::arg("ef") = 64,
-           py::arg("rerank") = 0, py::arg("threads") = 1, py::arg("filter") = py::none(), py::arg("strategy") = "auto",
-           py::arg("patience") = 0, py::arg("rerank_z") = 0.0f,
-           "Returns (labels, distances), each of shape (n, k). With `filter` (an epzero.Filter or a list of\n"
+      .def("search", &Index::search, py::arg("queries"), py::arg("k") = py::none(), py::arg("ef") = py::none(),
+           py::arg("rerank") = py::none(), py::arg("threads") = 1, py::arg("filter") = py::none(),
+           py::arg("strategy") = "auto", py::arg("patience") = 0, py::arg("rerank_z") = py::none(),
+           "Returns (labels, distances), each of shape (n, k). `k`, `ef`, `rerank` and `rerank_z` default to\n"
+           "the index's profile: k 10, ef 64 and a re-rank of 2 x k for an index built by hand, the\n"
+           "calibrated settings for one from epzero.build(). With `filter` (an epzero.Filter or a list of\n"
            "allowed labels), only those labels are returned; `strategy` forces 'exact', 'inline' or\n"
            "'two-hop' instead of choosing by selectivity. With `patience`, each unfiltered query stops once\n"
            "its best k have gone that many steps unchanged (`ef` then caps the beam): easy queries finish\n"
            "early, hard ones search further.")
       .def_property_readonly("prefetch", &Index::prefetch, "(depth, lines): how far ahead the search prefetches.")
+      .def_property_readonly("profile", &Index::profile,
+                             "The search settings this index uses by default, how it was built, and why\n"
+                             "(saved with it). Set by epzero.build().")
+      .def_property_readonly("params", &Index::params, "The settings the index was created with.")
       .def("set_prefetch", &Index::set_prefetch, py::arg("depth") = py::none(), py::arg("lines") = 1,
            "Prefetch `lines` cache lines of `depth` neighbors ahead (None: every neighbor up front).")
       .def("refine_links", &Index::refine_links, py::arg("threads") = 0, py::arg("ef") = 0,
