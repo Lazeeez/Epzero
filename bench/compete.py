@@ -175,27 +175,29 @@ class EpzeroAuto(Library):
         self.mod = epzero
 
     def _describe(self):
-        p = self.auto.plan
+        p = self.index.plan
         self.params = sorted(set(Library.params) | {p.ef})
         self.note = (f"nav_dim {p.nav_dim}, rerank {p.rerank}, rerank_z {p.rerank_z}, refine {p.refine}, "
-                     f"fill_after {p.fill_after}, prefetch {p.prefetch}, calibrated ef {p.ef} for recall {p.recall} "
-                     f"({p.measured.get('recall at calibration')} at calibration)")
+                     f"fill_after {p.fill_after}, prefetch {self.index.prefetch}, calibrated ef {p.ef} for recall "
+                     f"{p.recall} ({p.measured.get('recall at calibration')} at calibration)")
         print(f"{self.name:12s} {self.note}")
 
     def build(self, base):
-        self.auto = self.mod.build(base, "l2", M=self.args.M, ef_construction=self.args.efc, threads=self.args.threads)
+        self.index = self.mod.build(base, "l2", M=self.args.M, ef_construction=self.args.efc, threads=self.args.threads)
         self._describe()
 
     def save(self, path):
-        self.auto.save(path)
+        self.index.save(path)
 
     def load(self, path, base):
-        sample = np.random.default_rng(0).choice(len(base), min(len(base), 1000), replace=False)
-        self.auto = self.mod.AutoIndex.load(path, queries=base[sample])
+        self.index = self.mod.Index.load(path)
+        if self.index.profile["machine"] != self.mod.machine():  # its prefetch setting was timed elsewhere
+            sample = np.random.default_rng(0).choice(len(base), min(len(base), 1000), replace=False)
+            self.index.tune_prefetch(base[sample], k=self.index.plan.k, ef=self.index.plan.ef)
         self._describe()
 
     def search(self, q, k, ef):
-        return self.auto.search(q, k=k, ef=ef, threads=self.args.search_threads)[0]
+        return self.index.search(q, k=k, ef=ef, threads=self.args.search_threads)[0]
 
 
 class Hnswlib(Library):
