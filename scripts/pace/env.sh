@@ -29,3 +29,14 @@ for old in "$EPZERO_ROOT"/data/indexes/*.oryx "$EPZERO_ROOT"/data/indexes/*/*-or
   new="${new//-oryx-/-epzero-}"
   [ -e "$new" ] || mv "$old" "$new"
 done
+
+# Extra flags for building Glass on this node. Glass compiles with -march=native; on a CPU with AVX-VNNI
+# (the Threadripper's Zen 5) GCC then emits VEX-encoded VNNI instructions, which RHEL 9's assembler
+# (binutils 2.35) can't assemble, and the build failed. There it builds without that one extension:
+# its AVX-512 VNNI instructions, which the assembler knows, stay. Epzero checks the same at configure.
+glass_cflags() {
+  grep -qw avx_vnni /proc/cpuinfo || return 0
+  local probe='#include <immintrin.h>
+int main(int c, char**) { __m256i a = _mm256_set1_epi8((char)c); a = _mm256_dpbusd_avx_epi32(a, a, a); return _mm256_extract_epi32(a, 0); }'
+  printf '%s\n' "$probe" | g++ -x c++ -march=native - -o /dev/null 2>/dev/null || echo "-mno-avxvnni"
+}
