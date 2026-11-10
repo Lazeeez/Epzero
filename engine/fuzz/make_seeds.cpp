@@ -29,6 +29,23 @@ int main(int argc, char** argv) {
   for (std::size_t i = 0; i < 40; ++i) index.add(i, vectors.data() + i * kDim);
   index.save((out / "snapshot" / "valid").string());
 
+  // Format v4: 8-bit codes and a profile (search settings, reasons, a machine name).
+  epzero::HnswParams quantized = small_params();
+  quantized.quantization = epzero::Quantization::SQ8;
+  epzero::HnswIndex profiled(quantized);
+  profiled.train(vectors.data(), 40);
+  for (std::size_t i = 0; i < 40; ++i) profiled.add(i, vectors.data() + i * kDim);
+  epzero::IndexProfile profile;
+  profile.ef = 24;
+  profile.rerank = 30;
+  profile.rerank_z = 3.0f;
+  profile.recall_target = 0.95f;
+  profile.refined = true;
+  profile.machine = "fuzz/scalar";
+  profile.notes = {{"ef", "calibrated"}, {"nav_dim", "off"}};
+  profiled.set_profile(profile);
+  profiled.save((out / "snapshot" / "valid-profile").string());
+
   const auto graph = index.export_graph();
   std::ofstream(out / "graph" / "valid", std::ios::binary)
       .write(reinterpret_cast<const char*>(graph.data()), static_cast<std::streamsize>(graph.size()));
