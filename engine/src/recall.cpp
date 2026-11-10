@@ -52,9 +52,12 @@ void RecallMonitor::run() {
       busy_ = true;
     }
     const SearchFilter* filter = job.filter ? &*job.filter : nullptr;
+    // The reference re-scores its whole beam exactly: with a walk on principal directions the default
+    // re-rank (2 x k) would leave the "truth" itself approximate.
     const auto exact = options_.reference_ef == 0
                            ? index_.exact_search(job.query.data(), job.k, filter)
-                           : index_.search(job.query.data(), job.k, {.ef = options_.reference_ef, .filter = filter});
+                           : index_.search(job.query.data(), job.k,
+                                           {.ef = options_.reference_ef, .rerank = options_.reference_ef, .filter = filter});
     std::size_t hits = 0;
     for (const auto& truth : exact) {
       if (std::find(job.returned.begin(), job.returned.end(), truth.label) != job.returned.end()) ++hits;
@@ -154,7 +157,10 @@ std::vector<SearchResult> RecallGuard::search(const float* query, std::size_t k,
   // Patience at a third of the cap: the best trade-off measured on GloVe-100 (the cap then only
   // stops the hardest queries).
   const std::size_t patience = options_.per_query && filter == nullptr ? std::max<std::size_t>(1, ef / 3) : 0;
-  auto results = index_.search(query, k, {.ef = ef, .patience = patience, .stats = stats, .filter = filter});
+  // The index's own re-rank settings (see IndexProfile): the guard moves only the beam width.
+  const IndexProfile& profile = index_.profile();
+  auto results = index_.search(query, k, {.ef = ef, .patience = patience, .rerank = profile.rerank,
+                                          .rerank_z = profile.rerank_z, .stats = stats, .filter = filter});
   monitor_.observe(query, k, results, filter, segment);
   return results;
 }
