@@ -55,6 +55,37 @@ void expect_contents(const Database& db, const SyntheticData& data, const std::s
   }
 }
 
+TEST_F(DatabaseTest, RejectedWritesAreNeverLogged) {
+  {
+    auto db = Database::open(dir_.string(), params(/*max_elements=*/10));
+    for (std::size_t i = 0; i < 10; ++i) db->upsert(i, row(i));
+    EXPECT_THROW(db->upsert(10, row(10)), std::length_error);  // full: nothing to reclaim
+    db->upsert(3, row(3));                                       // a replace still fits
+    const std::uint64_t again[] = {5, 6};
+    std::vector<float> pair(row(5), row(5) + 2 * kDim);
+    db->upsert_batch(again, pair.data(), 2);                     // so does a batch of replaces
+    const std::uint64_t twice[] = {4, 4};
+    std::vector<float> two(row(4), row(4) + 2 * kDim);
+    EXPECT_THROW(db->upsert_batch(twice, two.data(), 2), std::invalid_argument);
+  }
+  // Had a rejected write reached the log, replaying it would fail on every open.
+  auto db = Database::open(dir_.string(), params(10));
+  EXPECT_EQ(db->size(), 10u);
+  EXPECT_FALSE(db->index().contains(10));
+  EXPECT_EQ(db->last_lsn(), 13u);
+}
+
+TEST_F(DatabaseTest, UntrainedQuantizedWritesAreRejected) {
+  HnswParams p = params();
+  p.quantization = Quantization::SQ8;
+  {
+    auto db = Database::open(dir_.string(), p);
+    EXPECT_THROW(db->upsert(1, row(1)), std::logic_error);
+  }
+  auto db = Database::open(dir_.string(), p);  // opens: the rejected write was never logged
+  EXPECT_EQ(db->last_lsn(), 0u);
+}
+
 TEST_F(DatabaseTest, RecoversWritesFromTheLog) {
   std::set<std::size_t> live;
   {
