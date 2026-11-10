@@ -621,6 +621,32 @@ at 96 directions +25% at recall 0.95, and its highest recall rose from 0.9689 to
 of 100 was capping it; at 192 directions +1-4%. DBpedia at 384 directions, against a fixed 50: +4% at 0.90-0.95,
 +4-12% at 0.98-0.99. At 256, against a fixed 100: level at 0.90, +7% at 0.98 and +19% at 0.99.
 
+**Round 6: the same code on a second CPU** (`*-speed-round6.json`, commit 0f9cbd4, prefetch now tuned over
+a record's every line, indexes on each node's local disk). Epzero's configuration fastest at the middle
+target against Glass, on a Gold 6226 (Cascade Lake, 24 cores) and an EPYC 7513 (Zen 3, AVX2 only, 64 cores):
+
+| Dataset | Recall | Gold 6226 | EPYC 7513 | Build, Gold | Build, EPYC |
+|---|---|---|---|---|---|
+| GIST1M, 96 directions | 0.90, 0.95 | 2.78×, 3.69× | 3.01×, 4.16× | 91 s vs 173 s | 62 s vs 363 s |
+| DBpedia, 256 directions | 0.90, 0.95, 0.98 | 1.57×, 1.71×, 2.08× | 1.80×, 1.98×, 2.41× | 148 s vs 224 s | 225 s vs 510 s |
+| DEEP10M, second pass | 0.90, 0.95, 0.98 | 1.43×, 1.39×, 1.50× | 1.42×, 1.38×, 1.51× | **643 s vs 589 s** | 458 s vs 752 s |
+| GloVe-100, second pass | 0.80, 0.90, 0.93 | 1.02×, 1.13×, 1.22× | 1.08×, 1.25×, 1.34× | **70 s vs 57 s** | **118 s vs 85 s** |
+
+Glass never reaches 0.98 on GIST1M (0.966). The Gold figures repeat round 5 within a few percent. The lead
+holds on AMD and is equal or larger there, so it does not rest on AVX-512. Resident memory grew less
+than Glass's on three datasets (DBpedia 6.3 against 8.4 GB, DEEP10M 7.1 against 8.7, GIST1M 4.0 against
+5.2) and tied on GloVe-100; it is measured in one process per run, so treat it as approximate.
+
+Three losses remain:
+
+- **Builds with a second pass are slower than Glass on GloVe-100 on both CPUs, and on DEEP10M on the Gold.**
+- **The shipped default, without tuned settings, is behind Glass** on GloVe-100 (0.86-0.95×) and on DBpedia
+  below recall 0.98 (0.86-0.97×). The gains above need a per-dataset configuration, which a user would not
+  find alone: a strong case for configuring the index automatically.
+- **The shipped default builds badly on the EPYC's 64 cores across 8 NUMA nodes.** It took 698 s on GIST1M
+  (212 s on the Gold) and 705 s on DBpedia, against Glass's 363 and 510 s. Glass slows on that node
+  too, but less.
+
 Tried for the same goals and removed:
 
 - **The alpha-convergent pruning rule** (Fast-Convergent Proximity Graphs, as a slack `tau` and `alpha`
