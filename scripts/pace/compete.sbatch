@@ -36,7 +36,7 @@ flock 9
 "$VENV/bin/pip" install --quiet --no-index --no-build-isolation --no-deps --force-reinstall "$VENV"/src/hnswlib-*.tar.gz
 if [ -d "$VENV/src/pyglass/python" ]; then
   rm -rf "${VENV:?}/src/pyglass/python/build"  # compiled for this node, not a previous one
-  "$VENV/bin/pip" install --quiet --no-cache-dir --no-build-isolation --no-deps --force-reinstall "$VENV/src/pyglass/python" || echo "glass did not build: skipped"
+  CFLAGS="$(glass_cflags)" "$VENV/bin/pip" install --quiet --no-cache-dir --no-build-isolation --no-deps --force-reinstall "$VENV/src/pyglass/python" || echo "glass did not build: skipped"
 fi
 # Epzero from this checkout (it picks its SIMD kernels at run time).
 "$VENV/bin/pip" install --quiet --no-deps --force-reinstall "$EPZERO_ROOT/engine"
