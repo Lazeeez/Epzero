@@ -28,12 +28,21 @@ namespace {
 constexpr char kMagic[8] = {'E', 'P', 'Z', 'R', 'H', 'N', 'S', 'W'};
 // Written before the project was renamed from Oryx; still loaded.
 constexpr char kLegacyMagic[8] = {'O', 'R', 'Y', 'X', 'H', 'N', 'S', 'W'};
-// v2: quantization + tombstones. v3: nav_dim and its directions (written only by indexes that use
-// it, so others stay readable by older builds). v1 and v2 files still load.
+// v2: quantization + tombstones. v3: nav_dim and its directions. v4: v3 plus the IndexProfile. Each
+// newer version is written only by indexes that need it, so others stay readable by older builds.
 constexpr std::uint32_t kFormatVersion = 2;
 constexpr std::uint32_t kFormatVersionNav = 3;
+constexpr std::uint32_t kFormatVersionProfile = 4;
+constexpr std::size_t kMaxProfileString = 4096;
 constexpr std::size_t kRerankBlock = 16;
 constexpr int kMaxLevel = 31;
+
+bool is_default(const IndexProfile& p) noexcept {
+  const IndexProfile d;
+  return p.k == d.k && p.ef == d.ef && p.rerank == d.rerank && p.rerank_z == d.rerank_z && p.recall_target == 0.0f &&
+         !p.built_on_codes && !p.refined && !p.filled && p.prefetch_depth == d.prefetch_depth && p.prefetch_lines == d.prefetch_lines &&
+         p.machine.empty() && p.notes.empty();
+}
 
 std::size_t round_up(std::size_t value, std::size_t multiple) {
   return (value + multiple - 1) / multiple * multiple;
@@ -93,7 +102,19 @@ void* allocate_block(std::size_t bytes) {
 #if defined(__linux__) && !defined(__EMSCRIPTEN__)
   if (huge) madvise(block, bytes, MADV_HUGEPAGE);  // advisory; ignored if THP is disabled
 #endif
-  std::memset(block, 0, bytes);
+  // Zeroed on every core, in huge-page-sized pieces. The first write places a page on the memory of
+  // the core that makes it, so zeroing on one thread put a whole index on one NUMA node of a
+  // many-socket server, where every build and search thread then shared that node's bandwidth.
+  constexpr std::size_t kPiece = std::size_t{2} << 20;
+  if (bytes >= 32 * kPiece) {
+    auto* bytes_at = static_cast<std::byte*>(block);
+    parallel_for(0, (bytes + kPiece - 1) / kPiece, 0, [&](std::size_t piece) {
+      const std::size_t start = piece * kPiece;
+      std::memset(bytes_at + start, 0, std::min(kPiece, bytes - start));
+    });
+  } else {
+    std::memset(block, 0, bytes);
+  }
   return block;
 }
 
@@ -563,20 +584,33 @@ void HnswIndex::train(const float* data, std::size_t n) {
     nav_basis_ = pca::top_directions(stored, n, dim, params_.nav_dim, params_.seed);
     prepare_query_projection();
   }
+  // Each code's range over every row, in blocks of rows on all cores: with principal directions each
+  // row is projected first, nav_dim x dim multiply-adds, which on one core took minutes at 1M rows.
   const std::size_t codes = code_dim();
   std::vector<float> lo(codes, std::numeric_limits<float>::max());
   std::vector<float> hi(codes, std::numeric_limits<float>::lowest());
-  std::vector<float> row(dim);
-  std::vector<float> walked(codes);
-  for (std::size_t r = 0; r < n; ++r) {
-    stored(r, row.data());
-    if (params_.nav_dim != 0) project(row.data(), walked.data());
-    const float* v = params_.nav_dim != 0 ? walked.data() : row.data();
-    for (std::size_t i = 0; i < codes; ++i) {
-      lo[i] = std::min(lo[i], v[i]);
-      hi[i] = std::max(hi[i], v[i]);
+  constexpr std::size_t kBlock = 4096;
+  std::mutex merge;
+  parallel_for(0, (n + kBlock - 1) / kBlock, 0, [&](std::size_t block) {
+    std::vector<float> block_lo(codes, std::numeric_limits<float>::max());
+    std::vector<float> block_hi(codes, std::numeric_limits<float>::lowest());
+    std::vector<float> row(dim);
+    std::vector<float> walked(codes);
+    for (std::size_t r = block * kBlock; r < std::min(n, (block + 1) * kBlock); ++r) {
+      stored(r, row.data());
+      if (params_.nav_dim != 0) project(row.data(), walked.data());
+      const float* v = params_.nav_dim != 0 ? walked.data() : row.data();
+      for (std::size_t i = 0; i < codes; ++i) {
+        block_lo[i] = std::min(block_lo[i], v[i]);
+        block_hi[i] = std::max(block_hi[i], v[i]);
+      }
     }
-  }
+    std::lock_guard lock(merge);
+    for (std::size_t i = 0; i < codes; ++i) {
+      lo[i] = std::min(lo[i], block_lo[i]);
+      hi[i] = std::max(hi[i], block_hi[i]);
+    }
+  });
   sq8_min_ = lo;
   sq8_scale_.resize(codes);
   for (std::size_t i = 0; i < codes; ++i) {
@@ -1514,6 +1548,11 @@ std::unique_ptr<HnswIndex> HnswIndex::compacted(std::size_t threads) const {
       out->add(labels_[id], v.data());
     }
   });
+  // The same configuration: the build passes the profile records, its settings and prefetching.
+  if (profile_.refined) out->refine_links(threads);
+  if (profile_.filled) out->fill_free_links(threads);
+  out->profile_ = profile_;
+  out->set_prefetch(prefetch_depth_, prefetch_lines_);
   return out;
 }
 
@@ -1650,7 +1689,8 @@ std::size_t HnswIndex::memory_bytes() const noexcept {
 void HnswIndex::save(const std::string& path) const {
   ChunkedWriter out(path);
   out.write(kMagic, sizeof(kMagic));
-  out.pod(params_.nav_dim != 0 ? kFormatVersionNav : kFormatVersion);
+  const bool with_profile = !is_default(profile_);
+  out.pod(with_profile ? kFormatVersionProfile : params_.nav_dim != 0 ? kFormatVersionNav : kFormatVersion);
   out.pod<std::uint64_t>(params_.dim);
   out.pod<std::uint32_t>(static_cast<std::uint32_t>(params_.metric));
   out.pod<std::uint64_t>(params_.max_elements);
@@ -1659,7 +1699,32 @@ void HnswIndex::save(const std::string& path) const {
   out.pod<std::uint64_t>(params_.seed);
   out.pod<std::uint32_t>(static_cast<std::uint32_t>(params_.quantization));
   out.pod<std::uint8_t>(params_.keep_vectors ? 1 : 0);
-  if (params_.nav_dim != 0) out.pod<std::uint64_t>(params_.nav_dim);
+  if (params_.nav_dim != 0 || with_profile) out.pod<std::uint64_t>(params_.nav_dim);
+  if (with_profile) {
+    const auto string = [&](const std::string& text) {
+      const std::size_t length = std::min(text.size(), kMaxProfileString);
+      out.pod<std::uint32_t>(static_cast<std::uint32_t>(length));
+      out.write(text.data(), length);
+    };
+    const IndexProfile& p = profile_;
+    out.pod<std::uint64_t>(p.k);
+    out.pod<std::uint64_t>(p.ef);
+    out.pod<std::uint64_t>(p.rerank);
+    out.pod<float>(p.rerank_z);
+    out.pod<float>(p.recall_target);
+    out.pod<float>(p.recall_measured);
+    out.pod<std::uint8_t>(static_cast<std::uint8_t>((p.refined ? 1 : 0) | (p.built_on_codes ? 2 : 0)));
+    out.pod<std::uint8_t>(p.filled ? 1 : 0);
+    out.pod<std::uint64_t>(p.prefetch_depth);
+    out.pod<std::uint64_t>(p.prefetch_lines);
+    string(p.machine);
+    const std::size_t notes = std::min<std::size_t>(p.notes.size(), 256);
+    out.pod<std::uint32_t>(static_cast<std::uint32_t>(notes));
+    for (std::size_t i = 0; i < notes; ++i) {
+      string(p.notes[i].first);
+      string(p.notes[i].second);
+    }
+  }
   const std::size_t count = size();
   out.pod<std::uint64_t>(count);
   out.pod<std::uint64_t>(entry_.load(std::memory_order_acquire));
@@ -1724,7 +1789,7 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
     throw std::runtime_error(path + " is not an Epzero index");
   }
   const auto version = in.pod<std::uint32_t>();
-  if (version < 1 || version > kFormatVersionNav) throw std::runtime_error(path + ": unsupported format version");
+  if (version < 1 || version > kFormatVersionProfile) throw std::runtime_error(path + ": unsupported format version");
 
   HnswParams params;
   params.dim = in.pod<std::uint64_t>();
@@ -1740,6 +1805,40 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
     params.keep_vectors = in.pod<std::uint8_t>() != 0;
   }
   if (version >= kFormatVersionNav) params.nav_dim = in.pod<std::uint64_t>();
+  IndexProfile profile;
+  if (version >= kFormatVersionProfile) {
+    const auto string = [&] {
+      const auto length = in.pod<std::uint32_t>();
+      if (length > kMaxProfileString) throw std::runtime_error(path + ": corrupt profile");
+      std::string text(length, '\0');
+      in.read(text.data(), length);
+      return text;
+    };
+    profile.k = in.pod<std::uint64_t>();
+    profile.ef = in.pod<std::uint64_t>();
+    profile.rerank = in.pod<std::uint64_t>();
+    profile.rerank_z = in.pod<float>();
+    profile.recall_target = in.pod<float>();
+    profile.recall_measured = in.pod<float>();
+    const auto passes = in.pod<std::uint8_t>();
+    profile.refined = (passes & 1) != 0;
+    profile.built_on_codes = (passes & 2) != 0;
+    profile.filled = in.pod<std::uint8_t>() != 0;
+    profile.prefetch_depth = in.pod<std::uint64_t>();
+    profile.prefetch_lines = in.pod<std::uint64_t>();
+    profile.machine = string();
+    const auto notes = in.pod<std::uint32_t>();
+    if (notes > 256) throw std::runtime_error(path + ": corrupt profile");
+    for (std::uint32_t i = 0; i < notes; ++i) {
+      auto setting = string();
+      profile.notes.emplace_back(std::move(setting), string());
+    }
+    if (profile.k == 0 || profile.k > (1u << 20) || profile.ef == 0 || profile.ef > (1u << 24) ||
+        profile.rerank > (1u << 24) || !(profile.rerank_z >= 0.0f && profile.rerank_z < 1e6f) ||
+        profile.prefetch_lines == 0 || profile.prefetch_lines > 64) {
+      throw std::runtime_error(path + ": corrupt profile");
+    }
+  }
   const std::size_t count = in.pod<std::uint64_t>();
   const std::uint64_t entry = in.pod<std::uint64_t>();
   if (version >= 2) (void)in.pod<std::uint64_t>();  // deleted count, recomputed from the flags
@@ -1763,6 +1862,11 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
   }
 
   auto index = std::make_unique<HnswIndex>(params);
+  // A prefetch setting is a measurement of one kind of machine: keep it only on the same kind.
+  if (!profile.machine.empty() && profile.machine.front() != '/' && profile.machine == machine_name()) {
+    index->set_prefetch(profile.prefetch_depth, profile.prefetch_lines);
+  }
+  index->profile_ = std::move(profile);
   if (index->sq8() && in.pod<std::uint8_t>() != 0) {
     index->sq8_min_.resize(index->code_dim());
     index->sq8_scale_.resize(index->code_dim());
