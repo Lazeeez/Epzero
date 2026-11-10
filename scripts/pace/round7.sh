@@ -9,7 +9,8 @@
 #   AFTER=<last queued job id> bash scripts/pace/round7.sh     (from the checkout, on a login node)
 #
 # The Threadripper sits in a GPU partition: it needs a GPU in the request and --mem=0, as the
-# partition's default of 4 GB per core is more than the node has.
+# partition's default of 4 GB per core is more than the node has. A whole node is charged for all
+# four of its GPUs against the 960 GPU-minute cap per job, so its jobs get at most 4 hours.
 set -euo pipefail
 last="${AFTER:-}"
 queue() {  # dataset hw libs sbatch-args...
@@ -33,7 +34,7 @@ machine() {  # hw sbatch-args...
 }
 # The Threadripper first: its Glass build is the newest fix, so a failure shows within minutes. The EPYC
 # last: its nodes are the most often shared, so its jobs may wait longest for a whole one.
-machine threadripper -p ice-gpu -C threadripper --gres=gpu:1 --mem=0 --time=6:00:00
+machine threadripper -p ice-gpu -C threadripper --gres=gpu:1 --mem=0 --time=4:00:00
 machine gold6226 --time=10:00:00
 machine epyc7513 -p ice-cpu -C epyc7513 --time=7:30:00
 
