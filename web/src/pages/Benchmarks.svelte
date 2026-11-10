@@ -1,4 +1,12 @@
 <script lang="ts">
+  // Round 6 (bench/results/pace/*/<dataset>-speed-round6.json): Epzero's configuration fastest at the
+  // middle recall, as a multiple of Glass's queries per second; builds in seconds, Epzero vs Glass.
+  const tuned = [
+    { dataset: "GIST1M", recall: "0.90 / 0.95", gold: "2.78× / 3.69×", epyc: "3.01× / 4.16×", buildGold: "91 vs 173 s", buildEpyc: "62 vs 363 s" },
+    { dataset: "DBpedia (OpenAI)", recall: "0.90 / 0.95 / 0.98", gold: "1.57× / 1.71× / 2.08×", epyc: "1.80× / 1.98× / 2.41×", buildGold: "148 vs 224 s", buildEpyc: "225 vs 510 s" },
+    { dataset: "DEEP10M", recall: "0.90 / 0.95 / 0.98", gold: "1.43× / 1.39× / 1.50×", epyc: "1.42× / 1.38× / 1.51×", buildGold: "643 vs 589 s", buildEpyc: "458 vs 752 s" },
+    { dataset: "GloVe-100", recall: "0.80 / 0.90 / 0.93", gold: "1.02× / 1.13× / 1.22×", epyc: "1.08× / 1.25× / 1.34×", buildGold: "70 vs 57 s", buildEpyc: "118 vs 85 s" },
+  ];
   import {
     DRIFT_POLICIES,
     FILTER_RECALL,
@@ -164,13 +172,43 @@
       </details>
     </div>
     <p class="caption" use:reveal>
-      Epzero SQ8 is the fastest of the eight on GIST1M (1.08× Glass at recall 0.95) and DEEP10M (1.15× Glass). Glass leads on GloVe
+      At its shipped default (8-bit codes and nothing else), Epzero SQ8 is the fastest of the eight on GIST1M (1.08× Glass at recall 0.95) and DEEP10M (1.15× Glass). Glass leads on GloVe
       (1.18×) and DBpedia's OpenAI embeddings (1.31×); its runs vary by about 10%, as it rebuilds its graph each time. Like Epzero SQ8 and VSAG, it walks the graph on 8-bit codes and re-ranks with the full vectors; it also tunes
       its prefetch distance to the machine before searching. Epzero SQ8 is ahead of hnswlib, FAISS, VSAG and USearch on all four. Building is not Epzero's strength here: hnswlib builds faster on GIST, DBpedia and DEEP10M.
       Uncompressed, it is level with hnswlib on the high-dimensional sets (GIST, DBpedia: within 2%) and ahead on the low-dimensional
       ones (DEEP10M, GloVe: 7–15%), where the memory work around each distance matters most. GloVe is compared at recall 0.90: at
       M = 16 no library but VSAG reaches 0.95 by <code>ef</code> = 800. How the engine got here, and what didn't help:
       <a href={router.href("blog")}>Vector search is a memory problem</a>.
+    </p>
+  </section>
+
+  <section class="container block" aria-labelledby="tuned-title">
+    <h2 id="tuned-title" class="block-title" use:reveal>Tuned, on Intel and AMD</h2>
+    <p class="caption lead" use:reveal>
+      Epzero with each dataset's best settings against Glass, with identical code on an Intel Xeon Gold 6226 and an AMD EPYC 7513:
+      a walk on 8-bit codes of the principal directions where vectors are long, a second build pass, an early stop to the re-rank,
+      and prefetching timed on each CPU. Queries per second relative to Glass at equal recall, one search thread; builds on every core.
+    </p>
+    <div class="card panel" use:reveal use:spotlight>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Dataset</th><th>Recall</th><th>Gold 6226</th><th>EPYC 7513</th><th>Build, Gold (Epzero vs Glass)</th><th>Build, EPYC</th></tr>
+          </thead>
+          <tbody>
+            {#each tuned as row (row.dataset)}
+              <tr>
+                <td>{row.dataset}</td><td>{row.recall}</td><td>{row.gold}</td><td>{row.epyc}</td><td>{row.buildGold}</td><td>{row.buildEpyc}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="caption" use:reveal>
+      The lead holds on AMD, which has no AVX-512, and is as large or larger there. Builds are slower than Glass's on GloVe-100 and on
+      DEEP10M on the Gold. The settings were chosen on the same queries they are measured on, so these are development figures;
+      <code>epzero.build()</code> now chooses them automatically, and the next server round checks it on held-out queries.
     </p>
   </section>
 
