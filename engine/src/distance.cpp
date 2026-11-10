@@ -1,13 +1,18 @@
 #include "epzero/distance.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
+#include <string>
 #include <string_view>
 
 #include "kernels.h"
 
 #if defined(__x86_64__) || defined(_M_X64)
 #include <cpuid.h>
+#elif defined(__APPLE__)
+#include <sys/sysctl.h>
 #endif
 
 namespace epzero {
@@ -81,6 +86,46 @@ SimdLevel detect_simd_level() noexcept {
 SimdLevel active_simd_level() noexcept {
   static const SimdLevel level = detect_simd_level();
   return level;
+}
+
+std::string machine_name() {
+  std::string cpu;
+#if defined(__x86_64__) || defined(_M_X64)
+  unsigned int words[12] = {};
+  if (__get_cpuid(0x80000000u, &words[0], &words[1], &words[2], &words[3]) && words[0] >= 0x80000004u) {
+    for (unsigned int leaf = 0; leaf < 3; ++leaf) {
+      __get_cpuid(0x80000002u + leaf, &words[4 * leaf], &words[4 * leaf + 1], &words[4 * leaf + 2], &words[4 * leaf + 3]);
+    }
+    cpu.assign(reinterpret_cast<const char*>(words), sizeof(words));
+  }
+#elif defined(__APPLE__)
+  char brand[256] = {};
+  std::size_t size = sizeof(brand);
+  if (sysctlbyname("machdep.cpu.brand_string", brand, &size, nullptr, 0) == 0) cpu = brand;
+#elif defined(__linux__)
+  // Arm Linux has no model name; the implementer and part numbers identify the core.
+  if (std::FILE* f = std::fopen("/proc/cpuinfo", "r")) {
+    char line[512];
+    std::string implementer, part;
+    while (std::fgets(line, sizeof(line), f) != nullptr && cpu.empty()) {
+      const std::string_view text(line);
+      const auto value = [&] {
+        const auto colon = text.find(':');
+        return std::string(colon == std::string_view::npos ? std::string_view() : text.substr(colon + 1));
+      };
+      if (text.starts_with("model name")) cpu = value();
+      else if (text.starts_with("CPU implementer") && implementer.empty()) implementer = value();
+      else if (text.starts_with("CPU part") && part.empty()) part = value();
+    }
+    std::fclose(f);
+    if (cpu.empty() && !part.empty()) cpu = "arm" + implementer + part;
+  }
+#endif
+  // Trim the padding and line ends the sources leave.
+  cpu.erase(std::remove_if(cpu.begin(), cpu.end(), [](char c) { return c == '\0' || c == '\n'; }), cpu.end());
+  const auto first = cpu.find_first_not_of(' ');
+  cpu = first == std::string::npos ? std::string() : cpu.substr(first, cpu.find_last_not_of(' ') - first + 1);
+  return cpu + "/" + std::string(to_string(active_simd_level()));
 }
 
 DistanceFn get_distance_fn(Metric metric, SimdLevel level) noexcept {
