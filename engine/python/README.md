@@ -2,9 +2,14 @@
 
 An HNSW vector database written from scratch in C++20, with Python bindings.
 
-- **Fast search:** hand-written SIMD kernels (AVX2, AVX-512, NEON), chosen at runtime, and
-  lock-free reads. On SIFT1M it serves 1.13× hnswlib's and 1.17× FAISS's queries per second at
-  equal recall, on the same machine.
+- **Configures itself:** `epzero.build(vectors)` picks compression, the graph build and the search
+  effort for your data and recall target, times memory prefetching on your CPU, saves the choices
+  inside the index and tells you why it made each one. Any setting can be overridden.
+- **Fast search:** hand-written SIMD kernels (AVX2, AVX-512, VNNI, NEON) chosen at runtime, 8-bit
+  codes, an optional walk on principal directions, and lock-free reads. On dedicated Intel Xeon Gold
+  6226 and AMD EPYC 7513 servers, one thread, at equal recall: 1.4-4.2× the queries per second of
+  Glass, the fastest library we compared, on GIST1M, OpenAI DBpedia and DEEP10M, and 1.0-1.3× on
+  GloVe-100 (with each dataset's best settings; see the project's scoreboard for every loss).
 - **Filtered search that picks its own strategy:** an exact scan, a filtered graph walk, or a
   two-hop walk (the idea behind ACORN), chosen per query by a cost model.
 - **Recall you can see:** `RecallGuard` measures recall on a sample of live queries with a
@@ -14,7 +19,8 @@ An HNSW vector database written from scratch in C++20, with Python bindings.
 - **Hybrid search:** `TextIndex` (BM25 keyword search) and `hybrid_search()`, which merges it
   with vector search by reciprocal rank fusion.
 - **Durable:** `Database` adds a write-ahead log with crash recovery and checkpoints.
-- **8-bit quantization** with exact re-ranking.
+- **8-bit quantization** with exact re-ranking, stopped early per query once the rest can't reach
+  the top k.
 - **A LangChain vector store** in `epzero.langchain`.
 
 ```bash
@@ -46,9 +52,14 @@ index = epzero.build(vectors, metric="cosine", nav_dim=0, refine=False, M=32)  #
 plan = epzero.plan(vectors, metric="cosine")         # look before building, edit, then pass it in
 index = epzero.build(vectors, plan=plan.replace(ef_construction=400))
 labels, distances = index.search(queries, k=50, ef=200)               # per-call overrides
-index.save("my.epz")                                 # the plan is saved beside it (my.epz.plan.json)
-index = epzero.AutoIndex.load("my.epz")
+index.save("my.epz")                                 # the settings and reasons are saved inside it
+index = epzero.Index.load("my.epz")                  # search() uses them again
 ```
+
+`build` returns an ordinary `epzero.Index`: filters, deletes, `explain()` and `RecallGuard` all use
+its settings. A saved index re-applies its prefetch setting only on the same kind of CPU (call
+`tune_prefetch()` on another). The decisions are made in the C++ engine (`epzero/auto.h`), so C++
+users get the same `build_auto()`.
 
 If your queries differ from your data (text queries against image vectors, say), pass a few
 hundred of them as `queries=`: recall calibrated on data rows is optimistic for those.
