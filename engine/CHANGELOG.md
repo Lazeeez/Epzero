@@ -15,7 +15,21 @@
   against 0.99-1.09× for queries like the data, and recall calibrated on the data then falls to 0.74-0.80
   for a 0.95 target. Its advice: `recalibrate(queries)`, which restored 0.945-0.958 on VIBE's
   text-to-image sets.
+- `index.requantize()` (C++: `HnswIndex::requantize`, then `refine_links`): for vectors added since the
+  build that lie outside the ranges the 8-bit codes were fitted on. It refits the ranges on the live
+  vectors, re-encodes them and reconnects the graph, in about half a rebuild's time; after a 4 sd drift
+  it brought the beam width for recall 0.95 from 200 back to a rebuild's 12. `health()` reports
+  `code_error` and advises it above 0.01.
 - `index.get_vector(label)` returns a stored vector.
+
+**Information retrieval.** `epzero.ir`: a `Collection` of documents with string ids, retrieved by vector,
+by keyword (BM25) or both (reciprocal rank fusion), growing and shrinking after the build; TREC run files
+in and out; relevance judgements in TREC or BEIR form; nDCG@k, MAP, recall, precision and MRR, matching
+trec_eval (tested against it); and a BEIR dataset loader.
+
+**Fixes.** `hybrid_search` searched with a fixed beam width of 64 and the default re-rank, ignoring the
+index's calibrated profile; it now uses the profile unless `ef` is given. Calibration could settle on a
+beam width below k, which only k-sized searches had measured.
 
 **File format 5.** Indexes with a profile or 16-bit vectors are written as version 5; 0.4's version 4
 files are still read (a file written by 0.4.0 is part of the test suite). See `docs/file-format.md`.
