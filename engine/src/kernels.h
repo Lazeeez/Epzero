@@ -17,6 +17,9 @@ float sq8_dot_scalar(const float* w, const std::uint8_t* codes, std::size_t dim)
 // Integer SQ8 kernels return sum_i w[i] * codes[i], with |w[i]| <= kSq8IntWeightMax.
 std::int32_t sq8_int_dot_scalar(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept;
 std::uint32_t rabitq_ip_scalar(const std::uint64_t* bits, const std::uint64_t* planes, std::size_t words) noexcept;
+// A float query against a vector stored as IEEE half floats: L2 squared, or 1 - dot.
+float l2_half_scalar(const float* a, const std::uint16_t* b, std::size_t dim) noexcept;
+float ip_half_scalar(const float* a, const std::uint16_t* b, std::size_t dim) noexcept;
 
 #if defined(__x86_64__) || defined(_M_X64)
 float l2_avx2(const float* a, const float* b, std::size_t dim) noexcept;
@@ -29,12 +32,16 @@ float sq8_dot_avx512(const float* w, const std::uint8_t* codes, std::size_t dim)
 std::int32_t sq8_int_dot_avx2(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept;
 std::int32_t sq8_int_dot_avxvnni(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept;
 std::int32_t sq8_int_dot_avx512vnni(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept;
+float l2_half_f16c(const float* a, const std::uint16_t* b, std::size_t dim) noexcept;
+float ip_half_f16c(const float* a, const std::uint16_t* b, std::size_t dim) noexcept;
 #endif
 
 #if defined(__aarch64__)
 float l2_neon(const float* a, const float* b, std::size_t dim) noexcept;
 float ip_neon(const float* a, const float* b, std::size_t dim) noexcept;
 float sq8_dot_neon(const float* w, const std::uint8_t* codes, std::size_t dim) noexcept;
+float l2_half_neon(const float* a, const std::uint16_t* b, std::size_t dim) noexcept;
+float ip_half_neon(const float* a, const std::uint16_t* b, std::size_t dim) noexcept;
 #endif
 
 #if defined(__wasm_simd128__)
