@@ -117,9 +117,11 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.3A8.5 8.5 0 0 1 9.7 3.5a8.5 8.5 0 1 0 10.8 10.8Z" /></svg>
         {/if}
       </button>
-      {#if router.route !== "try"}
-        <a class="cta" href={router.href("try")}>Try it <span aria-hidden="true">→</span></a>
-      {/if}
+      <!-- The product, one click from every page: pip install and the integrations. -->
+      <a class="cta" href={router.href("download")} aria-current={router.route === "download" ? "page" : undefined}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 19h14" /></svg>
+        Download
+      </a>
       <button
         class="icon menu-button"
         type="button"
@@ -149,9 +151,10 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
       </a>
     {/each}
-    {#if router.route !== "try"}
-      <a class="menu-cta" href={router.href("try")}>Search photos in your browser <span aria-hidden="true">→</span></a>
-    {/if}
+    <a class="menu-cta" href={router.href("download")} aria-current={router.route === "download" ? "page" : undefined}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 19h14" /></svg>
+      Download Epzero
+    </a>
   </nav>
 {/if}
 
@@ -317,6 +320,33 @@
   }
   .cta:hover {
     transform: translateY(-1px);
+    box-shadow: 0 8px 24px -8px var(--accent-glow);
+  }
+  .cta svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  /* On the download page itself: the accent, as the active tab is marked. */
+  .cta[aria-current="page"] {
+    background: linear-gradient(90deg, var(--accent-strong), var(--accent-2));
+    color: var(--page); /* dark text on the dark theme's light accents */
+  }
+  :global(:root[data-theme="light"]) .cta[aria-current="page"] {
+    color: #fff; /* and light text on the light theme's deep ones */
+  }
+  .menu .menu-cta svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   /* The menu button and its menu exist on phones only. */
