@@ -852,6 +852,37 @@ TEST(Hnsw, FilterStrategyNames) {
   EXPECT_EQ(to_string(FilterStrategy::TwoHop), "two-hop");
 }
 
+TEST(Hnsw, ReserveKeepsTheGraphAndMakesRoom) {
+  const auto data = make_clustered(3000, 50, kDim, 20, 21);
+  for (const bool half : {false, true}) {
+    HnswParams p = params_for(Metric::L2, 1000);
+    p.quantization = Quantization::SQ8;
+    p.half_vectors = half;
+    HnswIndex index(p);
+    index.train(data.base.data.data(), 3000);
+    for (std::size_t i = 0; i < 1000; ++i) index.add(i, data.base.row(i));
+    std::vector<std::vector<SearchResult>> before;
+    for (std::size_t q = 0; q < 50; ++q) before.push_back(index.search(data.queries.row(q), kK, {.ef = 64}));
+    index.reserve(3000);
+    EXPECT_EQ(index.params().max_elements, 3000u);
+    for (std::size_t q = 0; q < 50; ++q) {
+      const auto after = index.search(data.queries.row(q), kK, {.ef = 64});
+      ASSERT_EQ(after.size(), before[q].size());
+      for (std::size_t i = 0; i < after.size(); ++i) {
+        EXPECT_EQ(after[i].label, before[q][i].label);  // the same graph, so the same answers
+        EXPECT_EQ(after[i].distance, before[q][i].distance);
+      }
+    }
+    index.remove(3);
+    for (std::size_t i = 1000; i < 3000; ++i) index.add(i, data.base.row(i));
+    EXPECT_EQ(index.live_count(), 2999u);
+    EXPECT_FALSE(index.contains(3));
+    EXPECT_EQ(index.search(data.base.row(2500), 1, {.ef = 64})[0].label, 2500u);
+    index.reserve(10);  // never shrinks
+    EXPECT_EQ(index.params().max_elements, 3000u);
+  }
+}
+
 TEST(Hnsw, LoadRejectsGarbage) {
   const auto path = (std::filesystem::temp_directory_path() / "epzero_garbage.idx").string();
   {
