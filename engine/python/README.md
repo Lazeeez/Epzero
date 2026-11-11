@@ -64,6 +64,15 @@ users get the same `build_auto()`.
 If your queries differ from your data (text queries against image vectors, say), pass a few
 hundred of them as `queries=`: recall calibrated on data rows is optimistic for those.
 
+**Metadata.** Fields per label, filtered in the engine:
+
+```python
+meta = epzero.Metadata()
+meta.set_many(labels, [{"source": "faq", "year": 2024}, ...])
+allowed = meta.select({"source": ["faq", "docs"], "year": {"$gte": 2022}})
+labels, distances = index.search(queries, k=10, filter=index.filter(allowed))
+```
+
 **After the build.** An index keeps changing; its calibration doesn't, by itself:
 
 ```python
