@@ -210,11 +210,7 @@ class EpzeroVectorStore(BasePydanticVectorStore):
         vectors = np.zeros((self._capacity, self._dim), dtype=np.float32)
         vectors[: self._next] = self._vectors[: self._next]
         self._vectors = vectors
-        index = self._new_index(self._capacity)  # the index has a fixed capacity: rebuild it larger
-        live = np.array(sorted(self._nodes), dtype=np.int64)
-        if len(live):
-            index.add(self._vectors[live], live)
-        self._index = index
+        self._index.reserve(self._capacity)  # copies the nodes and keeps the graph
 
     def persist(self, persist_path: str, fs: Any = None) -> None:
         """Saves the store in the folder `persist_path`."""
