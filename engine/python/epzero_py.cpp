@@ -327,6 +327,7 @@ class Index {
     out["growth"] = h.growth;
     out["nav_variance_built"] = h.nav_variance_built;
     out["nav_variance_now"] = h.nav_variance_now;
+    out["code_error"] = h.code_error;
     out["advice"] = h.advice;
     return out;
   }
@@ -358,6 +359,23 @@ class Index {
   void set_prefetch(const py::object& depth, std::size_t lines) {
     index_->set_prefetch(depth.is_none() ? std::numeric_limits<std::size_t>::max() : depth.cast<std::size_t>(), lines);
   }
+  // Refits the 8-bit code ranges on the live vectors; `refine` then reconnects the graph on the new codes.
+  py::dict requantize(bool refine, std::size_t threads) {
+    py::dict out;
+    double before, after;
+    {
+      py::gil_scoped_release release;  // before locking, as a searching thread holds the lock while it waits for the GIL
+      std::unique_lock exclusive(sync_->lock);
+      before = index_->code_error(5000, threads);
+      index_->requantize(threads);
+      if (refine) index_->refine_links(threads);
+      after = index_->code_error(5000, threads);
+    }
+    out["code_error_before"] = before;
+    out["code_error_after"] = after;
+    return out;
+  }
+
   void refine_links(std::size_t threads, std::size_t ef) {
     py::gil_scoped_release release;
     index_->refine_links(threads, ef);
@@ -906,6 +924,11 @@ PYBIND11_MODULE(_core, m) {
            "What the index needs since it was built: its size and tombstones, growth since calibration,\n"
            "how much of the data its principal directions still capture, and 'advice' in plain words\n"
            "(empty when nothing needs doing).")
+      .def("requantize", &Index::requantize, py::arg("refine") = true, py::arg("threads") = 0,
+           "Refits the 8-bit code ranges on the vectors in the index and re-encodes them, for when vectors\n"
+           "added since the build lie outside the ranges (health() says so). `refine` then reconnects every\n"
+           "node on the new codes, about half the cost of a rebuild: the links chosen on clipped codes are most\n"
+           "of the damage. Returns the code error (the share of the variance the codes miss) before and after.")
       .def("check_queries", &Index::check_queries, py::arg("queries"), py::arg("threads") = 0,
            "Whether `queries` look like the data: the median distance from a query to its nearest neighbour,\n"
            "against the same for rows of the data. Text queries against image vectors sit far farther, and then\n"
@@ -1026,7 +1049,7 @@ PYBIND11_MODULE(_core, m) {
         }
         return ranked(results);
       },
-      py::arg("index"), py::arg("text_index"), py::arg("vector"), py::arg("text"), py::arg("k") = 10, py::arg("ef") = 64,
+      py::arg("index"), py::arg("text_index"), py::arg("vector"), py::arg("text"), py::arg("k") = 10, py::arg("ef") = 0,
       py::arg("candidates") = 50, py::arg("rrf_k") = 60.0, py::arg("vector_weight") = 1.0, py::arg("text_weight") = 1.0,
       "The k best labels for a query given as a vector and as text: a vector search and a keyword search,\n"
       "each contributing `candidates` results, merged by reciprocal rank fusion. Returns (labels, scores).");
