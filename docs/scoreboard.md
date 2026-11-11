@@ -168,6 +168,16 @@ and otherwise by its configuration fastest at the middle recall target.
 | epzero-sq8-nav256-r300-z3-fast-refine-after | 24,700 | 16,084 | 8,580 | 0.9956 | 46 s | 6,329 MB |
 | glass | 13,098 | 7,740 | 3,399 | 0.9931 | 224 s | 8,408 MB |
 
+### deep-image-96-angular: round 7, Glass against Epzero's automatic and tuned settings
+
+9,990,000 vectors, 96 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, AMD Ryzen Threadripper PRO 9985WX 64-Cores.
+
+| Library | QPS at 0.9 | QPS at 0.95 | QPS at 0.98 | Highest recall | Build | Memory |
+|---|---|---|---|---|---|---|
+| epzero-auto | 25,812 | 15,946 | 8,433 | 0.9982 | 260 s | 7,028 MB |
+| epzero-sq8-fast-refine | 24,717 | 15,421 | 8,205 | 0.9982 | 379 s | 7,098 MB |
+| glass | 19,772 | 12,367 | 5,874 | 0.9939 | 517 s | 9,061 MB |
+
 ### gist-960-euclidean: round 7, Glass against Epzero's automatic and tuned settings
 
 1,000,000 vectors, 960 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, AMD Ryzen Threadripper PRO 9985WX 64-Cores.
@@ -257,6 +267,11 @@ and otherwise by its configuration fastest at the middle recall target.
 | threadripper | dbpedia-openai-1000k-angular (round 7) | speed at 0.98 | 1 of 2 |
 | threadripper | dbpedia-openai-1000k-angular (round 7) | build | 1 of 2 |
 | threadripper | dbpedia-openai-1000k-angular (round 7) | memory | 1 of 2 |
+| threadripper | deep-image-96-angular (round 7) | speed at 0.9 | 1 of 2 |
+| threadripper | deep-image-96-angular (round 7) | speed at 0.95 | 1 of 2 |
+| threadripper | deep-image-96-angular (round 7) | speed at 0.98 | 1 of 2 |
+| threadripper | deep-image-96-angular (round 7) | build | 1 of 2 |
+| threadripper | deep-image-96-angular (round 7) | memory | 1 of 2 |
 | threadripper | gist-960-euclidean (round 7) | speed at 0.9 | 1 of 2 |
 | threadripper | gist-960-euclidean (round 7) | speed at 0.95 | 1 of 2 |
 | threadripper | gist-960-euclidean (round 7) | speed at 0.98 | 1 of 2 |
