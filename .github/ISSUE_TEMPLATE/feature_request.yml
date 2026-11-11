@@ -1,0 +1,16 @@
+name: Feature request
+description: Something Epzero should do, or do differently.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The problem first; a proposed solution is welcome but optional.
+    validations:
+      required: true
+  - type: textarea
+    id: scale
+    attributes:
+      label: Scale and shape of your data
+      description: Vectors, dimensions, queries per second, filters, how often the data changes.
