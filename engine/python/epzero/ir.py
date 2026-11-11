@@ -8,8 +8,9 @@ retrieval, TREC run files, relevance judgements and the standard measures.
     ir.write_run(run, "run.txt", tag="epzero-hybrid")          # TREC format, for CLEF, TREC or BEIR
     print(ir.evaluate(run, ir.read_qrels("qrels.txt")))         # nDCG@10, R@100, MAP, MRR@10
 
-Measures follow trec_eval: linear gains for nDCG, every query with at least one relevant document in the
-judgements is scored, and a query missing from the run scores 0.
+Measures follow trec_eval: a run is ranked by score (ties by document id, descending), nDCG uses linear
+gains, every query with at least one relevant document in the judgements is scored, and a query missing
+from the run scores 0.
 """
 
 from __future__ import annotations
@@ -226,7 +227,8 @@ def evaluate(run: Run, qrels: Qrels, measures: Sequence[str] = DEFAULT_MEASURES,
     queries = [q for q, judged in qrels.items() if any(r > 0 for r in judged.values())]
     values = {m: {} for m in measures}
     for qid in queries:
-        ranked = [d for d, _ in run.get(qid, [])]
+        # trec_eval's order, whatever the run's: by score, ties by document id, both descending.
+        ranked = [d for d, _ in sorted(run.get(qid, []), key=lambda p: (p[1], p[0]), reverse=True)]
         for m in measures:
             values[m][qid] = _measure(m, ranked, qrels[qid])
     if per_query:
