@@ -52,6 +52,7 @@ add_library(epzero_engine
   src/distance.cpp
   src/distance_scalar.cpp
   src/hnsw.cpp
+  src/metadata.cpp
   src/recall.cpp
   src/database.cpp
   src/text.cpp
@@ -139,7 +140,7 @@ if(EPZERO_BUILD_TESTS)
   FetchContent_MakeAvailable(googletest)
 
   enable_testing()
-  add_executable(epzero_tests tests/auto_test.cpp tests/distance_test.cpp tests/half_test.cpp tests/hnsw_test.cpp tests/recall_test.cpp tests/dataset_test.cpp tests/database_test.cpp tests/text_test.cpp)
+  add_executable(epzero_tests tests/auto_test.cpp tests/distance_test.cpp tests/half_test.cpp tests/hnsw_test.cpp tests/metadata_test.cpp tests/recall_test.cpp tests/dataset_test.cpp tests/database_test.cpp tests/text_test.cpp)
   target_link_libraries(epzero_tests PRIVATE epzero_engine GTest::gtest_main)
   if(EMSCRIPTEN)
     # Runs under Node (CMAKE_CROSSCOMPILING_EMULATOR); workers are pre-spawned for the
@@ -166,7 +167,7 @@ if(EPZERO_BUILD_BENCH)
 endif()
 
 if(EPZERO_BUILD_FUZZ)
-  foreach(target snapshot graph wal text)
+  foreach(target snapshot graph wal text metadata)
     add_executable(fuzz_${target} fuzz/fuzz_${target}.cpp)
     target_link_libraries(fuzz_${target} PRIVATE epzero_engine)
     target_link_options(fuzz_${target} PRIVATE -fsanitize=fuzzer)
