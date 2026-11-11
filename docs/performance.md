@@ -724,6 +724,18 @@ thread then shared one node's bandwidth, the likeliest reason its default build 
 against 212 s on the 24-core Gold. Large blocks are now zeroed on every core. Not yet measured on the
 EPYC (round 7).
 
+**16-bit full vectors, opt-in only.** Keeping the re-rank copy as half floats cut GIST1M's 200k index from
+800 to 434 MiB, but in alternating laptop runs search was up to 17% slower there, and on the DBpedia sample
+recall fell 0.003-0.004 (0.983 to 0.980 at `ef` 40): OpenAI embeddings' near neighbours are close enough
+for half precision to reorder them. It ships as `half_vectors=True` and is never chosen automatically.
+Adding it put a lookup of where vectors live on every scored node, which cost full-precision search 3-6%
+(GloVe-100, both rounds); resolving that once per query instead made full-precision search 4-9% faster
+than before the change, and left 8-bit search unchanged within noise.
+
+**Not built: memory-mapped loading.** Loading a 1.2 GB index (GIST1M 300k, 8-bit with principal
+directions) takes 0.37-0.51 s, 2.3-3.1 GB/s, so mapping the file would save little, while mapped files
+can't use the 2 MiB huge pages worth 10-15% of search speed.
+
 Tried for the same goals and removed:
 
 - **The alpha-convergent pruning rule** (Fast-Convergent Proximity Graphs, as a slack `tau` and `alpha`
