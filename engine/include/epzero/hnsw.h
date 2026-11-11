@@ -257,6 +257,16 @@ class HnswIndex {
   // `exact` searches and prunes on full vectors even on an index built with fast_build.
   void refine_links(std::size_t threads = 0, std::size_t ef = 0, bool exact = false);  // ef 0: ef_construction
 
+  // SQ8: the share of the vectors' variance (in code space, up to `sample` live vectors) that their
+  // 8-bit codes miss. Rounding alone loses about 1e-4; a vector added outside the ranges train() saw is
+  // clipped to them and loses far more. 0 for other quantizations, or without the full vectors.
+  double code_error(std::size_t sample = 5000, std::size_t threads = 0) const;
+
+  // SQ8 with full vectors: refits the code ranges on the live vectors and re-encodes every node in place,
+  // keeping the graph, for when vectors added since the build lie outside the ranges (code_error).
+  // Not thread-safe: nothing else may use the index meanwhile.
+  void requantize(std::size_t threads = 0);
+
   void save(const std::string& path) const;
   // Loads a snapshot; corrupt or truncated files throw. With max_bytes, a snapshot whose index
   // would allocate more than that is refused before allocating (for untrusted files).
@@ -362,6 +372,8 @@ class HnswIndex {
   }
   float code_norm(id_t id) const noexcept { return *reinterpret_cast<const float*>(record(id)); }
   void encode(const float* v, std::uint8_t* codes, float* norm) const noexcept;
+  // Each code's range over `n` stored vectors: row(i, out) writes the i-th one, or returns false to skip it.
+  void fit_code_ranges(std::size_t n, const std::function<bool(std::size_t, float*)>& row, std::size_t threads);
   void decode(id_t id, float* out) const noexcept;
   bool is_deleted(id_t id) const noexcept;
 
