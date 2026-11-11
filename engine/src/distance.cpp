@@ -124,6 +124,20 @@ std::string machine_name() {
   return cpu + "/" + std::string(to_string(active_simd_level()));
 }
 
+HalfDistanceFn get_half_distance_fn(Metric metric, SimdLevel level) noexcept {
+  const bool l2 = metric == Metric::L2;
+#if defined(__x86_64__) || defined(_M_X64)
+  if ((level == SimdLevel::AVX2 || level == SimdLevel::AVX512) && simd_level_supported(level) &&
+      __builtin_cpu_supports("f16c")) {
+    return l2 ? kernels::l2_half_f16c : kernels::ip_half_f16c;
+  }
+#elif defined(__aarch64__)
+  if (level == SimdLevel::NEON) return l2 ? kernels::l2_half_neon : kernels::ip_half_neon;
+#endif
+  (void)level;
+  return l2 ? kernels::l2_half_scalar : kernels::ip_half_scalar;
+}
+
 DistanceFn get_distance_fn(Metric metric, SimdLevel level) noexcept {
   if (!simd_level_supported(level)) return nullptr;
   // Cosine vectors are stored normalized, so cosine distance is the inner-product kernel.
