@@ -883,6 +883,41 @@ TEST(Hnsw, ReserveKeepsTheGraphAndMakesRoom) {
   }
 }
 
+TEST(Hnsw, RequantizeRefitsCodesForVectorsOutsideTheirRanges) {
+  const auto data = make_clustered(2000, 50, kDim, 20, 22);
+  for (const bool half : {false, true}) {
+    HnswParams p = params_for(Metric::L2, 2000);
+    p.quantization = Quantization::SQ8;
+    p.half_vectors = half;
+    HnswIndex index(p);
+    index.train(data.base.data.data(), 1000);  // the ranges of the first half only
+    for (std::size_t i = 0; i < 1000; ++i) index.add(i, data.base.row(i));
+    EXPECT_LT(index.code_error(), 0.001);  // rounding alone
+    std::vector<float> moved(kDim);
+    for (std::size_t i = 1000; i < 2000; ++i) {  // later vectors drift out of those ranges
+      for (std::size_t d = 0; d < kDim; ++d) moved[d] = data.base.row(i)[d] + (d % 2 == 0 ? 4.0f : 0.0f);
+      index.add(i, moved.data());
+    }
+    index.remove(5);
+    EXPECT_GT(index.code_error(), 0.01);
+    index.requantize();
+    index.refine_links();
+    EXPECT_LT(index.code_error(), 0.001);
+    EXPECT_EQ(index.live_count(), 1999u);
+    std::size_t found = 0;
+    for (std::size_t i = 0; i < 2000; i += 10) {
+      if (i == 5) continue;
+      std::vector<float> v(kDim);
+      ASSERT_TRUE(index.get_vector(i, v.data()));
+      found += index.search(v.data(), 1, {.ef = 64})[0].label == i ? 1 : 0;
+    }
+    EXPECT_GE(found, 195u);
+  }
+  HnswIndex plain(params_for(Metric::L2, 10));
+  EXPECT_EQ(plain.code_error(), 0.0);
+  EXPECT_THROW(plain.requantize(), std::logic_error);
+}
+
 TEST(Hnsw, LoadRejectsGarbage) {
   const auto path = (std::filesystem::temp_directory_path() / "epzero_garbage.idx").string();
   {
