@@ -192,3 +192,15 @@ def test_get_vector():
     assert np.allclose(index.get_vector(5), base[5], atol=1e-6)
     with pytest.raises(KeyError):
         index.get_vector(1000)
+
+
+def test_half_vectors_only_when_asked():
+    base = clustered(3000, 64, 12)
+    assert not epzero.plan(base).half_vectors
+    index = epzero.build(base, half_vectors=True, threads=2)
+    assert index.plan.half_vectors and index.params["half_vectors"]
+    assert index.plan.measured["recall at calibration"] >= 0.95
+    plain = epzero.Index(dim=64, quantization="sq8", half_vectors=True, max_elements=3000)
+    plain.train(base)
+    plain.add(base)
+    assert plain.search(base[:1], k=1)[0][0, 0] == 0
