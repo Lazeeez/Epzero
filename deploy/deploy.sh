@@ -13,7 +13,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TF_DIR="$ROOT/deploy/oracle"
 KEY="${EPZERO_SSH_KEY:-$HOME/.ssh/epzero_oci}"
 TOKEN_FILE="${EPZERO_TOKEN_FILE:-$HOME/.epzero/token}"
-ORIGINS="${EPZERO_ORIGINS:-https://lazeeez.github.io,http://localhost:5173,http://localhost:4173}"
+ORIGINS="${EPZERO_ORIGINS:-https://epzero.dev,http://localhost:5173,http://localhost:4173}"
 SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -o ServerAliveInterval=15)
 
 json() { terraform -chdir="$TF_DIR" output -json "$1" | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)))'; }
