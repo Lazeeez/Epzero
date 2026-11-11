@@ -3,6 +3,7 @@
 
 #include <arm_neon.h>
 
+#include "half.h"
 #include "kernels.h"
 
 namespace epzero::kernels {
@@ -74,6 +75,41 @@ float ip_neon(const float* a, const float* b, std::size_t dim) noexcept {
   for (; i < dim; ++i) {
     dot += a[i] * b[i];
   }
+  return 1.0f - dot;
+}
+
+namespace {
+inline float32x4_t load_half(const std::uint16_t* p) noexcept { return vcvt_f32_f16(vreinterpret_f16_u16(vld1_u16(p))); }
+}  // namespace
+
+float l2_half_neon(const float* a, const std::uint16_t* b, std::size_t dim) noexcept {
+  float32x4_t acc0 = vdupq_n_f32(0.0f);
+  float32x4_t acc1 = vdupq_n_f32(0.0f);
+  std::size_t i = 0;
+  for (; i + 8 <= dim; i += 8) {
+    const float32x4_t d0 = vsubq_f32(vld1q_f32(a + i), load_half(b + i));
+    const float32x4_t d1 = vsubq_f32(vld1q_f32(a + i + 4), load_half(b + i + 4));
+    acc0 = vfmaq_f32(acc0, d0, d0);
+    acc1 = vfmaq_f32(acc1, d1, d1);
+  }
+  float sum = vaddvq_f32(vaddq_f32(acc0, acc1));
+  for (; i < dim; ++i) {
+    const float d = a[i] - half::to_float(b[i]);
+    sum += d * d;
+  }
+  return sum;
+}
+
+float ip_half_neon(const float* a, const std::uint16_t* b, std::size_t dim) noexcept {
+  float32x4_t acc0 = vdupq_n_f32(0.0f);
+  float32x4_t acc1 = vdupq_n_f32(0.0f);
+  std::size_t i = 0;
+  for (; i + 8 <= dim; i += 8) {
+    acc0 = vfmaq_f32(acc0, vld1q_f32(a + i), load_half(b + i));
+    acc1 = vfmaq_f32(acc1, vld1q_f32(a + i + 4), load_half(b + i + 4));
+  }
+  float dot = vaddvq_f32(vaddq_f32(acc0, acc1));
+  for (; i < dim; ++i) dot += a[i] * half::to_float(b[i]);
   return 1.0f - dot;
 }
 
