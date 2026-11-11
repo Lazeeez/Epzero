@@ -1,6 +1,6 @@
 <script lang="ts">
   import { formatQps, formatUs } from "../../lib/format";
-  import type { EngineInfo, FromWorker, KernelRow, LabConfig, Metric, StageId, SweepRow, VectorInfo } from "../../lib/lab/protocol";
+  import type { AutoPlan, EngineInfo, FromWorker, KernelRow, LabConfig, Metric, StageId, SweepRow, VectorInfo } from "../../lib/lab/protocol";
   import { reloadForThreads } from "../../lib/isolation";
   import { UNSUPPORTED_BROWSER, wasmSimdSupported } from "../../lib/support";
   import RecallChart from "./RecallChart.svelte";
@@ -15,6 +15,10 @@
   } as const;
   const labels: Record<keyof typeof choices, string> = { n: "Vectors", dim: "Dimensions", M: "Links per node (M)", efConstruction: "efConstruction" };
   let settings = $state({ n: 100000, dim: 128, M: 16, efConstruction: 128 });
+  // Configured automatically (epzero.build, as the Python package does it) or by hand.
+  let mode = $state<"auto" | "manual">("auto");
+  const targets = [0.9, 0.95, 0.99] as const;
+  let target = $state<number>(0.95);
 
   // The data: clustered vectors generated in WebAssembly, or the visitor's own file.
   let source = $state<"synthetic" | "own">("synthetic");
@@ -69,6 +73,7 @@
   let baseline = $state<number | null>(null);
   let summary = $state<{ buildMs: number; memoryBytes: number; layers: number } | null>(null);
   let kernels = $state<KernelRow[]>([]);
+  let plan = $state<AutoPlan | null>(null);
 
   // Start the engine worker when the lab scrolls near the viewport, not on page load.
   $effect(() => {
@@ -106,6 +111,8 @@
             holdout: 1000,
             n: files.base.info!.n,
             dim: files.base.info!.dim,
+            mode,
+            recall: target,
             M: settings.M,
             efConstruction: settings.efConstruction,
             queries: 1000,
@@ -114,13 +121,14 @@
             // Real data is often harder than clustered noise: the sweep goes further.
             efs: [10, 16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512],
           }
-        : { source, ...settings, queries: 1000, clusters: 100, k: 10, efs: [10, 16, 24, 32, 48, 64, 96, 128, 192, 256] };
+        : { source, ...settings, mode, recall: target, queries: 1000, clusters: 100, k: 10, efs: [10, 16, 24, 32, 48, 64, 96, 128, 192, 256] };
     stages = {};
     buildProgress = 0;
     rows = [];
     baseline = null;
     summary = null;
     kernels = [];
+    plan = null;
     error = "";
     running = true;
     worker.postMessage({ type: "run", config: $state.snapshot(config) });
@@ -147,7 +155,7 @@
         setStage("load", { detail: `${message.n.toLocaleString()} vectors · ${message.queries.toLocaleString()} queries · ${message.dim}-D · ${metric === "ip" ? "inner product" : metric}` });
         break;
       case "stage":
-        setStage(message.stage, { state: message.state, ms: message.ms });
+        setStage(message.stage, { state: message.state, ms: message.ms, ...(message.detail ? { detail: message.detail === "configuring" ? "choosing settings, building, calibrating…" : message.detail } : {}) });
         if (message.stage === "build" && message.state === "done") buildProgress = 1;
         break;
       case "progress":
@@ -157,6 +165,10 @@
       case "summary":
         summary = { buildMs: message.buildMs, memoryBytes: message.memoryBytes, layers: message.layers };
         setStage("build", { detail: `${formatQps(config!.n / (message.buildMs / 1000))} inserts/s on ${info!.threads} ${info!.threads === 1 ? "thread" : "threads"}` });
+        break;
+      case "plan":
+        plan = message.plan;
+        if (config) config = { ...config, M: message.plan.M, efConstruction: message.plan.efConstruction };
         break;
       case "baseline":
         baseline = message.qps;
@@ -180,13 +192,18 @@
     }
   }
 
-  // The operating point a production system would pick: the fastest setting with recall >= 0.95.
+  // The operating point: an automatic index's calibrated beam width, or by hand the one a production
+  // system would pick, the fastest setting with recall >= 0.95.
+  const calibrated = $derived(plan ? rows.find((r) => r.ef === plan!.ef) : undefined);
   const operating = $derived.by(() => {
+    if (calibrated) return calibrated;
     const good = rows.filter((r) => r.recall >= 0.95);
     if (good.length) return good.reduce((a, b) => (b.qps > a.qps ? b : a));
     return rows.reduce<SweepRow | undefined>((a, b) => (!a || b.recall > a.recall ? b : a), undefined);
   });
   const maxKernel = $derived(Math.max(1, ...kernels.map((k) => k.scalarNs / k.simdNs)));
+  // The CPU the prefetch setting was timed on ("brand/simd"); browsers don't report the brand.
+  const machineName = (machine: string) => (machine && !machine.startsWith("/") ? machine.replace(/\/\w+$/, "") : "this device");
   const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${ms.toFixed(0)} ms`);
 </script>
 
@@ -348,8 +365,32 @@
       </div>
     {/if}
 
+    <div class="source mode" role="radiogroup" aria-label="How the index is configured">
+      <button role="radio" aria-checked={mode === "auto"} class:on={mode === "auto"} onclick={() => (mode = "auto")} disabled={running}>
+        Configure automatically
+        <small>epzero.build: it chooses, and says why</small>
+      </button>
+      <button role="radio" aria-checked={mode === "manual"} class:on={mode === "manual"} onclick={() => (mode = "manual")} disabled={running}>
+        By hand
+        <small>M and efConstruction, then a sweep</small>
+      </button>
+    </div>
+
     <div class="options">
-      {#each Object.keys(choices).filter((key) => source === "synthetic" || key === "M" || key === "efConstruction") as key (key)}
+      {#if mode === "auto"}
+        <fieldset disabled={running}>
+          <legend>Recall target</legend>
+          <div class="seg">
+            {#each targets as value (value)}
+              <label class:on={target === value}>
+                <input type="radio" name="target" {value} checked={target === value} onchange={() => (target = value)} />
+                {value.toFixed(2)}
+              </label>
+            {/each}
+          </div>
+        </fieldset>
+      {/if}
+      {#each Object.keys(choices).filter((key) => (source === "synthetic" && (key === "n" || key === "dim")) || (mode === "manual" && (key === "M" || key === "efConstruction"))) as key (key)}
         {@const k = key as keyof typeof choices}
         <fieldset disabled={running}>
           <legend>{labels[k]}</legend>
@@ -387,10 +428,31 @@
         {/each}
       </ol>
 
+      {#if plan}
+        <div class="card pad plan" aria-live="polite">
+          <h3>What it chose, and why</h3>
+          <p class="promise">
+            Calibrated <b class="num">ef {plan.ef}</b> for recall {plan.recallTarget.toFixed(2)}: <span class="num">{plan.recallMeasured.toFixed(3)}</span> on rows held
+            out of the graph{#if calibrated}, and <b class="num">{calibrated.recall.toFixed(3)}</b> on this run's own queries at the same beam width{/if}.
+          </p>
+          <dl>
+            {#each plan.notes as note, i (i)}
+              <div>
+                <dt>{note.setting}</dt>
+                <dd>{note.why}</dd>
+              </div>
+            {/each}
+          </dl>
+          <p class="help">
+            {plan.quantization === "sq8" ? "8-bit codes" : "Full precision"}{plan.navDim ? `, walking on ${plan.navDim} principal directions` : ""}, M {plan.M}, efConstruction {plan.efConstruction}{plan.refined ? ", a second build pass" : ""}, re-rank {plan.rerank}. Prefetching timed on {machineName(plan.machine)}. The same choices <code>epzero.build</code> makes in Python.
+          </p>
+        </div>
+      {/if}
+
       {#if operating && summary}
         <div class="tiles">
           <div class="tile card hero">
-            <span>Queries / s at recall {operating.recall >= 0.95 ? "≥ 0.95" : operating.recall.toFixed(2)}</span>
+            <span>{calibrated ? "Queries / s at the calibrated beam width" : `Queries / s at recall ${operating.recall >= 0.95 ? "≥ 0.95" : operating.recall.toFixed(2)}`}</span>
             <strong class="num">{formatQps(operating.qps)}</strong>
             <em class="num">ef {operating.ef} · recall {operating.recall.toFixed(3)} · p50 {formatUs(operating.p50Us)}</em>
           </div>
@@ -462,6 +524,49 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
+  }
+  .mode {
+    margin-top: 14px;
+  }
+  .plan h3 {
+    margin: 0 0 8px;
+    font: 600 16px var(--font);
+  }
+  .plan .promise {
+    margin: 0 0 14px;
+    color: var(--text-2);
+    line-height: 1.55;
+  }
+  .plan .promise b {
+    color: var(--text);
+  }
+  .plan dl {
+    display: grid;
+    gap: 6px;
+    margin: 0 0 12px;
+  }
+  .plan dl div {
+    display: grid;
+    grid-template-columns: minmax(96px, 150px) 1fr;
+    gap: 12px;
+    padding: 6px 0;
+    border-top: 1px solid var(--border);
+  }
+  .plan dt {
+    font: 600 13px var(--mono, ui-monospace, monospace);
+    color: var(--text);
+  }
+  .plan dd {
+    margin: 0;
+    color: var(--text-2);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  @media (max-width: 560px) {
+    .plan dl div {
+      grid-template-columns: 1fr;
+      gap: 2px;
+    }
   }
   .source button {
     display: grid;
