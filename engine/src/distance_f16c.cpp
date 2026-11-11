@@ -18,6 +18,9 @@ inline float hsum(__m256 v) noexcept {
   return _mm_cvtss_f32(_mm_add_ss(sums, shuf));
 }
 
+// One half to float (MSVC has no _cvtsh_ss shortcut).
+inline float half_to_float(std::uint16_t h) noexcept { return _mm_cvtss_f32(_mm_cvtph_ps(_mm_cvtsi32_si128(h))); }
+
 inline __m256 load_half(const std::uint16_t* p) noexcept {
   return _mm256_cvtph_ps(_mm_loadu_si128(reinterpret_cast<const __m128i*>(p)));
 }
@@ -41,7 +44,7 @@ float l2_half_f16c(const float* a, const std::uint16_t* b, std::size_t dim) noex
   }
   float sum = hsum(_mm256_add_ps(acc0, acc1));
   for (; i < dim; ++i) {
-    const float d = a[i] - _cvtsh_ss(b[i]);
+    const float d = a[i] - half_to_float(b[i]);
     sum += d * d;
   }
   return sum;
@@ -60,7 +63,7 @@ float ip_half_f16c(const float* a, const std::uint16_t* b, std::size_t dim) noex
     i += 8;
   }
   float dot = hsum(_mm256_add_ps(acc0, acc1));
-  for (; i < dim; ++i) dot += a[i] * _cvtsh_ss(b[i]);
+  for (; i < dim; ++i) dot += a[i] * half_to_float(b[i]);
   return 1.0f - dot;
 }
 
