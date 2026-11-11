@@ -126,6 +126,13 @@ TEST(Auto, BuildReachesTheRecallTargetOnUnseenQueries) {
   EXPECT_GE(recall_on(*index, data.base.data, data.queries.data, 48, Metric::L2), 0.92);
 }
 
+TEST(Auto, CalibratedBeamIsNeverBelowK) {
+  // Easy data reaches the target at any beam; one below k was never measured (the search widens it to k).
+  const auto data = make_clustered(300, 20, 32, 20, 2);
+  const auto index = build_auto(data.base.data.data(), nullptr, 300, 32);
+  EXPECT_GE(index->profile().ef, index->profile().k);
+}
+
 TEST(Auto, BuildWithDirectionsAndCosine) {
   const auto base = low_rank(3000, 512, 16, 6);
   const auto queries = low_rank(100, 512, 16, 6);  // same seed: the same subspace and clusters
