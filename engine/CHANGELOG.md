@@ -12,6 +12,18 @@
 - `RecallGuard(index)` takes its target and starting beam width from the profile.
 - `index.get_vector(label)` returns a stored vector.
 
+**Metadata in the engine.** `epzero.Metadata` (C++: `MetadataIndex`) keeps str, int, float and bool fields
+per label, with an inverted index per field and ordered numeric values, and `select(where)` returns the
+labels that pass ({field: value}, {field: [values]}, or `$eq`, `$ne`, `$in`, `$nin`, `$gt`, `$gte`, `$lt`,
+`$lte`, `$exists`) for a filtered search. The LangChain store now runs dict filters there instead of
+checking every document in Python. Saved in its own file format, fuzzed in CI.
+
+**Memory.** `half_vectors=True` keeps the full vectors as 16-bit floats: about half an index's memory,
+at some speed (up to 17% on GIST1M) and recall (0.003-0.004 on OpenAI embeddings), so never chosen
+automatically. Full-precision search is 4-9% faster, as vector addresses are resolved once per query.
+
+**Windows.** The engine builds with MSVC and its tests run on Windows in CI; wheels for Windows (x64).
+
 ## 0.4.0
 
 **Automatic configuration.** `epzero.build(vectors, metric=...)` (C++: `epzero::build_auto` in
