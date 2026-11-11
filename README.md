@@ -102,12 +102,13 @@ The site works in Chrome, Edge, Firefox and Safari (16.4+), on desktop and
 mobile, and offline after one visit. Browsers without WebGL get everything but
 the 3D view; browsers too old for WebAssembly SIMD get a clear explanation.
 
-> **Status:** 0.4.0, with automatic configuration, is the current release. On `main`
-> for 0.5: health checks and in-place fixes after the build (recalibrate, requantize,
-> query-shift detection), indexes that grow in place, metadata stored in the engine,
-> LlamaIndex and Haystack integrations, Windows, English stemming, the `epzero.ir`
-> retrieval-evaluation toolkit and 16-bit full vectors (opt-in). Next: the 0.5 release,
-> an ann-benchmarks and VIBE submission, and the CLEF LongEval lab. The cluster is
+> **Status:** 0.5.0 is the current release (November 2026), on PyPI for Linux, macOS
+> and Windows. It adds health checks and in-place fixes after the build (recalibrate,
+> requantize, query-shift detection), indexes that grow in place, metadata stored in
+> the engine, LlamaIndex and Haystack integrations, Windows, English stemming, the
+> `epzero.ir` retrieval-evaluation toolkit and 16-bit full vectors (opt-in). Next:
+> 0.5.1 with round 9 (the older Xeon's low-recall gap), an ann-benchmarks and VIBE
+> submission, and research on index drift for the CLEF LongEval lab. The cluster is
 > built and tested in CI on every push; its cloud deployment is on hold. See the
 > [roadmap](#roadmap).
 
@@ -155,7 +156,7 @@ project was called Oryx until October 2026.)
   reaches at most 0.908 and 0.938 recall and Epzero 0.95-0.97 and 0.98. Builds 1.2-4.9× faster. It
   trails on the Gold at recall 0.90 on ImageNet-CLIP (0.87×) and Yandex (0.97-0.99×); round 9
   investigates ([table](#results)).
-- **Stays accurate after the build** (0.5, on `main`): `index.health()` reports growth since
+- **Stays accurate after the build** (0.5): `index.health()` reports growth since
   calibration, deleted vectors, how much the 8-bit codes have drifted and whether the principal
   directions still fit the data, with plain advice; each fix runs in place.
   `index.recalibrate(queries)` re-measures the search effort; `index.requantize()` refits the codes
@@ -478,7 +479,7 @@ accumulators.
   on the machine: fetching a whole record was worth 1.6–1.7× on a Cascade Lake Xeon and nothing on a
   laptop, on identical code. Index memory is zeroed on every core, so on many-socket servers it is
   spread across NUMA nodes instead of sitting on one.
-- **16-bit full vectors** (`half_vectors`, 0.5 on `main`). The full-precision copy kept for the build
+- **16-bit full vectors** (`half_vectors`, 0.5). The full-precision copy kept for the build
   and the re-rank can be stored as IEEE half floats: about half the index's memory, with F16C and NEON
   kernels. It cost up to 17% of the speed on GIST1M and 0.003–0.004 recall on OpenAI embeddings in
   our measurements, so it is only ever opt-in. Where the full vectors live is resolved once per query,
@@ -506,7 +507,7 @@ accumulators.
 ## Python
 
 ```bash
-pip install epzero                 # wheels for Linux and macOS (and Windows from 0.5), Python 3.10-3.13
+pip install epzero                 # wheels for Linux, macOS and Windows, Python 3.10-3.13
 pip install "epzero[langchain]"    # plus the LangChain vector store ([llamaindex], [haystack] likewise)
 pip install ./engine               # or build from this repository
 ```
@@ -520,7 +521,7 @@ labels, distances = index.search(queries, k=10)
 print(index.plan)                               # every setting and why; pass any to override:
 index = epzero.build(vectors, metric="cosine", nav_dim=0, M=32, queries=sample_queries)
 
-# After the build (0.5, on main): what it needs, and each fix in place
+# After the build (0.5): what it needs, and each fix in place
 print(index.health())                           # growth, deleted share, code drift, fit of the directions, advice
 print(index.check_queries(sample_queries))      # do the queries look like the data?
 index.recalibrate(sample_queries)               # re-measure the beam width on real queries
@@ -762,11 +763,11 @@ dedicated-server runs are in [`scripts/pace/`](scripts/pace/).
 17. ✅ The outlier split gated per query, measured on the server: SQ8 +25% on DEEP10M, +17% on GloVe
 18. ✅ Walking on principal directions, a second build pass, the early re-rank stop and prefetch tuned per CPU: ahead of Glass on all four datasets, on Intel and AMD
 19. ✅ Automatic configuration in the engine (`build_auto`, `epzero.build`), saved with the index; a public scoreboard; released as 0.4.0, measured on three CPUs
-20. ✅ (0.5, on `main`) Recalibration and health checks after the build; 16-bit full vectors as an opt-in memory mode
+20. ✅ (0.5) Recalibration and health checks after the build; 16-bit full vectors as an opt-in memory mode
 21. ✅ (0.5) Windows (MSVC, wheels); metadata stored in the engine; LlamaIndex and Haystack integrations; indexes that grow in place; example notebooks; a contributing guide and a regression gate in CI
 22. ✅ (0.5) Modern and out-of-distribution datasets from VIBE on two CPUs (round 8), and `check_queries` for query shift; `requantize` for drift in the 8-bit codes
-23. ✅ (0.5) Retrieval evaluation (`epzero.ir`): TREC runs, trec_eval-exact measures, BEIR, English stemming
-24. The Gold's low-recall gap (round 9); the 0.5 release; an ann-benchmarks and VIBE submission (adapters in `ann-benchmarks/` and `vibe/`); ARM servers
+23. ✅ (0.5) Retrieval evaluation (`epzero.ir`): TREC runs, trec_eval-exact measures, BEIR, English stemming; released as 0.5.0 with a download page on the site
+24. 0.5.1: the Gold's low-recall gap (round 9); then an ann-benchmarks and VIBE submission (adapters in `ann-benchmarks/` and `vibe/`); ARM servers
 25. Research: the CLEF LongEval lab, on how much of retrieval quality over time an approximate index costs, and whether in-place upkeep (recalibrate, requantize, growth) holds it at a fraction of a rebuild's cost
 
 ## License
