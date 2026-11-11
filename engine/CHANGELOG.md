@@ -43,6 +43,8 @@
 - `RecallGuard` searched, and measured its reference, with the default re-rank depth; it now uses the
   index's own settings and re-ranks the reference's whole beam. `explain()` and `trace()` likewise.
 - The LangChain store copied every stored vector on each add (quadratic in the store's size).
+- `pip install epzero` from source failed on machines with gRPC installed: it tried to build the
+  cluster node, whose protocol files aren't in the package.
 
 **Compatibility.** Indexes without a profile are still written in the format older versions read
 (v2, or v3 with principal directions); automatically configured ones are v4, which 0.3 cannot load.
