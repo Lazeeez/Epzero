@@ -105,7 +105,7 @@ def test_measures_match_trec_eval():
     run = {}
     for q in qrels:
         ranked = rng.choice(docs, 40, replace=False)
-        run[q] = [(d, float(40 - i)) for i, d in enumerate(ranked)]  # distinct scores: no tie order to differ on
+        run[q] = [(d, float((40 - i) // 3)) for i, d in enumerate(ranked)]  # ties, broken as trec_eval does
     ours = ir.evaluate(run, qrels, ["nDCG@10", "MAP", "R@20", "P@5"], per_query=True)
     theirs = pytrec_eval.RelevanceEvaluator(qrels, {"ndcg_cut.10", "map", "recall.20", "P.5"}).evaluate(
         {q: dict(r) for q, r in run.items()})
