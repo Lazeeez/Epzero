@@ -207,8 +207,10 @@
     </div>
     <p class="caption" use:reveal>
       The lead holds on AMD, which has no AVX-512, and is as large or larger there. Builds are slower than Glass's on GloVe-100 and on
-      DEEP10M on the Gold. The settings were chosen on the same queries they are measured on, so these are development figures;
-      <code>epzero.build()</code> now chooses them automatically, and the next server round checks it on held-out queries.
+      DEEP10M on the Gold. The settings were chosen on the same queries they are measured on, so these are development figures.
+      <code>epzero.build()</code> now chooses them automatically: on the Gold and on an AMD Threadripper PRO 9985WX it matched these
+      settings to within 5% (ahead on GIST1M and DBpedia), held recall 0.949–0.957 against a 0.95 target, and turned the DEEP10M build
+      into a win (444 s against Glass's 495 s on the Gold).
     </p>
   </section>
 
