@@ -18,6 +18,7 @@
 #endif
 
 #include "epzero/parallel.h"
+#include "half.h"
 #include "pca.h"
 #include "rabitq.h"
 #include "visited_pool.h"
@@ -319,6 +320,20 @@ std::string_view to_string(FilterStrategy strategy) noexcept {
 class HnswIndex::Scorer {
  public:
   Scorer(const HnswIndex& index, const float* query, bool adc) : index_(index), query_(query), adc_(adc) {
+    // Where the full vectors live, resolved once per query: in the records (no quantization), in the
+    // float copy, or in the 16-bit one. A lookup per node instead cost full-precision search 3-6%.
+    dim_ = index.params_.dim;
+    if (index.half_) {
+      half_full_ = true;
+      full_base_ = reinterpret_cast<const std::byte*>(index.half_.get());
+      full_stride_ = dim_ * sizeof(std::uint16_t);
+    } else if (!index.quantized()) {
+      full_base_ = index.level0_.get();
+      full_stride_ = index.node_stride_;
+    } else if (index.full_) {
+      full_base_ = reinterpret_cast<const std::byte*>(index.full_.get());
+      full_stride_ = dim_ * sizeof(float);
+    }
     if (!adc_) return;
     std::size_t dim = index.params_.dim;
     l2_ = index.params_.metric == Metric::L2;
@@ -416,7 +431,7 @@ class HnswIndex::Scorer {
       }
       return l2_ ? base_ + index_.code_norm(id) - 2.0f * dot : base_ - dot;
     }
-    return index_.dist_(query_, index_.full_vector(id), index_.params_.dim);
+    return full(id);
   }
 
   // The distance of `id` if it could matter, given that only distances below `bound` do. RaBitQ:
@@ -435,18 +450,31 @@ class HnswIndex::Scorer {
                         : 1.0f - (f.norm * rbq_.norm * est + f.dot_c + rbq_.dot_c - center_sq_);
     if (d - scale * rabitq::error_bound(f, index_.rbq_padded_) > bound) return d;
     exact = true;
-    return index_.dist_(query_, index_.full_vector(id), index_.params_.dim);
+    return full(id);
   }
   bool bounded_mode() const noexcept { return rbq_words_ != 0; }
   // What the distance computation will read first, for prefetching.
   const void* address(id_t id) const noexcept {
-    return adc_ ? static_cast<const void*>(index_.record(id)) : static_cast<const void*>(index_.full_vector(id));
+    return adc_ ? static_cast<const void*>(index_.record(id)) : static_cast<const void*>(full_base_ + id * full_stride_);
   }
 
  private:
   const HnswIndex& index_;
+  // The full-precision distance to node `id`.
+  float full(id_t id) const noexcept {
+    const std::byte* v = full_base_ + static_cast<std::size_t>(id) * full_stride_;
+    if (half_full_) [[unlikely]] {
+      return index_.dist_half_(query_, reinterpret_cast<const std::uint16_t*>(v), dim_);
+    }
+    return index_.dist_(query_, reinterpret_cast<const float*>(v), dim_);
+  }
+
   const float* query_;
   bool adc_;
+  const std::byte* full_base_ = nullptr;
+  std::size_t full_stride_ = 0;
+  std::size_t dim_ = 0;
+  bool half_full_ = false;
   bool l2_ = false;
   float base_ = 0.0f;
   std::vector<float> projected_;  // nav_dim: the query in the walk's directions
@@ -500,6 +528,9 @@ HnswIndex::HnswIndex(const HnswParams& params)
   rbq_padded_ = rabitq::padded_dim(params_.dim);
   walk_full_ = std::getenv("EPZERO_WALK_FULL") != nullptr;  // research: walk at full precision
   if (params_.fast_build && !sq8()) throw std::invalid_argument("fast_build needs SQ8");
+  if (params_.half_vectors && !(sq8() && params_.keep_vectors)) {
+    throw std::invalid_argument("half_vectors needs SQ8 with keep_vectors");
+  }
   if (params_.nav_dim != 0) {
     if (!sq8() || !params_.keep_vectors) throw std::invalid_argument("nav_dim needs SQ8 with keep_vectors");
     if (params_.nav_dim >= params_.dim) throw std::invalid_argument("nav_dim must be less than dim");
@@ -513,7 +544,10 @@ HnswIndex::HnswIndex(const HnswParams& params)
                             : params_.dim * sizeof(float);
   node_stride_ = round_up(links0_offset_ + (1 + max_links0_) * sizeof(id_t), 64);
   level0_ = allocate_level0();
-  if (quantized() && params_.keep_vectors) {
+  if (params_.half_vectors) {
+    half_.reset(static_cast<std::uint16_t*>(allocate_block(params_.max_elements * params_.dim * sizeof(std::uint16_t))));
+    dist_half_ = get_half_distance_fn(params_.metric, simd_level_);
+  } else if (quantized() && params_.keep_vectors) {
     full_.reset(static_cast<float*>(allocate_block(params_.max_elements * params_.dim * sizeof(float))));
   }
 
@@ -535,6 +569,14 @@ std::unique_ptr<std::byte[], HnswIndex::AlignedFree> HnswIndex::allocate_level0(
 
 std::size_t HnswIndex::rabitq_record_bytes() const noexcept {
   return sizeof(rabitq::Factors) + rabitq::words(rbq_padded_) * sizeof(std::uint64_t);
+}
+
+const float* HnswIndex::full_floats(id_t id, std::vector<float>& scratch) const {
+  if (!half_) return full_vector(id);
+  scratch.resize(params_.dim);
+  const std::uint16_t* h = half_vector(id);
+  for (std::size_t d = 0; d < params_.dim; ++d) scratch[d] = half::to_float(h[d]);
+  return scratch.data();
 }
 
 const float* HnswIndex::full_vector(id_t id) const noexcept {
@@ -698,7 +740,9 @@ float HnswIndex::pair_distance(id_t a, id_t b) const noexcept {
   // code per dimension it doesn't: decoding two nodes costs more than reading their vectors (2-3× the
   // build time on GloVe-100, SIFT1M and DBpedia, at the same recall).
   if (has_full_vectors() && (!params_.fast_build || build_exact_ || params_.nav_dim == 0)) {
-    return dist_(full_vector(a), full_vector(b), params_.dim);
+    if (!half_) return dist_(full_vector(a), full_vector(b), params_.dim);
+    thread_local std::vector<float> scratch;
+    return full_distance(full_floats(a, scratch), b);
   }
   thread_local std::vector<float> va, vb;
   va.resize(code_dim());
@@ -1362,7 +1406,12 @@ void HnswIndex::add(std::uint64_t label, const float* vector) {
   } else if (sq8()) {
     auto* codes = reinterpret_cast<std::uint8_t*>(record(id) + sizeof(float));
     encode(vector, codes, reinterpret_cast<float*>(record(id)));
-    if (full_) std::memcpy(full_.get() + static_cast<std::size_t>(id) * params_.dim, vector, params_.dim * sizeof(float));
+    if (half_) {
+      std::uint16_t* h = half_.get() + static_cast<std::size_t>(id) * params_.dim;
+      for (std::size_t d = 0; d < params_.dim; ++d) h[d] = half::from_float(vector[d]);
+    } else if (full_) {
+      std::memcpy(full_.get() + static_cast<std::size_t>(id) * params_.dim, vector, params_.dim * sizeof(float));
+    }
   } else {
     std::memcpy(record(id), vector, params_.dim * sizeof(float));
   }
@@ -1473,7 +1522,7 @@ std::vector<SearchResult> HnswIndex::search(const float* query, std::size_t k, c
   // Quantized: the beam ran on approximate distances; re-score the best candidates exactly.
   // (RaBitQ's unfiltered beam already holds exact distances, see Scorer::bounded.)
   const bool beam_exact = scorer.bounded_mode() && options.filter == nullptr;
-  if (quantized() && full_ && !candidates.empty() && !beam_exact) {
+  if (quantized() && (full_ || half_) && !candidates.empty() && !beam_exact) {
     std::size_t rerank = options.rerank == 0 ? 2 * k : std::max(options.rerank, k);
     rerank = std::min(rerank, candidates.size());
     if (options.rerank_z > 0.0f && rerank > k + kRerankBlock) {
@@ -1486,10 +1535,10 @@ std::vector<SearchResult> HnswIndex::search(const float* query, std::size_t k, c
       std::size_t scored = 0;
       while (scored < rerank) {
         const std::size_t end = std::min(rerank, scored + kRerankBlock);
-        for (std::size_t i = scored; i < end; ++i) prefetch(full_vector(candidates[i].id));
+        for (std::size_t i = scored; i < end; ++i) prefetch(full_address(candidates[i].id));
         for (std::size_t i = scored; i < end; ++i) {
           const float estimate = candidates[i].distance;
-          const float d = dist_(query, full_vector(candidates[i].id), params_.dim);
+          const float d = full_distance(query, candidates[i].id);
           candidates[i].distance = d;
           const double g = static_cast<double>(d) - estimate;
           gap += g;
@@ -1506,10 +1555,8 @@ std::vector<SearchResult> HnswIndex::search(const float* query, std::size_t k, c
       }
       rerank = scored;
     } else {
-      for (std::size_t i = 0; i < rerank; ++i) prefetch(full_vector(candidates[i].id));
-      for (std::size_t i = 0; i < rerank; ++i) {
-        candidates[i].distance = dist_(query, full_vector(candidates[i].id), params_.dim);
-      }
+      for (std::size_t i = 0; i < rerank; ++i) prefetch(full_address(candidates[i].id));
+      for (std::size_t i = 0; i < rerank; ++i) candidates[i].distance = full_distance(query, candidates[i].id);
     }
     stats.distance_computations += rerank;
     stats.full_distance_computations += rerank;
@@ -1542,7 +1589,8 @@ std::unique_ptr<HnswIndex> HnswIndex::compacted(std::size_t threads) const {
   parallel_for(0, live.size(), threads, [&](std::size_t i) {
     const id_t id = live[i];
     if (has_full_vectors()) {
-      out->add(labels_[id], full_vector(id));
+      thread_local std::vector<float> scratch;
+      out->add(labels_[id], full_floats(id, scratch));
     } else {
       std::vector<float> v(params_.dim);
       decode(id, v.data());
@@ -1569,7 +1617,7 @@ void HnswIndex::refine_links(std::size_t threads, std::size_t ef, bool exact) {
     thread_local std::vector<float> vector;
     const float* v = nullptr;
     if (has_full_vectors()) {
-      v = full_vector(id);
+      v = full_floats(id, vector);
     } else {
       vector.resize(params_.dim);
       decode(id, vector.data());
@@ -1629,7 +1677,8 @@ bool HnswIndex::get_vector(std::uint64_t label, float* out) const {
     id = it->second;
   }
   if (has_full_vectors()) {
-    std::memcpy(out, full_vector(id), params_.dim * sizeof(float));
+    std::vector<float> scratch;
+    std::memcpy(out, full_floats(id, scratch), params_.dim * sizeof(float));
   } else {
     decode(id, out);  // SQ8 without kept vectors: one code per dimension (nav_dim requires the vectors)
   }
@@ -1683,13 +1732,16 @@ std::size_t HnswIndex::estimated_bytes(const HnswParams& params) noexcept {
                                    : params.dim * sizeof(float);
   const std::size_t stride = round_up(links0 + (1 + 2 * params.M) * sizeof(id_t), 64);
   std::size_t bytes = stride * params.max_elements;
-  if ((sq8 || rbq) && params.keep_vectors) bytes += params.max_elements * params.dim * sizeof(float);
+  if ((sq8 || rbq) && params.keep_vectors) {
+    bytes += params.max_elements * params.dim * (params.half_vectors ? sizeof(std::uint16_t) : sizeof(float));
+  }
   return bytes;
 }
 
 std::size_t HnswIndex::memory_bytes() const noexcept {
   std::size_t bytes = node_stride_ * params_.max_elements;
   if (full_) bytes += params_.max_elements * params_.dim * sizeof(float);
+  if (half_) bytes += params_.max_elements * params_.dim * sizeof(std::uint16_t);
   bytes += nav_basis_.size() * sizeof(float);
   bytes += params_.max_elements * (sizeof(std::uint64_t) + sizeof(std::int8_t) + sizeof(std::uint8_t) +
                                    sizeof(std::mutex) + sizeof(std::unique_ptr<id_t[]>));
@@ -1714,7 +1766,7 @@ std::size_t HnswIndex::memory_bytes() const noexcept {
 void HnswIndex::save(const std::string& path) const {
   ChunkedWriter out(path);
   out.write(kMagic, sizeof(kMagic));
-  const bool with_profile = !is_default(profile_);
+  const bool with_profile = !is_default(profile_) || params_.half_vectors;
   out.pod(with_profile ? kFormatVersionProfile : params_.nav_dim != 0 ? kFormatVersionNav : kFormatVersion);
   out.pod<std::uint64_t>(params_.dim);
   out.pod<std::uint32_t>(static_cast<std::uint32_t>(params_.metric));
@@ -1732,6 +1784,7 @@ void HnswIndex::save(const std::string& path) const {
       out.write(text.data(), length);
     };
     const IndexProfile& p = profile_;
+    out.pod<std::uint8_t>(params_.half_vectors ? 1 : 0);  // storage flags
     out.pod<std::uint64_t>(p.k);
     out.pod<std::uint64_t>(p.ef);
     out.pod<std::uint64_t>(p.rerank);
@@ -1788,6 +1841,7 @@ void HnswIndex::save(const std::string& path) const {
     out.pod<std::uint8_t>(is_deleted(id) ? 1 : 0);
     if (levels_[id] > 0) out.array(upper_links_[id].get(), static_cast<std::size_t>(levels_[id]) * (1 + params_.M));
     if (full_) out.array(full_vector(id), params_.dim);
+    if (half_) out.array(half_vector(id), params_.dim);
   }
   out.finish();
 }
@@ -1841,6 +1895,9 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
       in.read(text.data(), length);
       return text;
     };
+    const auto flags = in.pod<std::uint8_t>();
+    if ((flags & ~1u) != 0) throw std::runtime_error(path + ": unsupported storage flags");
+    params.half_vectors = (flags & 1u) != 0;
     profile.k = in.pod<std::uint64_t>();
     profile.ef = in.pod<std::uint64_t>();
     profile.rerank = in.pod<std::uint64_t>();
@@ -1940,6 +1997,7 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
       in.array(index->upper_links_[id].get(), n);
     }
     if (index->full_) in.array(index->full_.get() + static_cast<std::size_t>(id) * params.dim, params.dim);
+    if (index->half_) in.array(index->half_.get() + static_cast<std::size_t>(id) * params.dim, params.dim);
     if (is_deleted) {
       index->deleted_[id] = 1;
       ++deleted;
