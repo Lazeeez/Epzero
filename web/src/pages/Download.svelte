@@ -4,7 +4,7 @@
   import { router } from "../lib/router.svelte";
   import { spotlight } from "../lib/spotlight";
 
-  // What 0.5 adds (on main, in the next release), and what 0.4 already does. Each with the figure that backs it.
+  // What 0.5 added, and what 0.4 already did. Each with the figure that backs it.
   const features = [
     {
       title: "Configures itself",
@@ -57,7 +57,7 @@
     {
       title: "Linux, macOS and Windows",
       since: "0.5",
-      text: "Wheels for x86-64 and ARM64 Linux, Apple silicon and Intel Macs, and from 0.5 Windows, for Python 3.10–3.13. 16-bit full vectors halve memory, opt-in.",
+      text: "Wheels for x86-64 and ARM64 Linux, Apple silicon and Intel Macs, and Windows, for Python 3.10–3.13. 16-bit full vectors halve memory, opt-in.",
       figure: "One C++ engine, built with GCC, Clang and MSVC",
     },
   ];
@@ -105,7 +105,7 @@ labels, distances = index.search(queries, k=10, filter=index.filter(allowed))`,
       id: "hybrid",
       name: "Hybrid search",
       note: "Keyword search beside the vectors, merged by reciprocal rank fusion, for the exact terms embeddings blur.",
-      code: `text = epzero.TextIndex()              # BM25; English words stemmed from 0.5
+      code: `text = epzero.TextIndex()              # BM25, English words stemmed
 text.add(None, documents)              # labels 0..n-1, matching the index
 labels, scores = epzero.hybrid_search(index, text, query_vector, "error E-1042 at checkout", k=10)`,
     },
@@ -213,8 +213,7 @@ pipeline.run({"retriever": {"query_embedding": embedding,
       </button>
     </div>
     <p class="release">
-      <span class="tag now">0.4</span> on PyPI now ·
-      <span class="tag next">0.5</span> marks what the next release adds, finished and tested on the main branch.
+      <span class="tag next">0.5.0</span> on PyPI now, for Linux, macOS and Windows. The <span class="tag next">0.5</span> tags mark what it added.
     </p>
   </header>
 
