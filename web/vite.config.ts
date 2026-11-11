@@ -176,7 +176,7 @@ function serviceWorker(): Plugin {
       // names never change: a C++-only change must still replace the cached engine.
       const hash = createHash("sha256").update(files.sort().join("\n"));
       for (const variant of ["mt", "st"]) {
-        for (const file of ["epzero.js", "epzero.wasm"]) {
+        for (const file of ["epzero.js", "epzero.wasm", "epzero-lab.js", "epzero-lab.wasm"]) {
           try {
             hash.update(await readFile(new URL(`./public/wasm/${variant}/${file}`, import.meta.url)));
           } catch {
@@ -196,8 +196,8 @@ function serviceWorker(): Plugin {
 }
 
 export default defineConfig({
-  // The site lives at the root of epzero.dev; EPZERO_BASE serves it under a path instead.
-  base: process.env.EPZERO_BASE ?? "/",
+  // The site lives at the root of epzero.dev.
+  base: "/",
   plugins: [svelte(), articleModule(), inlineBoot(), dropBundledOrt(), staticRoutes(), serviceWorker()],
   // The benchmark pages import their numbers straight from bench/results at the repo root.
   server: { headers: isolation, fs: { allow: [".."] } },
