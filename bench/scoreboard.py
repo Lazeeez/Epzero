@@ -55,10 +55,11 @@ def table(run):
         cells += [f"{row['top']:.4f}", fmt(row["build"], " s"), fmt(row["memory"], " MB")]
         lines.append("| " + " | ".join(cells) + " |")
 
-    # Epzero counts as one library: its configuration fastest at the middle target, on every measure, so a
-    # configuration that builds fast but searches slowly can't stand in for the one that wins on speed.
+    # Epzero counts as one library, ranked on every measure by one configuration: epzero-auto, what users
+    # get, where the run has it; otherwise the one fastest at the middle target (so a configuration that
+    # builds fast but searches slowly can't stand in for the one that wins on speed).
     others = [r for r in rows if not r["lib"].startswith("epzero")]
-    mine = next(r for r in rows if r["lib"].startswith("epzero"))
+    mine = next((r for r in rows if r["lib"] == "epzero-auto"), None) or next(r for r in rows if r["lib"].startswith("epzero"))
 
     def rank(score):
         return None if score(mine) is None else 1 + sum(1 for r in others if score(r) is not None and score(r) < score(mine))
@@ -79,7 +80,7 @@ def runs(folder):
         match = ROUND.match(os.path.basename(path))
         if match and int(match[2]) > latest.get(match[1], (0, ""))[0]:
             latest[match[1]] = (int(match[2]), path)
-    tuned = [(path, f"round {number}, Glass against Epzero's tuned settings") for number, path in latest.values()]
+    tuned = [(path, f"round {number}, Glass against Epzero's automatic and tuned settings") for number, path in latest.values()]
     return sorted([(path, "every library, shipped defaults") for path in files] + tuned)
 
 
@@ -96,7 +97,8 @@ def main():
            "figures until a run on held-out queries. Memory is the growth in the process's resident memory",
            "while an index loads or builds, which is approximate; blank where a run didn't record it. Build",
            "time uses every core of the node. Rank 1 is best; Epzero counts as one library, ranked on every",
-           "measure by its configuration fastest at the middle recall target.", ""]
+           "measure by `epzero-auto` (automatic configuration, what `epzero.build` gives) where a run has it,",
+           "and otherwise by its configuration fastest at the middle recall target.", ""]
     summary = []
     for machine in sorted(os.listdir(args.results)):
         files = runs(os.path.join(args.results, machine))
