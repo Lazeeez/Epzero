@@ -37,6 +37,21 @@ jobs:
           name: bench-${{ matrix.os }}-${{ matrix.compiler }}
           path: bench-*.json
 
+  windows:
+    name: windows / msvc
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      # Compiler errors and failed tests as annotations, which are readable without signing in.
+      - run: echo "::add-matcher::.github/msvc-matcher.json"
+      - name: Configure
+        run: cmake -S engine -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DEPZERO_BUILD_NODE=OFF -DEPZERO_BUILD_BENCH=OFF
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
   python:
     name: python bindings
     runs-on: ubuntu-24.04
