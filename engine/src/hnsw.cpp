@@ -19,6 +19,7 @@
 
 #include "epzero/parallel.h"
 #include "half.h"
+#include "platform.h"
 #include "pca.h"
 #include "rabitq.h"
 #include "visited_pool.h"
@@ -50,13 +51,7 @@ std::size_t round_up(std::size_t value, std::size_t multiple) {
   return (value + multiple - 1) / multiple * multiple;
 }
 
-inline void prefetch(const void* p) noexcept {
-#if defined(__GNUC__) || defined(__clang__)
-  __builtin_prefetch(p, 0, 3);
-#else
-  (void)p;
-#endif
-}
+inline void prefetch(const void* p) noexcept { platform::prefetch(p); }
 
 // The first `lines` cache lines at `p`.
 inline void prefetch_lines(const void* p, std::size_t lines) noexcept {
@@ -70,10 +65,10 @@ inline void prefetch_lines(const void* p, std::size_t lines) noexcept {
 // that node's vector and label, which were written before the id was first published. On
 // x86-64 both compile to plain MOVs; on AArch64 to LDAR/STLR. (The GCC/Clang atomic builtins,
 // rather than std::atomic_ref: Apple's standard library doesn't have atomic_ref yet.)
-inline std::uint32_t load_link(const std::uint32_t& slot) noexcept { return __atomic_load_n(&slot, __ATOMIC_ACQUIRE); }
+inline std::uint32_t load_link(const std::uint32_t& slot) noexcept { return platform::load_acquire(slot); }
 
 inline void store_link(std::uint32_t& slot, std::uint32_t value) noexcept {
-  __atomic_store_n(&slot, value, __ATOMIC_RELEASE);
+  platform::store_release(slot, value);
 }
 
 // Large blocks are backed by 2 MiB transparent huge pages: search touches nodes at random, and
@@ -99,7 +94,7 @@ void* allocate_block(std::size_t bytes) {
   const bool huge = false;  // no transparent huge pages to ask for; 2 MiB alignment would only waste memory
 #endif
   bytes = round_up(std::max<std::size_t>(bytes, 64), huge ? kHugePage : 64);
-  void* block = std::aligned_alloc(huge ? kHugePage : 64, bytes);
+  void* block = platform::aligned_alloc(huge ? kHugePage : 64, bytes);
   if (block == nullptr) throw std::bad_alloc();
 #if defined(__linux__) && !defined(__EMSCRIPTEN__)
   if (huge) madvise(block, bytes, MADV_HUGEPAGE);  // advisory; ignored if THP is disabled
@@ -492,7 +487,7 @@ class HnswIndex::Scorer {
   float center_sq_ = 0.0f;
 };
 
-void HnswIndex::AlignedFree::operator()(void* p) const noexcept { std::free(p); }
+void HnswIndex::AlignedFree::operator()(void* p) const noexcept { platform::aligned_free(p); }
 
 namespace {
 
@@ -594,7 +589,7 @@ const HnswIndex::id_t* HnswIndex::links_of(id_t id, int layer) const noexcept {
 }
 
 bool HnswIndex::is_deleted(id_t id) const noexcept {
-  return __atomic_load_n(&deleted_[id], __ATOMIC_ACQUIRE) != 0;
+  return platform::load_acquire(deleted_[id]) != 0;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1470,7 +1465,7 @@ bool HnswIndex::remove(std::uint64_t label) {
     id = it->second;
     label_to_id_.erase(it);
   }
-  __atomic_store_n(&deleted_[id], std::uint8_t{1}, __ATOMIC_RELEASE);
+  platform::store_release(deleted_[id], std::uint8_t{1});
   deleted_count_.fetch_add(1, std::memory_order_acq_rel);
   return true;
 }
