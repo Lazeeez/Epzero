@@ -76,7 +76,13 @@ WebAssembly (SIMD128 + threads), running entirely in your browser:
 - **Benchmark lab.** The engine in WebAssembly generates clustered data, or
   reads a file of **your own embeddings** (`.npy`, `.fvecs`, CSV, JSON), then
   computes exact ground truth, builds the graph on every core and sweeps `ef`
-  for recall against queries per second, with cosine, L2 or inner product.
+  for recall against queries per second, with cosine, L2 or inner product. By
+  default it **configures itself**, as `epzero.build` does, and shows each choice
+  with its reason and the recall calibration promised beside what the queries got.
+- **[Download](https://epzero.dev/download).** `pip install epzero`, what 0.5
+  adds, copyable code for every workflow (automatic builds, upkeep, metadata
+  filters, hybrid search, retrieval evaluation, LangChain, LlamaIndex, Haystack)
+  and the BEIR results; the highlighted button in every page's header.
 - **[Play](https://epzero.dev/play).** *Out-navigate Epzero*: hop
   from photo to photo along the real base-layer links to reach a target,
   then see the route Epzero's search took through its express layers.
@@ -87,7 +93,8 @@ WebAssembly (SIMD128 + threads), running entirely in your browser:
   check the live history for linearizability with Porcupine.
 - **[Benchmarks](https://epzero.dev/benchmarks).** Interactive
   SIFT1M charts against hnswlib and FAISS, the comparison with five libraries on
-  four more datasets, the tuned results against Glass on Intel and AMD, the
+  four more datasets, the tuned results against Glass on Intel and AMD, round 8 on
+  modern and text-to-image embeddings with the calibration it measured, the
   optimization log, SQ8 results, and a lab that benchmarks the engine on your own
   device.
 
@@ -220,7 +227,7 @@ project was called Oryx until October 2026.)
   webcam on the visitor's own CPU, with every query checked against an exact
   scan.
 - **A production-grade site:** Lighthouse scores 100 for accessibility, best
-  practices and SEO on all five pages, with a layout-shift score of 0.02 or
+  practices and SEO on its pages, with a layout-shift score of 0.02 or
   less; it works offline and is tested in Chromium, Firefox and WebKit on every
   push.
 
@@ -609,7 +616,7 @@ cd web && npm install && npm run dev  # http://localhost:5173/
 npx playwright test                   # every end-to-end suite (see below)
 ```
 
-The end-to-end suites run on every push: all five pages in Chromium (desktop
+The end-to-end suites run on every push: every page in Chromium (desktop
 and touch phone, both themes), the core journeys in Firefox and WebKit, an
 automated WCAG 2.1 AA audit (axe-core), the webcam path and every camera error,
 offline use, a browser without WebGL, one without WebAssembly SIMD, and a
