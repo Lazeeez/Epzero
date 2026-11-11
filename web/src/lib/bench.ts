@@ -157,3 +157,66 @@ export const field = FIELD_RUNS.map(({ key, name, what, recall, run }) => {
   entries.sort((a, b) => (b.qps ?? -1) - (a.qps ?? -1));
   return { key, name, what, recall, n: r.n, dim: r.dim, metric: r.metric, queries: r.queries, entries };
 });
+
+// Round 8 (bench/results/pace/<cpu>/<dataset>-speed-round8.json): VIBE's modern embeddings, some with
+// queries from another modality, epzero.build with no settings against Glass on two CPUs.
+interface Round8Run {
+  n: number;
+  dim: number;
+  libraries: Record<string, { build_seconds: number; note?: string; sweep: (Point & { ef: number })[] }>;
+}
+const round8Runs = import.meta.glob<Round8Run>("../../../bench/results/pace/*/*-speed-round8.json", { eager: true, import: "default" });
+export const MODERN_RECALLS = [0.9, 0.95, 0.98] as const;
+export const MODERN_CPUS = [
+  { key: "threadripper", name: "Threadripper PRO 9985WX" },
+  { key: "gold6226", name: "Xeon Gold 6226" },
+] as const;
+const MODERN_SETS = [
+  { key: "agnews-mxbai-1024-euclidean", name: "AG News", model: "mxbai", shifted: false },
+  { key: "arxiv-nomic-768-normalized", name: "arXiv", model: "Nomic", shifted: false },
+  { key: "imagenet-clip-512-normalized", name: "ImageNet", model: "CLIP", shifted: false },
+  { key: "laion-clip-512-normalized", name: "LAION", model: "CLIP", shifted: true },
+  { key: "imagenet-align-640-normalized", name: "ImageNet", model: "ALIGN", shifted: true },
+  { key: "yandex-200-cosine", name: "Yandex Text-to-Image", model: "", shifted: true },
+] as const;
+
+/** Recall at the beam width calibration chose (from the run's note), interpolated in log ef. */
+function calibratedRecall(lib: Round8Run["libraries"][string] | undefined): number | null {
+  const ef = Number(lib?.note?.match(/calibrated ef (\d+)/)?.[1]);
+  if (!lib || !ef) return null;
+  const points = [...lib.sweep].sort((a, b) => a.ef - b.ef);
+  for (let i = 1; i < points.length; i++) {
+    const [a, b] = [points[i - 1], points[i]];
+    if (ef >= a.ef && ef <= b.ef) return a.recall + ((Math.log(ef) - Math.log(a.ef)) / (Math.log(b.ef) - Math.log(a.ef))) * (b.recall - a.recall);
+  }
+  return null;
+}
+
+export const modern = MODERN_SETS.map((set) => {
+  const cpus = MODERN_CPUS.flatMap((cpu) => {
+    const run = Object.entries(round8Runs).find(([path]) => path.includes(`/${cpu.key}/${set.key}-`))?.[1];
+    if (!run) return [];
+    const glass = run.libraries.glass;
+    const epzero = run.libraries["epzero-auto"];
+    const glassBest = Math.max(...glass.sweep.map((p) => p.recall));
+    const ratios = MODERN_RECALLS.map((recall) => {
+      const ratio = qpsAtRecall(epzero.sweep, recall) / qpsAtRecall(glass.sweep, recall);
+      return Number.isFinite(ratio) ? ratio : null; // null: Glass never reaches this recall
+    });
+    return [
+      {
+        cpu: cpu.key,
+        cpuName: cpu.name,
+        ratios,
+        glassBest,
+        epzeroBest: Math.max(...epzero.sweep.map((p) => p.recall)),
+        build: { epzero: epzero.build_seconds, glass: glass.build_seconds },
+        // Recall at the calibrated beam width: calibrated on rows of the data, and (shifted sets) on sample queries.
+        calibrated: calibratedRecall(epzero),
+        calibratedOnQueries: calibratedRecall(run.libraries["epzero-auto-ood"]),
+      },
+    ];
+  });
+  const run = Object.entries(round8Runs).find(([path]) => path.endsWith(`/${set.key}-speed-round8.json`))?.[1];
+  return { ...set, n: run?.n ?? 0, dim: run?.dim ?? 0, cpus };
+});
