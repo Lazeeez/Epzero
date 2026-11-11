@@ -1,0 +1,29 @@
+name: Bug report
+description: Something gives a wrong answer, crashes, or is slower than it should be.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce it
+      description: The smallest code and data that show it. Random data is fine if it reproduces.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        The output of:
+        python -c "import epzero, platform; print(epzero.__version__, epzero.machine(), platform.platform())"
+        and, for an index from epzero.build, print(index.plan).
+      render: text
+    validations:
+      required: true
