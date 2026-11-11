@@ -69,7 +69,11 @@ int main(int argc, char** argv) {
   text.add(1, "red car by the river");
   text.add(2, "night city lights, city traffic");
   text.add(7, "café über 42");
-  text.save((out / "text" / "valid").string());
+  text.save((out / "text" / "valid").string());  // version 2: stemmed
+  epzero::TextIndex plain({.stemmer = epzero::TextIndex::Stemmer::None});
+  plain.add(1, "red car by the river");
+  plain.add(7, "café über 42");
+  plain.save((out / "text" / "valid-v1").string());
 
   epzero::MetadataIndex meta;
   meta.set(1, {{"source", std::string("faq")}, {"year", std::int64_t{2021}}, {"public", true}});
