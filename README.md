@@ -110,9 +110,12 @@ project was called Oryx until October 2026.)
   graph on principal directions, the build passes, the re-rank and the beam width that reaches a
   recall target (calibrated on rows held out of the graph, or on your queries), and times memory
   prefetching on the machine. It saves those choices, with the reason for each, inside the index;
-  any of them can be overridden ([how it decides](engine/include/epzero/auto.h)).
-- **Faster than Glass, the fastest library we compared, on every dataset and both CPU families
-  measured:** at equal recall on one thread, 2.8-4.2× on GIST1M (recall 0.90-0.95), 1.6-2.7× on
+  any of them can be overridden ([how it decides](engine/include/epzero/auto.h)). On an Intel Xeon
+  Gold 6226 and an AMD Threadripper PRO 9985WX it matched hand-tuned settings (level or ahead on
+  GIST1M and DBpedia, 1-5% behind on GloVe-100 and DEEP10M) and held recall 0.949-0.957 against a
+  0.95 target on the benchmarks' own queries ([round 7](docs/performance.md)).
+- **Faster than Glass, the fastest library we compared, on every dataset and every CPU measured**
+  (except GloVe-100 at recall 0.80 on the Gold, 3% behind): at equal recall on one thread, 2.8-4.2× on GIST1M (recall 0.90-0.95), 1.6-2.7× on
   OpenAI DBpedia and 1.4-1.5× on DEEP10M (0.90-0.98), and 1.0-1.3× on GloVe-100 (0.80-0.93), on a
   Xeon Gold 6226 and an AMD EPYC 7513 with the same code. Builds are faster too, except on GloVe-100
   and on DEEP10M on the Gold. These are each dataset's best settings, chosen on the queries they are
