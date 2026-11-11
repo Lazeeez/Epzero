@@ -12,6 +12,8 @@
     FILTER_RECALL,
     FILTER_STRATEGIES,
     MACHINE,
+    MODERN_CPUS,
+    MODERN_RECALLS,
     churn,
     compare,
     drift,
@@ -19,6 +21,7 @@
     driftSummary,
     field,
     filterTable,
+    modern,
     operating,
     speedup,
   } from "../lib/bench";
@@ -49,6 +52,12 @@
     { name: "FAISS", s: libs.faiss.build_seconds },
   ];
   const maxBuild = Math.max(...builds.map((b) => b.s));
+  // Calibration, promised and delivered: recall at the calibrated beam width (target 0.95) on the
+  // round 8 sets, on the Threadripper (the Gold agrees to within 0.04).
+  const RECALL_FLOOR = 0.7;
+  const calibration = modern.map((d) => ({ ...d, tr: d.cpus.find((c) => c.cpu === "threadripper") }));
+  const bar = (recall: number) => `${((recall - RECALL_FLOOR) / (1 - RECALL_FLOOR)) * 100}%`;
+  const ratioClass = (r: number | null) => (r === null ? "na" : r >= 1.005 ? "win" : r >= 0.995 ? "even" : "loss");
   const maxDriftCost = Math.max(...driftSummary.map((p) => p.cost));
 
   const [quiet, busy] = churn.mixed;
@@ -212,6 +221,96 @@
       settings to within 5% (ahead on GIST1M and DBpedia), held recall 0.949–0.957 against a 0.95 target, and turned the DEEP10M build
       into a win (444 s against Glass's 495 s on the Gold).
     </p>
+  </section>
+
+  <section class="container block" aria-labelledby="modern-title">
+    <h2 id="modern-title" class="block-title" use:reveal>Modern embeddings, configured automatically</h2>
+    <p class="caption lead" use:reveal>
+      Six datasets from the VIBE benchmark: text embeddings from current models, and text queries searching image vectors, where the
+      queries don't look like the data. <code>epzero.build()</code> with no settings against Glass, on two CPUs. Queries per second as a
+      multiple of Glass's at recall {MODERN_RECALLS.map((r) => r.toFixed(2)).join(" / ")}, one search thread; builds on every core.
+    </p>
+    <div class="card panel" use:reveal use:spotlight>
+      <div class="table-wrap">
+        <table class="modern">
+          <thead>
+            <tr>
+              <th>Dataset</th>
+              {#each MODERN_CPUS as cpu (cpu.key)}<th>{cpu.name}</th>{/each}
+              <th>Build, Epzero vs Glass</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each modern as d (d.key)}
+              <tr>
+                <td>
+                  <span class="set">{d.name}{d.model ? `, ${d.model}` : ""}</span>
+                  <span class="meta">{(d.n / 1e6).toFixed(d.n < 1e6 ? 2 : 1)}M × {d.dim}{#if d.shifted}<em class="chip">text → images</em>{/if}</span>
+                </td>
+                {#each MODERN_CPUS as cpu (cpu.key)}
+                  {@const c = d.cpus.find((x) => x.cpu === cpu.key)}
+                  <td data-label={cpu.name}>
+                    {#if c}
+                      <span class="ratios">
+                        {#each c.ratios as r, i (i)}
+                          <span class="ratio {ratioClass(r)}" title={`recall ${MODERN_RECALLS[i].toFixed(2)}`}>{r === null ? "–" : `${r.toFixed(2)}×`}</span>
+                        {/each}
+                      </span>
+                      {#if c.ratios.includes(null)}<span class="meta">Glass stops at {c.glassBest.toFixed(3)}; Epzero reaches {c.epzeroBest.toFixed(3)}</span>{/if}
+                    {/if}
+                  </td>
+                {/each}
+                <td class="num" data-label="Build, Epzero vs Glass">
+                  {#each d.cpus as c, i (c.cpu)}{i ? " · " : ""}{c.build.epzero.toFixed(0)} vs {c.build.glass.toFixed(0)} s{/each}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="caption" use:reveal>
+      Faster on text embeddings on both CPUs, and 1.8–3.5× where text searches images, which Glass's graph can't search past recall 0.91–0.94.
+      Builds were faster everywhere, by up to 4.9×. The losses are on the older Intel Xeon at recall 0.90, ImageNet-CLIP (0.87×) and Yandex:
+      at the same beam width Epzero finds more of the true neighbours there but takes longer per step, on that CPU only (on a laptop it is
+      1.6× Glass on Yandex at 0.90), and a run measuring each SIMD kernel on it is under way.
+    </p>
+
+    <div class="card panel calib" use:reveal use:spotlight>
+      <div class="panel-head">
+        <div>
+          <h2>Recall the calibration promised, and what queries got</h2>
+          <p>
+            Recall at the beam width <code>epzero.build</code> chose for a 0.95 target. Calibrating on rows of the data is right when queries look
+            like the data, and optimistic when text searches images: <code>check_queries</code> spots that (those queries sit 2.2–2.3× farther from
+            their nearest neighbours than rows do), and calibrating on a sample of the queries restores the target.
+          </p>
+        </div>
+      </div>
+      <ul class="bars" aria-label="Recall at the calibrated beam width, per dataset">
+        {#each calibration as d (d.key)}
+          {#if d.tr?.calibrated}
+            <li>
+              <span class="label">{d.name}{d.model ? `, ${d.model}` : ""}</span>
+              <span class="track" aria-hidden="true">
+                <i class="target" style:left={bar(0.95)}></i>
+                <b class={d.shifted ? "short" : "ok"} style:width={bar(d.tr.calibrated)}></b>
+                {#if d.tr.calibratedOnQueries}<b class="fixed" style:width={bar(d.tr.calibratedOnQueries)}></b>{/if}
+              </span>
+              <span class="values num">
+                {d.tr.calibrated.toFixed(3)}{#if d.tr.calibratedOnQueries}<span class="arrow"> → {d.tr.calibratedOnQueries.toFixed(3)}</span>{/if}
+              </span>
+            </li>
+          {/if}
+        {/each}
+      </ul>
+      <p class="legend">
+        <span><i class="ok"></i>calibrated on the data, queries like it</span>
+        <span><i class="short"></i>calibrated on the data, text queries</span>
+        <span><i class="fixed"></i>calibrated on sample queries</span>
+        <span><i class="target-key"></i>target 0.95</span>
+      </p>
+    </div>
   </section>
 
   <section class="container block" aria-labelledby="drift-title">
@@ -402,6 +501,178 @@
 </div>
 
 <style>
+  .modern td {
+    vertical-align: top;
+  }
+  .modern .set {
+    display: block;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .modern .meta {
+    display: block;
+    margin-top: 3px;
+    font-size: 12.5px;
+    color: var(--text-2);
+  }
+  .chip {
+    margin-left: 8px;
+    padding: 1px 7px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font: 500 11.5px var(--font);
+    font-style: normal;
+    color: var(--text-2);
+    white-space: nowrap;
+  }
+  .ratios {
+    display: inline-flex;
+    gap: 4px;
+  }
+  .ratio {
+    min-width: 50px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    font: 600 12.5px var(--mono);
+    text-align: center;
+  }
+  .ratio.win {
+    color: var(--good);
+    background: color-mix(in srgb, var(--good) 13%, transparent);
+  }
+  .ratio.even {
+    color: var(--text-2);
+    background: color-mix(in srgb, var(--text-2) 10%, transparent);
+  }
+  .ratio.loss {
+    color: var(--warn);
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+  }
+  .ratio.na {
+    color: var(--text-2);
+  }
+  .calib {
+    margin-top: 20px;
+  }
+  .bars {
+    display: grid;
+    gap: 12px;
+    margin: 18px 0 8px;
+    padding: 0;
+    list-style: none;
+  }
+  .bars li {
+    display: grid;
+    grid-template-columns: minmax(110px, 170px) 1fr minmax(96px, auto);
+    align-items: center;
+    gap: 14px;
+  }
+  .bars .label {
+    font-size: 14px;
+    color: var(--text);
+  }
+  .bars .track {
+    position: relative;
+    height: 18px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--text-2) 8%, transparent);
+    overflow: hidden;
+  }
+  .bars .track b {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: 6px;
+  }
+  .bars .track b.fixed {
+    inset: auto auto 0 0;
+    height: 6px;
+  }
+  .bars .target {
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    width: 2px;
+    background: var(--text);
+    z-index: 1;
+  }
+  .ok,
+  .legend i.ok {
+    background: var(--accent);
+  }
+  .short,
+  .legend i.short {
+    background: var(--warn);
+  }
+  .fixed,
+  .legend i.fixed {
+    background: var(--good);
+  }
+  .bars .values {
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .bars .arrow {
+    color: var(--good);
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    margin: 6px 0 0;
+    font-size: 12.5px;
+    color: var(--text-2);
+  }
+  .legend i {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    margin-right: 6px;
+    border-radius: 3px;
+    vertical-align: -1px;
+  }
+  .legend i.target-key {
+    width: 2px;
+    height: 12px;
+    border-radius: 0;
+    background: var(--text);
+  }
+  @media (max-width: 720px) {
+    /* Each dataset as a card: the multiples are what matter, and a wide table hides them off-screen. */
+    .modern thead {
+      display: none;
+    }
+    .modern,
+    .modern tbody,
+    .modern tr,
+    .modern td {
+      display: block;
+    }
+    .modern tr {
+      padding: 12px 0;
+      border-top: 1px solid var(--border);
+    }
+    .modern td {
+      padding: 4px 0;
+      border: 0;
+      text-align: left;
+    }
+    .modern td[data-label]::before {
+      content: attr(data-label);
+      display: block;
+      margin-bottom: 4px;
+      font-size: 12px;
+      color: var(--text-2);
+    }
+  }
+  @media (max-width: 560px) {
+    .bars li {
+      grid-template-columns: 1fr auto;
+    }
+    .bars .track {
+      grid-column: 1 / -1;
+      grid-row: 2;
+    }
+  }
   .bench {
     padding: calc(var(--nav-h) + 72px) 0 40px;
   }
