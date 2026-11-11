@@ -147,6 +147,8 @@ py::dict profile_dict(const epzero::IndexProfile& p) {
   d["rerank_z"] = p.rerank_z;
   d["recall_target"] = p.recall_target;
   d["recall_measured"] = p.recall_measured;
+  d["calibrated_size"] = p.calibrated_size;
+  d["nav_variance"] = p.nav_variance;
   d["fast_build"] = p.built_on_codes;
   d["refine"] = p.refined;
   d["fill_after"] = p.filled;
@@ -250,6 +252,43 @@ class Index {
     return prefetch_object(depth, lines);
   }
   py::dict profile() const { return profile_dict(index_->profile()); }
+
+  py::dict recalibrate(const FloatArray& queries, const py::object& recall, std::size_t threads) {
+    std::size_t n;
+    const float* rows = rows_of(queries, index_->params().dim, n);
+    const float target = recall.is_none() ? 0.0f : recall.cast<float>();
+    std::pair<std::size_t, float> result;
+    {
+      py::gil_scoped_release release;
+      result = epzero::recalibrate(*index_, rows, n, target, threads);
+    }
+    py::dict out;
+    out["ef"] = result.first;
+    out["recall"] = result.second;
+    return out;
+  }
+
+  py::dict health(std::size_t threads) const {
+    epzero::IndexHealth h;
+    {
+      py::gil_scoped_release release;
+      h = epzero::check_health(*index_, threads);
+    }
+    py::dict out;
+    out["live"] = h.live;
+    out["deleted"] = h.deleted;
+    out["growth"] = h.growth;
+    out["nav_variance_built"] = h.nav_variance_built;
+    out["nav_variance_now"] = h.nav_variance_now;
+    out["advice"] = h.advice;
+    return out;
+  }
+
+  py::array_t<float> get_vector(std::uint64_t label) const {
+    py::array_t<float> out(static_cast<py::ssize_t>(index_->params().dim));
+    if (!index_->get_vector(label, out.mutable_data())) throw py::key_error("label " + std::to_string(label) + " is not in the index");
+    return out;
+  }
   py::dict params() const { return params_dict(index_->params()); }
   void set_prefetch(const py::object& depth, std::size_t lines) {
     index_->set_prefetch(depth.is_none() ? std::numeric_limits<std::size_t>::max() : depth.cast<std::size_t>(), lines);
@@ -379,11 +418,18 @@ py::dict estimate_to_dict(const epzero::RecallEstimate& e) {
 // Searches through a RecallGuard: the beam width per segment follows measured recall.
 class Guard {
  public:
-  Guard(const Index& index, double target, std::size_t initial_ef, std::size_t min_ef, std::size_t max_ef,
-        std::size_t min_samples, double margin, double sample_rate, std::size_t window, std::size_t reference_ef,
-        bool per_query)
+  // target and initial_ef default to the index's profile: the recall it was calibrated for (else 0.95)
+  // and the beam width that reached it.
+  Guard(const Index& index, const py::object& target_arg, const py::object& initial_ef_arg, std::size_t min_ef,
+        std::size_t max_ef, std::size_t min_samples, double margin, double sample_rate, std::size_t window,
+        std::size_t reference_ef, bool per_query)
       : index_(index),
-        guard_(index.raw(), {.target = target, .initial_ef = initial_ef, .min_ef = min_ef, .max_ef = max_ef,
+        guard_(index.raw(), {.target = target_arg.is_none() ? (index.raw().profile().recall_target > 0.0f
+                                                                    ? static_cast<double>(index.raw().profile().recall_target)
+                                                                    : 0.95)
+                                                              : target_arg.cast<double>(),
+                             .initial_ef = initial_ef_arg.is_none() ? index.raw().profile().ef : initial_ef_arg.cast<std::size_t>(),
+                             .min_ef = min_ef, .max_ef = max_ef,
                              .min_samples = min_samples, .margin = margin, .per_query = per_query,
                              .monitor = {.sample_rate = sample_rate, .window = window, .reference_ef = reference_ef}}) {}
 
@@ -634,6 +680,16 @@ PYBIND11_MODULE(_core, m) {
                              "The search settings this index uses by default, how it was built, and why\n"
                              "(saved with it). Set by epzero.build().")
       .def_property_readonly("params", &Index::params, "The settings the index was created with.")
+      .def("recalibrate", &Index::recalibrate, py::arg("queries"), py::arg("recall") = py::none(), py::arg("threads") = 0,
+           "Re-measures the beam width that reaches `recall` (default: the profile's target) on `queries`\n"
+           "and saves it in the profile, which search() then uses. Pass a few hundred real queries: rows\n"
+           "already in the index make the search look easier than it is. Returns {'ef', 'recall'}.")
+      .def("health", &Index::health, py::arg("threads") = 0,
+           "What the index needs since it was built: its size and tombstones, growth since calibration,\n"
+           "how much of the data its principal directions still capture, and 'advice' in plain words\n"
+           "(empty when nothing needs doing).")
+      .def("get_vector", &Index::get_vector, py::arg("label"),
+           "The stored vector of `label` (normalized for cosine). KeyError if it isn't in the index.")
       .def("set_prefetch", &Index::set_prefetch, py::arg("depth") = py::none(), py::arg("lines") = 1,
            "Prefetch `lines` cache lines of `depth` neighbors ahead (None: every neighbor up front).")
       .def("refine_links", &Index::refine_links, py::arg("threads") = 0, py::arg("ef") = 0,
@@ -671,9 +727,9 @@ PYBIND11_MODULE(_core, m) {
   py::class_<Guard>(m, "RecallGuard",
                     "Searches an Index at the smallest beam width that keeps live, measured recall above a\n"
                     "target. A sample of queries is re-answered exactly in the background.")
-      .def(py::init<const Index&, double, std::size_t, std::size_t, std::size_t, std::size_t, double, double, std::size_t,
-                    std::size_t, bool>(),
-           py::arg("index"), py::arg("target") = 0.95, py::arg("initial_ef") = 64, py::arg("min_ef") = 16,
+      .def(py::init<const Index&, const py::object&, const py::object&, std::size_t, std::size_t, std::size_t, double,
+                    double, std::size_t, std::size_t, bool>(),
+           py::arg("index"), py::arg("target") = py::none(), py::arg("initial_ef") = py::none(), py::arg("min_ef") = 16,
            py::arg("max_ef") = 2048, py::arg("min_samples") = 200, py::arg("margin") = 0.01,
            py::arg("sample_rate") = 0.01, py::arg("window") = 1000, py::arg("reference_ef") = 0,
            py::arg("per_query") = false,
