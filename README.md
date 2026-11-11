@@ -17,7 +17,16 @@ DEEP10M, and 1.1–1.5× on GloVe-100 at recall 0.90 and above (3% behind at 0.8
 one CPU). It builds those indexes up to 5× faster and, on the larger datasets, in
 less memory. On SIFT1M at full precision it serves 1.08× hnswlib's and 1.12×
 FAISS's queries per second at the same recall and scales to 10× on a 12-core
-socket. [The scoreboard lists every run, losses included →](docs/scoreboard.md)
+socket. On modern embeddings from the VIBE benchmark it is 1.0–1.6× Glass on text
+embeddings (mxbai, Nomic) and 1.8–3.5× on LAION and ImageNet-ALIGN, where text
+queries search image vectors and Glass stops short of recall 0.91–0.94. On the
+older Intel Xeon it trails at recall 0.90: 0.87× on ImageNet-CLIP and 0.97–0.99×
+on Yandex. [The scoreboard lists every run, losses included →](docs/scoreboard.md)
+
+**It is built to be used.** `pip install epzero` on Linux, macOS and Windows; vector stores for
+LangChain, LlamaIndex and Haystack that pass each framework's own test suite; metadata filters,
+keyword and hybrid search in the engine; and `epzero.ir`, which runs retrieval experiments end to end
+and scores them exactly as trec_eval does (hybrid search: nDCG@10 0.713 on BEIR SciFact).
 
 **It also makes recall visible and keeps it on target.** Every approximate
 index trades accuracy for speed, and in production nobody measures the
@@ -87,11 +96,13 @@ mobile, and offline after one visit. Browsers without WebGL get everything but
 the 3D view; browsers too old for WebAssembly SIMD get a clear explanation.
 
 > **Status:** 0.4.0, with automatic configuration, is the current release. On `main`
-> for 0.5: recalibrating and health-checking an index after the build, and 16-bit
-> full vectors (half their memory, opt-in). Next: Windows, metadata stored in the
-> engine, more framework integrations, and an independent benchmark submission. The
-> cluster is built and tested in CI on every push; its cloud deployment is on hold.
-> See the [roadmap](#roadmap).
+> for 0.5: health checks and in-place fixes after the build (recalibrate, requantize,
+> query-shift detection), indexes that grow in place, metadata stored in the engine,
+> LlamaIndex and Haystack integrations, Windows, English stemming, the `epzero.ir`
+> retrieval-evaluation toolkit and 16-bit full vectors (opt-in). Next: the 0.5 release,
+> an ann-benchmarks and VIBE submission, and the CLEF LongEval lab. The cluster is
+> built and tested in CI on every push; its cloud deployment is on hold. See the
+> [roadmap](#roadmap).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/sift1m-recall-qps-dark.svg">
@@ -124,16 +135,36 @@ project was called Oryx until October 2026.)
   Gold 6226 and an AMD Threadripper PRO 9985WX it matched hand-tuned settings (level or ahead on
   GIST1M and DBpedia, 1-5% behind on GloVe-100 and DEEP10M) and held recall 0.949-0.957 against a
   0.95 target on the benchmarks' own queries ([round 7](docs/performance.md)).
-- **Faster than Glass, the fastest library we compared, on every dataset and every CPU measured**
-  (except GloVe-100 at recall 0.80 on the Gold, 3% behind): at equal recall on one thread, 2.8-4.2× on GIST1M (recall 0.90-0.95), 1.6-2.7× on
-  OpenAI DBpedia and 1.4-1.5× on DEEP10M (0.90-0.98), and 1.0-1.3× on GloVe-100 (0.80-0.93), on a
-  Xeon Gold 6226 and an AMD EPYC 7513 with the same code. Builds are faster too, except on GloVe-100
-  and on DEEP10M on the Gold. These are each dataset's best settings, chosen on the queries they are
-  measured on; the [scoreboard](docs/scoreboard.md) lists every run and every loss.
+- **Faster than Glass, the fastest library we compared, on the classic benchmarks and every CPU
+  measured** (except GloVe-100 at recall 0.80 on the Gold, 3% behind): at equal recall on one thread,
+  2.8-4.2× on GIST1M (recall 0.90-0.95), 1.6-2.7× on OpenAI DBpedia and 1.4-1.5× on DEEP10M
+  (0.90-0.98), and 1.0-1.3× on GloVe-100 (0.80-0.93), on a Xeon Gold 6226 and an AMD EPYC 7513 with the
+  same code. Builds are faster too, except on GloVe-100 and on DEEP10M on the Gold. These are each
+  dataset's best settings, chosen on the queries they are measured on; the
+  [scoreboard](docs/scoreboard.md) lists every run and every loss.
+- **Modern and out-of-distribution embeddings** (VIBE's datasets, round 8, `epzero.build` with no
+  settings): 1.2-1.6× Glass on AG News (mxbai, 1,024-d) and 1.0-1.2× on arXiv (Nomic, 768-d) at
+  recall 0.90-0.98; on text-to-image search (LAION, ImageNet-ALIGN) 1.8-3.5× at 0.90, where Glass
+  reaches at most 0.908 and 0.938 recall and Epzero 0.95-0.97 and 0.98. Builds 1.2-4.9× faster. It
+  trails on the Gold at recall 0.90 on ImageNet-CLIP (0.87×) and Yandex (0.97-0.99×); round 9
+  investigates ([table](#results)).
 - **Stays accurate after the build** (0.5, on `main`): `index.health()` reports growth since
-  calibration, deleted vectors and whether the principal directions still fit the data, with
-  plain advice (compact, recalibrate or rebuild); `index.recalibrate(queries)` re-measures the
-  search effort without rebuilding.
+  calibration, deleted vectors, how much the 8-bit codes have drifted and whether the principal
+  directions still fit the data, with plain advice; each fix runs in place.
+  `index.recalibrate(queries)` re-measures the search effort; `index.requantize()` refits the codes
+  after drift (in a synthetic test with a 4 sd drift, the beam width for recall 0.95 went from 200
+  back to a rebuild's 12, in half a rebuild's time); `index.check_queries(queries)` spots queries unlike the data (text against images:
+  recall calibrated on the data was 0.74-0.80 for a 0.95 target, and 0.945-0.960 once recalibrated
+  on the queries). Indexes grow in place as vectors are added, keeping the graph.
+- **Metadata filters in the engine:** `epzero.Metadata` keeps fields per label with an inverted
+  index and answers `{"year": {"$gte": 2022}, "lang": ["en", "de"]}`-style filters for a filtered
+  search; the framework stores use it instead of filtering in Python.
+- **LangChain, LlamaIndex and Haystack** vector stores, each passing its framework's own
+  conformance suite, with filters run in the engine.
+- **Retrieval evaluation** (`epzero.ir`): documents under string ids, dense, keyword and hybrid
+  retrieval, TREC run files, and nDCG, MAP, recall and MRR identical to trec_eval's (tested against
+  it, ties included). On BEIR with all-MiniLM-L6-v2 the dense scores reproduce the published ones
+  exactly (SciFact 0.645) and hybrid reaches 0.713 on SciFact and 0.354 on NFCorpus.
 - **Recall you can see and keep:** live recall estimates with confidence
   intervals from sampled exact checks, a guard that holds a recall target as
   the workload drifts, and an explanation for any miss
@@ -150,13 +181,20 @@ project was called Oryx until October 2026.)
   target in 13% less time (22% fewer distance computations); on SIFT1M, where it
   varies little, it is about even, so it is opt-in (dedicated server; [details](docs/recall-guard.md#per-query-effort)).
 - **Hybrid search:** a BM25 keyword index beside the vector index, merged by
-  reciprocal rank fusion, in Python and in the LangChain store, for the exact
-  terms (product codes, names, error messages) that embeddings blur.
+  reciprocal rank fusion, for the exact terms (product codes, names, error
+  messages) that embeddings blur. English words are stemmed (Porter, as Lucene
+  does): BM25 nDCG@10 rose from 0.660 to 0.688 on SciFact and from 0.305 to
+  0.321 on NFCorpus (BEIR's Anserini baselines: 0.665 and 0.325).
 - **Searches don't stop for writes:** 4,049 writes/s cost concurrent readers
   9% of their throughput, and p99 latency went from 236 to 262 µs.
 - **Hardened against malformed files:** libFuzzer runs on every parser of
-  untrusted bytes in CI; it found four crash bugs in the index loaders, all
-  fixed and kept as regression cases.
+  untrusted bytes in CI (snapshots, graphs, the write-ahead log, text and
+  metadata indexes); it found four crash bugs in the index loaders, all fixed
+  and kept as regression cases. Every file format keeps a compatibility promise:
+  newer releases read every file an older one wrote, tested against a real file
+  from 0.4.0 ([formats](docs/file-format.md)).
+- **Guarded against regressions:** CI rebuilds a reference index on every push
+  and fails if recall drops or the work per query grows.
 - **Ahead of hnswlib and FAISS** on SIFT1M at full precision, at every recall level: 1.08×
   hnswlib's and 1.12× FAISS's queries per second at recall 0.95 on a dedicated
   server, and the fastest 1M-vector build (24.0 s on 24 threads, against 27.8 s
@@ -191,14 +229,16 @@ project was called Oryx until October 2026.)
 ```mermaid
 flowchart LR
   subgraph core["C++20 engine (engine/)"]
-    HNSW["HNSW index<br/>lock-free search, SQ8"]
+    HNSW["HNSW index<br/>lock-free search, SQ8,<br/>automatic configuration"]
+    TEXT["BM25 text index<br/>and metadata index"]
     SIMD["Distance kernels<br/>AVX2 · AVX-512 · NEON · SIMD128"]
     DB["Database<br/>write-ahead log, snapshots"]
     HNSW --> SIMD
+    TEXT -- "hybrid search, filters" --> HNSW
     DB --> HNSW
   end
-  core --> PY["Python module<br/>(pybind11)"]
-  core --> BENCH["Benchmarks<br/>vs. hnswlib, FAISS"]
+  core --> PY["Python package<br/>(pybind11): epzero.ir,<br/>LangChain, LlamaIndex, Haystack"]
+  core --> BENCH["Benchmarks (bench/)<br/>vs. Glass, hnswlib, FAISS,<br/>USearch, VSAG"]
   core --> WASM["WebAssembly<br/>threaded + single-threaded"]
   core --> NODE["epzero-node<br/>(gRPC data node)"]
   WASM --> SITE["Website (web/)<br/>Svelte 5, three.js, CLIP in the browser"]
@@ -222,11 +262,12 @@ flowchart LR
 
 | Area | Tools |
 |---|---|
-| Engine | C++20, CMake, AVX2 / AVX-512 / NEON / WASM SIMD128 intrinsics, pybind11 + scikit-build-core |
+| Engine | C++20 (GCC, Clang, MSVC), CMake, AVX2 / AVX-512 / NEON / WASM SIMD128 intrinsics, pybind11 + scikit-build-core |
+| Integrations | LangChain, LlamaIndex, Haystack; BEIR, TREC run files, VIBE and ann-benchmarks adapters |
 | Cluster | Go 1.27, gRPC, Protocol Buffers, Prometheus text metrics |
 | Web | Svelte 5, TypeScript, Vite, three.js, Emscripten (pthreads, SIMD), transformers.js on ONNX Runtime Web (CLIP ViT-B/32), service worker |
 | Data | PyTorch + CLIP, UMAP, Open Images V7 |
-| Testing and CI | CTest, ThreadSanitizer, AddressSanitizer + UBSan, libFuzzer, pytest, Go race detector, govulncheck, Porcupine, Playwright (Chromium, Firefox, WebKit), axe-core, GitHub Actions on x86-64 and ARM64, cibuildwheel |
+| Testing and CI | CTest, ThreadSanitizer, AddressSanitizer + UBSan, libFuzzer, pytest, Go race detector, govulncheck, Porcupine, Playwright (Chromium, Firefox, WebKit), axe-core, GitHub Actions on x86-64, ARM64 and Windows, cibuildwheel, a recall and work regression gate |
 | Benchmarking | Dedicated nodes on Georgia Tech's PACE cluster (Slurm): Intel Xeon Gold 6226, AMD EPYC 7513, AMD Threadripper PRO 9985WX |
 | Hosting | Cloudflare Workers (static assets at the edge, the CLIP models in R2 behind a Worker), deployed from CI; Terraform for Oracle Cloud (Ampere A1) |
 
@@ -252,6 +293,27 @@ on the real queries against its 0.95 target in all eight runs. Epzero's indexes 
 Glass's on GIST1M, DBpedia and DEEP10M (4.0 against 5.2 GB, 6.3 against 8.4, 7.0 against 8.7) and
 the same on GloVe-100. Raw results: [`bench/results/pace/`](bench/results/pace/); every run, with
 hnswlib, FAISS, USearch and VSAG too: the [scoreboard](docs/scoreboard.md).
+
+**Modern embeddings and out-of-distribution queries** (round 8: VIBE's datasets, `epzero.build` with no
+settings, the same setup). Queries per second as a multiple of Glass's at recall 0.90 / 0.95 / 0.98:
+
+| Dataset | Queries | Threadripper PRO 9985WX | Gold 6226 |
+|---|---|---|---|
+| AG News, mxbai, 1024-d | like the data | 1.41× / 1.57× / 1.63× | 1.21× / 1.31× / 1.38× |
+| arXiv, Nomic, 768-d | like the data | 1.04× / 1.17× / 1.17× | 1.07× / 1.18× / 1.15× |
+| ImageNet, CLIP, 512-d | like the data | 0.97× / 1.09× / 1.37× | 0.87× / 0.97× / 1.13× |
+| LAION, CLIP, 512-d | text against images | 3.18× at 0.90 (Glass stops at 0.908) | 2.74× (Glass stops at 0.907) |
+| ImageNet, ALIGN, 640-d | text against images | 2.30× at 0.90 (Glass stops at 0.938) | 1.80× (Glass stops at 0.938) |
+| Yandex, 200-d | text against images | 1.18× / 1.47× / 1.72× | 0.99× / 1.08× / 1.29× |
+
+Epzero built every index faster (22 s against 108 s on AG News on the Threadripper; 1.3-1.6× on the
+Gold). Where queries are like the data, recall at the calibrated beam width was 0.944-0.961 for a 0.95
+target on both machines. Where text searches images it was 0.74-0.80, as rows of the data are easier
+queries than text: `check_queries` detects that (the queries sit 2.2-2.3× farther from their nearest
+neighbours than rows do), and calibrating on a sample of the queries gave 0.945-0.960 (`epzero-auto-ood`).
+The losses are on the Gold at low recall; at equal beam width Epzero's recall is higher there but its
+speed per step lower, on that CPU only (on the laptop Epzero is 1.63× Glass on Yandex at 0.90), and a
+kernel A/B run (round 9) is measuring why.
 
 **SIFT1M** (1M × 128-dim, 10k queries, official ground truth), `M=16`,
 `efConstruction=200`, 1 search thread, median of 3 runs.
@@ -332,9 +394,10 @@ accumulators.
 - **Neighbor selection.** Uses the diversity heuristic from the HNSW paper
   (Algorithm 4), so links point in different directions and the graph stays
   navigable across clusters.
-- **Visited set.** An 8-bit epoch-tagged array from a pool. It's 1 MiB for 1M
-  nodes, which fits in L2, and it resets without clearing and allocates
-  nothing per query.
+- **Visited set.** One bit per node from a pool: 128 KiB for 1M nodes, so it
+  stays in L2 (the byte-per-node version missed L2 on a share of its checks,
+  ~8% of GloVe-100 search time). Clearing touches only the words this search
+  marked, and nothing is allocated per query in steady state.
 - **SIMD dispatch.** Each ISA (AVX2, AVX-512, NEON) is compiled in its own
   translation unit and picked at runtime by CPU detection. On the first AVX-512
   Xeons (Skylake-SP, Cascade Lake) 8-bit search uses the AVX2 integer kernel,
@@ -391,7 +454,9 @@ accumulators.
   target, calibrated on rows held out of the graph until calibration is done (rows already in the
   graph are linked to their own neighbours, which made GloVe look like 0.95 when it was 0.87). From
   the machine: prefetching, timed per CPU. The choices and the reason for each are saved in the
-  index file (format v4, an `IndexProfile`), and `search()` uses them by default.
+  index file (an `IndexProfile`, format v5), and `search()`, `hybrid_search()`, `explain()` and the
+  recall guard use them by default. Calibration never settles below k (a smaller beam is measured as
+  k, so it would run unmeasured for smaller k).
 - **Walking on principal directions** (`nav_dim`). For long embeddings the graph walk scores 8-bit
   codes of the top principal directions (96 of GIST1M's 960, 288 of OpenAI's 1,536) instead of every
   dimension, and the final candidates are re-ranked with the full vectors. The query is projected on
@@ -409,13 +474,33 @@ accumulators.
 - **16-bit full vectors** (`half_vectors`, 0.5 on `main`). The full-precision copy kept for the build
   and the re-rank can be stored as IEEE half floats: about half the index's memory, with F16C and NEON
   kernels. It cost up to 17% of the speed on GIST1M and 0.003–0.004 recall on OpenAI embeddings in
-  our measurements, so it is only ever opt-in.
+  our measurements, so it is only ever opt-in. Where the full vectors live is resolved once per query,
+  which also made full-precision search 4–9% faster.
+- **Growth in place** (0.5). `add()` past capacity copies the nodes into larger blocks (at least
+  doubling) and keeps the graph, so stores that rebuilt themselves on every fill no longer do: loading
+  40,000 documents into the LangChain store in batches of 100 went from 6.0 s to 3.4 s. Searches on
+  other threads wait for the copy, which moves the index's memory.
+- **Drift in the 8-bit codes** (0.5). Codes are fitted to the vectors' ranges at build time; later
+  vectors outside them are clipped. `code_error` is the share of the variance the codes miss (about
+  1e-4 from rounding alone), `health()` advises `requantize()` above 0.01, and `requantize()` refits the
+  ranges on the live vectors, re-encodes every node in place and reconnects the graph, as the links
+  chosen on clipped codes are most of the damage.
+- **Metadata** (`MetadataIndex`, 0.5). Typed fields per label (str, int, float, bool), an inverted
+  index per field and sorted numeric values, so equality, set and range filters cost the matching
+  labels rather than a scan; the result compiles into the search's filter. Saved in its own format.
+- **Keyword search** (`TextIndex`). Okapi BM25 over an inverted index, with Lucene's never-negative idf;
+  tokens are lowercased runs of letters and digits, UTF-8 kept whole, and English words reduced by
+  the Porter stemmer (the reference algorithm, which agrees with NLTK's on all 39,011 words of
+  SciFact's and NFCorpus's vocabularies). Removed documents are skipped and compacted once they are
+  the majority.
+- **Portable.** The same sources build with GCC, Clang and MSVC; a thin platform layer covers
+  atomics, prefetch, aligned allocation, CPU detection and the write-ahead log's file I/O on Windows.
 
 ## Python
 
 ```bash
-pip install epzero                 # wheels for Linux and macOS, Python 3.10-3.13
-pip install "epzero[langchain]"    # plus the LangChain vector store
+pip install epzero                 # wheels for Linux and macOS (and Windows from 0.5), Python 3.10-3.13
+pip install "epzero[langchain]"    # plus the LangChain vector store ([llamaindex], [haystack] likewise)
 pip install ./engine               # or build from this repository
 ```
 
@@ -428,9 +513,24 @@ labels, distances = index.search(queries, k=10)
 print(index.plan)                               # every setting and why; pass any to override:
 index = epzero.build(vectors, metric="cosine", nav_dim=0, M=32, queries=sample_queries)
 
-# After the build (0.5, on main): what it needs, and a new calibration on real queries
-print(index.health())                           # growth, deleted share, fit of the directions, advice
-index.recalibrate(sample_queries)
+# After the build (0.5, on main): what it needs, and each fix in place
+print(index.health())                           # growth, deleted share, code drift, fit of the directions, advice
+print(index.check_queries(sample_queries))      # do the queries look like the data?
+index.recalibrate(sample_queries)               # re-measure the beam width on real queries
+index.requantize()                              # refit the 8-bit codes after the data drifted
+index.add(more_vectors)                         # grows in place past its capacity
+
+# Metadata, filtered in the engine
+meta = epzero.Metadata()
+meta.set_many(labels, [{"lang": "en", "year": 2024}, ...])
+hits, _ = index.search(queries, k=10, filter=index.filter(meta.select({"year": {"$gte": 2022}})))
+
+# Retrieval experiments, scored as trec_eval scores them
+from epzero import ir
+corpus, queries_by_id, qrels = ir.load_beir("scifact")
+collection = ir.Collection.build(list(corpus), doc_vectors, texts=list(corpus.values()), metric="cosine")
+run = collection.retrieve(list(queries_by_id), vectors=query_vectors, texts=list(queries_by_id.values()), mode="hybrid")
+print(ir.evaluate(run, qrels)); ir.write_run(run, "run.txt", tag="epzero-hybrid")
 
 # Or by hand
 index = epzero.Index(dim=128, metric="l2", max_elements=1_000_000, M=16, ef_construction=200)
@@ -476,6 +576,14 @@ store = EpzeroVectorStore.from_texts(texts, embeddings, metadatas=metadatas)
 docs = store.similarity_search("reset my password", k=4, filter={"source": "faq"})
 retriever = store.as_retriever(search_kwargs={"k": 8})
 ```
+
+**LlamaIndex and Haystack** (0.5). `epzero.llamaindex.EpzeroVectorStore` keeps nodes with their text
+and metadata, runs LlamaIndex's metadata filters (`==`, `!=`, ranges, `in`, `nin`, AND and OR) in the
+engine, deletes by reference document and persists to a folder. `epzero.haystack` has a
+`DocumentStore` and an embedding retriever for pipelines, with Haystack's filter syntax run in the
+engine wherever that gives exactly Haystack's answer. Each passes its framework's own test suite in
+CI. [Four executed notebooks](examples/) show them, with a quick start and retrieval evaluation on
+BEIR.
 
 ## WebAssembly
 
@@ -591,8 +699,9 @@ repository.
 
 ## Build and test
 
-Linux or WSL2, CMake ≥ 3.20, GCC ≥ 13 or Clang ≥ 17; Go ≥ 1.27 for the
-cluster; Node ≥ 22 for the site.
+Linux, macOS or WSL2, CMake ≥ 3.20, GCC ≥ 13 or Clang ≥ 17; Windows with
+MSVC (Visual Studio 2022) for the engine and the Python package; Go ≥ 1.27 for
+the cluster; Node ≥ 22 for the site.
 
 ```bash
 cmake -S engine -B build -G Ninja
@@ -610,10 +719,11 @@ python bench/compare_libs.py --data data/sift --cache data/indexes --out bench/r
 
 Sanitizers: `-DEPZERO_SANITIZE=thread` or `-DEPZERO_SANITIZE=address,undefined`.
 Fuzzing (Clang): `-DEPZERO_BUILD_FUZZ=ON` builds libFuzzer targets for snapshot
-loading, graph import, write-ahead-log recovery and the text index. CI runs GCC and Clang on
-x86-64, GCC on AArch64 (NEON), both sanitizer configurations, a minute of
-fuzzing per target plus every past finding, the Python tests, and the test
-suite as WebAssembly under Node.
+loading, graph import, write-ahead-log recovery, the text index and the metadata index. CI runs GCC
+and Clang on x86-64, GCC on AArch64 (NEON), MSVC on Windows, both sanitizer configurations, a minute
+of fuzzing per target plus every past finding, the regression gate on recall and work per query, the
+Python tests (with the LangChain, LlamaIndex and Haystack suites), and the test suite as WebAssembly
+under Node. [CONTRIBUTING.md](CONTRIBUTING.md) explains how to propose a change and measure it.
 
 Against other libraries: `bench/compete.py` (Epzero, `epzero-auto`, hnswlib, FAISS, USearch, VSAG
 and Glass on any ann-benchmarks dataset, interleaved in one process) and `bench/scoreboard.py`, which
@@ -646,8 +756,11 @@ dedicated-server runs are in [`scripts/pace/`](scripts/pace/).
 18. ✅ Walking on principal directions, a second build pass, the early re-rank stop and prefetch tuned per CPU: ahead of Glass on all four datasets, on Intel and AMD
 19. ✅ Automatic configuration in the engine (`build_auto`, `epzero.build`), saved with the index; a public scoreboard; released as 0.4.0, measured on three CPUs
 20. ✅ (0.5, on `main`) Recalibration and health checks after the build; 16-bit full vectors as an opt-in memory mode
-21. Windows; metadata stored in the engine; LlamaIndex and Haystack integrations; docs site and example notebooks
-22. Modern and out-of-distribution datasets (CLIP text-to-image, 1536-3072-dimensional text embeddings); held-out queries for the final comparison; ARM servers; an ann-benchmarks and VIBE submission (`ann-benchmarks/`)
+21. ✅ (0.5) Windows (MSVC, wheels); metadata stored in the engine; LlamaIndex and Haystack integrations; indexes that grow in place; example notebooks; a contributing guide and a regression gate in CI
+22. ✅ (0.5) Modern and out-of-distribution datasets from VIBE on two CPUs (round 8), and `check_queries` for query shift; `requantize` for drift in the 8-bit codes
+23. ✅ (0.5) Retrieval evaluation (`epzero.ir`): TREC runs, trec_eval-exact measures, BEIR, English stemming
+24. The Gold's low-recall gap (round 9); the 0.5 release; an ann-benchmarks and VIBE submission (adapters in `ann-benchmarks/` and `vibe/`); ARM servers
+25. Research: the CLEF LongEval lab, on how much of retrieval quality over time an approximate index costs, and whether in-place upkeep (recalibrate, requantize, growth) holds it at a fraction of a rebuild's cost
 
 ## License
 
