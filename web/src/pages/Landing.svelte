@@ -4,6 +4,7 @@
   import Hero from "../components/landing/Hero.svelte";
   import HowItWorks from "../components/landing/HowItWorks.svelte";
   import Problem from "../components/landing/Problem.svelte";
+  import Product from "../components/landing/Product.svelte";
   import { engine } from "../lib/engine/engine.svelte";
   import { reveal } from "../lib/reveal";
   import { router } from "../lib/router.svelte";
@@ -13,6 +14,7 @@
 <Problem />
 <HowItWorks />
 <Engineering />
+<Product />
 <Architecture />
 
 <section class="cta section" aria-labelledby="cta-title">
@@ -25,6 +27,7 @@
     </p>
     <div class="actions">
       <a class="btn btn-primary" href={router.href("try")}>Open the playground <span aria-hidden="true">→</span></a>
+      <a class="btn btn-ghost" href={router.href("download")}>Download</a>
       <a class="btn btn-ghost" href={router.href("benchmarks")}>See the benchmarks</a>
     </div>
   </div>
