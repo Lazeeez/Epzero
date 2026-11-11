@@ -26,6 +26,7 @@ An HNSW vector database written from scratch in C++20, with Python bindings.
 ```bash
 pip install epzero                 # the engine
 pip install "epzero[langchain]"    # plus the LangChain vector store
+pip install "epzero[llamaindex]"   # plus the LlamaIndex vector store
 ```
 
 ## Quick start: let it configure itself
@@ -133,9 +134,24 @@ metadata. They are compiled into an Epzero filter, so the engine chooses how to 
 documents instead of over-fetching and discarding. The store passes LangChain's standard
 vector-store test suite.
 
+## LlamaIndex
+
+```python
+from llama_index.core import StorageContext, VectorStoreIndex
+from epzero.llamaindex import EpzeroVectorStore
+
+store = EpzeroVectorStore(metric="cosine")
+index = VectorStoreIndex.from_documents(documents, storage_context=StorageContext.from_defaults(vector_store=store))
+index.as_query_engine().query("How do I reset my password?")
+store.persist("./epzero-store")        # EpzeroVectorStore.from_persist_path("./epzero-store")
+```
+
+Metadata filters (`==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `nin`, combined with AND or OR) run in the
+engine, as do `doc_ids` and `node_ids`; `delete_ref_doc` removes a document's nodes.
+
 ## Platforms
 
-Wheels for Linux (x86-64 and ARM64, glibc 2.28+) and macOS (Apple silicon and Intel), Python 3.10
-to 3.13. Elsewhere, `pip install epzero` builds from source (CMake 3.20+, a C++20 compiler).
+Wheels for Linux (x86-64 and ARM64, glibc 2.28+), macOS (Apple silicon and Intel) and, from 0.5,
+Windows (x64), Python 3.10 to 3.13. Elsewhere, `pip install epzero` builds from source (CMake 3.20+, a C++20 compiler).
 
 Live demo, benchmarks and design notes: https://epzero.dev/ · MIT license.
