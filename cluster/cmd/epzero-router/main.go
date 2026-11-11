@@ -2,7 +2,7 @@
 //
 //	epzero-router -listen :8080 -nodes node1=10.42.1.11:7000,node2=10.42.1.12:7000,node3=10.42.1.13:7000 \
 //	            -dim 512 -token-file /etc/epzero/token -state /var/lib/epzero/router.json \
-//	            -origins https://lazeeez.github.io
+//	            -origins https://epzero.dev
 //
 // Several routers (for availability, behind one load balancer) share the shard map through etcd
 // instead of -state; one of them is elected to health-check the nodes and fail shards over:
