@@ -776,6 +776,14 @@ the damage is the links chosen on clipped codes as the vectors went in, so `requ
 ranges, re-encodes, and reconnects every node (the build's refine pass), in about half a rebuild's time
 for the same search cost. `health()` reports the code error (the share of the variance the codes miss;
 about 1e-4 from rounding) and advises `requantize()` above 0.01, where the beam widths start to part.
+**Measured, not changed: the cost of a Python call.** A one-query `search()` on a 16-vector index takes
+1.76 µs, of which the search is about 0.3 µs; a 15 µs search from Python costs 1.5 µs more per call
+than in a batch. 0.47 µs of it is pybind11 looking up each of `search()`'s nine parameters by a newly
+made string whenever any is passed by keyword (`search(q, 10)` takes 1.29 µs); the rest is the arrays
+returned and the GIL. Parsing `**kwargs` by hand would save that 0.47 µs, 3% of a small search and under
+1% of a typical one, but `help()` and editors would then show `search(*args, **kwargs)`, so the
+signature stays. Batches pay it once.
+
 Calibration also no longer settles on a beam width below k: on easy data any beam reached the target at
 k = 10, and the 2 it chose then ran, unmeasured, for k = 1.
 
