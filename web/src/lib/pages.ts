@@ -30,6 +30,13 @@ export const PAGES = {
       "Search 29,825 photos, or your own privately, by words, image or webcam with a vector database running in your browser, and step through every HNSW hop.",
     heading: "Search 29,825 photos, locally.",
   },
+  download: {
+    path: "download",
+    title: "Download Epzero: pip install epzero",
+    description:
+      "Install Epzero from Python: it configures itself, keeps itself accurate as data changes, filters metadata, and plugs into LangChain, LlamaIndex and Haystack.",
+    heading: "pip install epzero, and it configures itself.",
+  },
   play: {
     path: "play",
     title: "Can you out-navigate HNSW? · Epzero",
