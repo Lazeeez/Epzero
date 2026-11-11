@@ -19,6 +19,7 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Operating System :: POSIX :: Linux",
   "Operating System :: MacOS",
+  "Operating System :: Microsoft :: Windows",
   "Topic :: Database",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
@@ -47,7 +48,7 @@ EPZERO_BUILD_NODE = "OFF"
 
 [tool.cibuildwheel]
 build = "cp310-* cp311-* cp312-* cp313-*"
-skip = "*-musllinux_* *_i686"
+skip = "*-musllinux_* *_i686 *-win32 *-win_arm64"
 test-extras = ["test"]
 test-command = "pytest -q {package}/python/tests"
 
