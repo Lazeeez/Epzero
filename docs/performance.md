@@ -752,6 +752,26 @@ Adding it put a lookup of where vectors live on every scored node, which cost fu
 (GloVe-100, both rounds); resolving that once per query instead made full-precision search 4-9% faster
 than before the change, and left 8-bit search unchanged within noise.
 
+**Data that drifts after the build: `requantize`.** 8-bit codes are fitted to the ranges of the vectors at
+build time, and later vectors outside them are clipped. Built on 20,000 clustered vectors, then 20,000
+added with half their dimensions shifted by 0-4 standard deviations, and recalibrated for recall 0.95 on
+queries like the added ones, the beam width each remedy needed (96 dimensions; laptop, one thread):
+
+| Shift | Code error | Recalibrate only | + requantize | + refine | + requantize and refine | Rebuild |
+|---|---|---|---|---|---|---|
+| 0 | 0.0001 | 14 | 14 | 12 | 10 | 12 (0.6 s) |
+| 2 sd | 0.0054 | 14 | 14 | 12 | 10 | 10 |
+| 3 sd | 0.035 | 48 | 48 | 28 | 12 (0.35 s) | 12 (0.7 s) |
+| 4 sd | 0.10 | 200 | 176 | 96 | 12 (0.32 s) | 12 (0.7 s) |
+
+At 384 dimensions, a 4 sd shift: 56, 58, 38, 12 and 12. Refitting the codes alone barely helps: most of
+the damage is the links chosen on clipped codes as the vectors went in, so `requantize()` refits the
+ranges, re-encodes, and reconnects every node (the build's refine pass), in about half a rebuild's time
+for the same search cost. `health()` reports the code error (the share of the variance the codes miss;
+about 1e-4 from rounding) and advises `requantize()` above 0.01, where the beam widths start to part.
+Calibration also no longer settles on a beam width below k: on easy data any beam reached the target at
+k = 10, and the 2 it chose then ran, unmeasured, for k = 1.
+
 **Not built: memory-mapped loading.** Loading a 1.2 GB index (GIST1M 300k, 8-bit with principal
 directions) takes 0.37-0.51 s, 2.3-3.1 GB/s, so mapping the file would save little, while mapped files
 can't use the 2 MiB huge pages worth 10-15% of search speed.
