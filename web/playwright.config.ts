@@ -32,7 +32,7 @@ export default defineConfig({
       use: { ...devices["Desktop Safari"], baseURL: deployed ?? "http://localhost:4173/" },
     },
     {
-      name: "pages-like",
+      name: "no-isolation-headers",
       testMatch: /isolation\.spec\.ts/,
       use: { baseURL: deployed ?? "http://localhost:4174/" },
     },
