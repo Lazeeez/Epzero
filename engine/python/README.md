@@ -64,6 +64,14 @@ users get the same `build_auto()`.
 If your queries differ from your data (text queries against image vectors, say), pass a few
 hundred of them as `queries=`: recall calibrated on data rows is optimistic for those.
 
+**After the build.** An index keeps changing; its calibration doesn't, by itself:
+
+```python
+print(index.health())          # growth since calibration, deleted share, fit of the directions, advice
+index.recalibrate(queries)     # re-measure the beam width on real queries; saved in the profile
+guard = epzero.RecallGuard(index, sample_rate=0.01)   # or measure live recall and adjust as you go
+```
+
 ## Configured by hand
 
 ```python
