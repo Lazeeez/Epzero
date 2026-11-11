@@ -84,6 +84,7 @@ struct IndexHealth {
   double growth = 0.0;              // change in live vectors since calibration, as a share (0.3: 30% more)
   double nav_variance_built = 0.0;  // share of the variance the principal directions held when built
   double nav_variance_now = 0.0;    // and on the vectors in the index now (0 without principal directions)
+  double code_error = 0.0;          // share of the variance the 8-bit codes miss (HnswIndex::code_error)
   std::vector<std::string> advice;  // empty when nothing needs doing
 };
 IndexHealth check_health(const HnswIndex& index, std::size_t threads = 0);
