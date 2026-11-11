@@ -60,21 +60,38 @@ add_library(epzero_engine
 )
 target_include_directories(epzero_engine PUBLIC include PRIVATE src)
 target_link_libraries(epzero_engine PUBLIC Threads::Threads)
-target_compile_options(epzero_engine PRIVATE -Wall -Wextra -Wpedantic)
+if(MSVC)
+  target_compile_options(epzero_engine PRIVATE /W3 /utf-8 /permissive- /Zc:__cplusplus)
+  target_compile_definitions(epzero_engine PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX)
+else()
+  target_compile_options(epzero_engine PRIVATE -Wall -Wextra -Wpedantic)
+endif()
 set_target_properties(epzero_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # SIMD kernels get ISA flags per file; the rest of the library stays baseline so the binary
 # runs on any CPU of the architecture and picks the best kernel at runtime.
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
   target_sources(epzero_engine PRIVATE src/distance_avx2.cpp src/distance_avx512.cpp src/distance_f16c.cpp)
-  set_source_files_properties(src/distance_f16c.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma;-mf16c")
-  set_source_files_properties(src/distance_avx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma;-mpopcnt")
-  set_source_files_properties(src/distance_avx512.cpp PROPERTIES COMPILE_OPTIONS "-mavx512f")
+  if(MSVC)  # MSVC allows any intrinsic; /arch only lets the compiler use the ISA on its own
+    set_source_files_properties(src/distance_f16c.cpp src/distance_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+    set_source_files_properties(src/distance_avx512.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX512")
+  else()
+    set_source_files_properties(src/distance_f16c.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma;-mf16c")
+    set_source_files_properties(src/distance_avx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma;-mpopcnt")
+    set_source_files_properties(src/distance_avx512.cpp PROPERTIES COMPILE_OPTIONS "-mavx512f")
+  endif()
   # VNNI integer kernels, where the toolchain can build them: the compiler must know the
   # instructions (GCC 11+, Clang 12+ for AVX-VNNI) and so must the assembler it hands them to
   # (binutils 2.36+ for AVX-VNNI; RHEL 9's 2.35 doesn't), so each check compiles and links a use.
   include(CheckCXXSourceCompiles)
-  set(CMAKE_REQUIRED_FLAGS "-mavx2 -mavxvnni")
+  if(MSVC)
+    set(EPZERO_AVXVNNI_FLAGS "/arch:AVX2")
+    set(EPZERO_AVX512VNNI_FLAGS "/arch:AVX512")
+  else()
+    set(EPZERO_AVXVNNI_FLAGS "-mavx2 -mavxvnni")
+    set(EPZERO_AVX512VNNI_FLAGS "-mavx512f -mavx512bw -mavx512vnni")
+  endif()
+  set(CMAKE_REQUIRED_FLAGS "${EPZERO_AVXVNNI_FLAGS}")
   check_cxx_source_compiles([[
     #include <immintrin.h>
     int main(int argc, char**) {
@@ -82,7 +99,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
       a = _mm256_dpbusd_avx_epi32(a, a, a);
       return _mm256_extract_epi32(a, 0);
     }]] EPZERO_TOOLCHAIN_AVXVNNI)
-  set(CMAKE_REQUIRED_FLAGS "-mavx512f -mavx512bw -mavx512vnni")
+  set(CMAKE_REQUIRED_FLAGS "${EPZERO_AVX512VNNI_FLAGS}")
   check_cxx_source_compiles([[
     #include <immintrin.h>
     int main(int argc, char**) {
@@ -93,12 +110,14 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
   unset(CMAKE_REQUIRED_FLAGS)
   if(EPZERO_TOOLCHAIN_AVXVNNI)
     target_sources(epzero_engine PRIVATE src/distance_avxvnni.cpp)
-    set_source_files_properties(src/distance_avxvnni.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mavxvnni")
+    string(REPLACE " " ";" flags "${EPZERO_AVXVNNI_FLAGS}")
+    set_source_files_properties(src/distance_avxvnni.cpp PROPERTIES COMPILE_OPTIONS "${flags}")
     set_property(SOURCE src/distance.cpp APPEND PROPERTY COMPILE_DEFINITIONS EPZERO_HAVE_AVXVNNI)
   endif()
   if(EPZERO_TOOLCHAIN_AVX512VNNI)
     target_sources(epzero_engine PRIVATE src/distance_avx512vnni.cpp)
-    set_source_files_properties(src/distance_avx512vnni.cpp PROPERTIES COMPILE_OPTIONS "-mavx512f;-mavx512bw;-mavx512vnni")
+    string(REPLACE " " ";" flags "${EPZERO_AVX512VNNI_FLAGS}")
+    set_source_files_properties(src/distance_avx512vnni.cpp PROPERTIES COMPILE_OPTIONS "${flags}")
     set_property(SOURCE src/distance.cpp APPEND PROPERTY COMPILE_DEFINITIONS EPZERO_HAVE_AVX512VNNI)
   endif()
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
