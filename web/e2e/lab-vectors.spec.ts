@@ -66,7 +66,9 @@ test("the lab benchmarks the visitor's own vectors: .npy and CSV, with a readabl
   await expect(lab.locator('.stages li[data-state="done"]')).toHaveCount(6, { timeout: 150_000 });
   await expect(lab.locator(".stages li").first()).toContainText("Load your vectors");
   await expect(lab.locator(".stages li").first()).toContainText("5,400 vectors · 600 queries · 96-D · cosine"); // 10% held out
-  await expect(lab.locator("tbody tr")).toHaveCount(12);
+  // Twelve beam widths, and the calibrated one if it isn't among them (configured automatically).
+  expect(await lab.locator("tbody tr").count()).toBeGreaterThanOrEqual(12);
+  await expect(lab.locator(".plan")).toBeVisible();
   const recalls = await lab.locator("tbody tr td:nth-child(2)").allTextContents();
   expect(Number(recalls.at(-1))).toBeGreaterThan(0.98);
 
