@@ -40,6 +40,7 @@ constexpr int kMaxLevel = 31;
 bool is_default(const IndexProfile& p) noexcept {
   const IndexProfile d;
   return p.k == d.k && p.ef == d.ef && p.rerank == d.rerank && p.rerank_z == d.rerank_z && p.recall_target == 0.0f &&
+         p.calibrated_size == 0 && p.nav_variance == 0.0f &&
          !p.built_on_codes && !p.refined && !p.filled && p.prefetch_depth == d.prefetch_depth && p.prefetch_lines == d.prefetch_lines &&
          p.machine.empty() && p.notes.empty();
 }
@@ -1619,6 +1620,30 @@ std::size_t HnswIndex::fill_free_links(std::size_t threads) {
   return added;
 }
 
+bool HnswIndex::get_vector(std::uint64_t label, float* out) const {
+  id_t id;
+  {
+    std::lock_guard lock(label_lock_);
+    const auto it = label_to_id_.find(label);
+    if (it == label_to_id_.end()) return false;
+    id = it->second;
+  }
+  if (has_full_vectors()) {
+    std::memcpy(out, full_vector(id), params_.dim * sizeof(float));
+  } else {
+    decode(id, out);  // SQ8 without kept vectors: one code per dimension (nav_dim requires the vectors)
+  }
+  return true;
+}
+
+std::vector<std::uint64_t> HnswIndex::live_labels() const {
+  std::lock_guard lock(label_lock_);
+  std::vector<std::uint64_t> out;
+  out.reserve(label_to_id_.size());
+  for (const auto& [label, id] : label_to_id_) out.push_back(label);
+  return out;
+}
+
 bool HnswIndex::contains(std::uint64_t label) const {
   std::lock_guard lock(label_lock_);
   return label_to_id_.contains(label);
@@ -1713,6 +1738,8 @@ void HnswIndex::save(const std::string& path) const {
     out.pod<float>(p.rerank_z);
     out.pod<float>(p.recall_target);
     out.pod<float>(p.recall_measured);
+    out.pod<std::uint64_t>(p.calibrated_size);
+    out.pod<float>(p.nav_variance);
     out.pod<std::uint8_t>(static_cast<std::uint8_t>((p.refined ? 1 : 0) | (p.built_on_codes ? 2 : 0)));
     out.pod<std::uint8_t>(p.filled ? 1 : 0);
     out.pod<std::uint64_t>(p.prefetch_depth);
@@ -1820,6 +1847,8 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
     profile.rerank_z = in.pod<float>();
     profile.recall_target = in.pod<float>();
     profile.recall_measured = in.pod<float>();
+    profile.calibrated_size = in.pod<std::uint64_t>();
+    profile.nav_variance = in.pod<float>();
     const auto passes = in.pod<std::uint8_t>();
     profile.refined = (passes & 1) != 0;
     profile.built_on_codes = (passes & 2) != 0;
