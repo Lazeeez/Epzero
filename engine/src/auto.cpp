@@ -27,9 +27,12 @@ constexpr std::size_t kNavRound = 32;  // whole SIMD blocks
 constexpr std::size_t kNavRerank = 300;
 constexpr float kNavRerankZ = 3.0f;
 constexpr std::size_t kCalibrationQueries = 500;
-// Timing prefetch settings on 1,000 queries was a third of an automatic GloVe-100 build; 300 keep
-// each timed pass well above timer noise.
+// Prefetch settings are timed on 300 queries at ef 96 or below, and proportionally fewer at wider beams
+// (at least 50), so each timed pass stays about as long: GloVe-100 calibrates to ef 600, where 300
+// queries made the timing 9 s of a 60 s build on a Xeon Gold 6226.
 constexpr std::size_t kTuneQueries = 300;
+constexpr std::size_t kTuneEf = 96;
+constexpr std::size_t kMinTuneQueries = 50;
 constexpr std::size_t kMaxEf = 4096;
 
 std::string percent(double share) { return std::to_string(static_cast<int>(share * 100.0 + 0.5)) + "%"; }
@@ -250,7 +253,8 @@ std::unique_ptr<HnswIndex> build_auto(const float* data, const std::uint64_t* la
   parallel_for(0, held.size(), threads, [&](std::size_t i) { index->add(label(held[i]), data + held[i] * dim); });
 
   if (plan.tune) {
-    const std::vector<float> rows = gather(data, dim, sample_rows(n, kTuneQueries, options.seed + 2));
+    const std::size_t queries = std::max(kMinTuneQueries, kTuneQueries * kTuneEf / std::max(kTuneEf, profile.ef));
+    const std::vector<float> rows = gather(data, dim, sample_rows(n, queries, options.seed + 2));
     const auto [depth, lines] = index->tune_prefetch(rows.data(), rows.size() / dim, profile.k, profile.ef);
     profile.prefetch_depth = depth;
     profile.prefetch_lines = lines;
