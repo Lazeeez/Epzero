@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
+
+An index that stays accurate as its data changes, fixed in place; metadata and keyword search in the
+engine; LlamaIndex and Haystack beside LangChain; retrieval evaluation; and Windows. Files written by
+0.4 load unchanged.
 
 **Staying accurate after the build.**
 
@@ -67,6 +71,9 @@ their text and metadata, filters in the engine, `delete_ref_doc`, and persistenc
 and Haystack's document-store test suite passes.
 
 **Windows.** The engine builds with MSVC and its tests run on Windows in CI; wheels for Windows (x64).
+
+**Easier to read.** `Index`, `Metadata`, `TextIndex` and `Database` print what they hold (size, metric,
+compression, calibrated beam width), and shape and name errors say what was passed.
 
 ## 0.4.0
 
