@@ -20,7 +20,7 @@ const isolation = {
 // engines index every page on its own, without running the app), plus a no-JavaScript fallback
 // with its heading and links to the others; the 404 page asks not to be indexed. The sitemap is
 // written from the same list (src/lib/pages.ts).
-const ROUTES = ["try", "play", "cluster", "benchmarks", "blog"] as const;
+const ROUTES = ["try", "download", "play", "cluster", "benchmarks", "blog"] as const;
 const escapeHtml = (text: string) =>
   text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
