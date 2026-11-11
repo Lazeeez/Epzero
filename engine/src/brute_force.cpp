@@ -49,7 +49,12 @@ bool farther_first(const SearchResult& a, const SearchResult& b) { return a.dist
 // on purpose: WebAssembly engines start code in a baseline tier and switch a function to
 // optimized code only on a later call, so the hot loop must not live inside one long-running
 // call (see also the warm-up in compute_ground_truth).
-[[gnu::noinline]] void score_block(const float* tile, std::size_t count, std::size_t dim, const float* data,
+#if defined(_MSC_VER) && !defined(__clang__)
+__declspec(noinline)
+#else
+[[gnu::noinline]]
+#endif
+void score_block(const float* tile, std::size_t count, std::size_t dim, const float* data,
                                    std::size_t start, std::size_t end, DistanceFn dist, std::size_t k,
                                    std::vector<TopK>& best) {
   for (std::size_t q = 0; q < count; ++q) {
