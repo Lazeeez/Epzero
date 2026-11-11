@@ -66,7 +66,8 @@ set_target_properties(epzero_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # SIMD kernels get ISA flags per file; the rest of the library stays baseline so the binary
 # runs on any CPU of the architecture and picks the best kernel at runtime.
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
-  target_sources(epzero_engine PRIVATE src/distance_avx2.cpp src/distance_avx512.cpp)
+  target_sources(epzero_engine PRIVATE src/distance_avx2.cpp src/distance_avx512.cpp src/distance_f16c.cpp)
+  set_source_files_properties(src/distance_f16c.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma;-mf16c")
   set_source_files_properties(src/distance_avx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma;-mpopcnt")
   set_source_files_properties(src/distance_avx512.cpp PROPERTIES COMPILE_OPTIONS "-mavx512f")
   # VNNI integer kernels, where the toolchain can build them: the compiler must know the
@@ -119,7 +120,7 @@ if(EPZERO_BUILD_TESTS)
   FetchContent_MakeAvailable(googletest)
 
   enable_testing()
-  add_executable(epzero_tests tests/auto_test.cpp tests/distance_test.cpp tests/hnsw_test.cpp tests/recall_test.cpp tests/dataset_test.cpp tests/database_test.cpp tests/text_test.cpp)
+  add_executable(epzero_tests tests/auto_test.cpp tests/distance_test.cpp tests/half_test.cpp tests/hnsw_test.cpp tests/recall_test.cpp tests/dataset_test.cpp tests/database_test.cpp tests/text_test.cpp)
   target_link_libraries(epzero_tests PRIVATE epzero_engine GTest::gtest_main)
   if(EMSCRIPTEN)
     # Runs under Node (CMAKE_CROSSCOMPILING_EMULATOR); workers are pre-spawned for the
