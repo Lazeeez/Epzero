@@ -27,6 +27,7 @@ An HNSW vector database written from scratch in C++20, with Python bindings.
 pip install epzero                 # the engine
 pip install "epzero[langchain]"    # plus the LangChain vector store
 pip install "epzero[llamaindex]"   # plus the LlamaIndex vector store
+pip install "epzero[haystack]"     # plus the Haystack document store and retriever
 ```
 
 ## Quick start: let it configure itself
@@ -148,6 +149,24 @@ store.persist("./epzero-store")        # EpzeroVectorStore.from_persist_path("./
 
 Metadata filters (`==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `nin`, combined with AND or OR) run in the
 engine, as do `doc_ids` and `node_ids`; `delete_ref_doc` removes a document's nodes.
+
+## Haystack
+
+```python
+from haystack import Pipeline
+from epzero.haystack import EpzeroDocumentStore, EpzeroEmbeddingRetriever
+
+store = EpzeroDocumentStore(metric="cosine")
+store.write_documents(documents)       # Documents with embeddings
+pipeline = Pipeline()
+pipeline.add_component("retriever", EpzeroEmbeddingRetriever(document_store=store, top_k=5))
+pipeline.run({"retriever": {"query_embedding": embedding,
+                            "filters": {"field": "meta.lang", "operator": "==", "value": "en"}}})
+```
+
+Filters use Haystack's syntax and run in the engine wherever that gives exactly Haystack's answer;
+the rest (ranges on dates, `None`) go to Haystack's reference implementation. The store passes
+Haystack's document-store test suite.
 
 ## Platforms
 
