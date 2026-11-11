@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+**Staying accurate after the build.**
+
+- `index.recalibrate(queries)` (C++: `epzero::recalibrate`): re-measures the beam width for the
+  recall target on real queries and saves it in the profile, without rebuilding.
+- `index.health()` (C++: `check_health`): live and deleted vectors, growth since calibration, and how
+  much of the data the principal directions still capture, with advice in plain words: compact,
+  recalibrate, or rebuild.
+- `RecallGuard(index)` takes its target and starting beam width from the profile.
+- `index.get_vector(label)` returns a stored vector.
+
 ## 0.4.0
 
 **Automatic configuration.** `epzero.build(vectors, metric=...)` (C++: `epzero::build_auto` in
