@@ -215,20 +215,26 @@ if(EPZERO_BUILD_NODE AND NOT EMSCRIPTEN)
 endif()
 
 if(EMSCRIPTEN)
-  # ES module for the browser demo: `import createEpzero from "./epzero.js"`.
-  add_executable(epzero_web wasm/epzero_wasm.cpp)
-  target_link_libraries(epzero_web PRIVATE epzero_engine)
+  # ES modules for the browser demo: `import createEpzero from "./epzero.js"`. epzero-lab.js adds the
+  # automatic configuration (build_auto) for the benchmark lab, which is 36 KB more compressed: kept out
+  # of the module every other page loads first.
+  foreach(web_target epzero_web epzero_lab)
+    add_executable(${web_target} wasm/epzero_wasm.cpp)
+    target_link_libraries(${web_target} PRIVATE epzero_engine)
+    target_link_options(${web_target} PRIVATE
+      -lembind -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createEpzero -sENVIRONMENT=web,worker -sSTACK_SIZE=1MB
+      # No eval / new Function in the generated bindings, so the site's Content Security Policy can
+      # forbid it (only WebAssembly compilation is allowed).
+      -sDYNAMIC_EXECUTION=0)
+    if(EPZERO_WASM_THREADS)
+      # Pre-spawn the workers: the module's own thread blocks while a build runs, so it cannot
+      # create new ones on demand.
+      target_link_options(${web_target} PRIVATE "-sPTHREAD_POOL_SIZE=Math.min(navigator.hardwareConcurrency,16)")
+    endif()
+  endforeach()
   set_target_properties(epzero_web PROPERTIES OUTPUT_NAME epzero SUFFIX .js)
-  target_link_options(epzero_web PRIVATE
-    -lembind -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createEpzero -sENVIRONMENT=web,worker -sSTACK_SIZE=1MB
-    # No eval / new Function in the generated bindings, so the site's Content Security Policy can
-    # forbid it (only WebAssembly compilation is allowed).
-    -sDYNAMIC_EXECUTION=0)
-  if(EPZERO_WASM_THREADS)
-    # Pre-spawn the workers: the module's own thread blocks while a build runs, so it cannot
-    # create new ones on demand.
-    target_link_options(epzero_web PRIVATE "-sPTHREAD_POOL_SIZE=Math.min(navigator.hardwareConcurrency,16)")
-  endif()
+  set_target_properties(epzero_lab PROPERTIES OUTPUT_NAME epzero-lab SUFFIX .js)
+  target_compile_definitions(epzero_lab PRIVATE EPZERO_WASM_LAB_AUTO=1)
 endif()
 
 if(EPZERO_BUILD_PYTHON)
