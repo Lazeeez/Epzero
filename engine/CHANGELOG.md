@@ -22,6 +22,9 @@ checking every document in Python. Saved in its own file format, fuzzed in CI.
 at some speed (up to 17% on GIST1M) and recall (0.003-0.004 on OpenAI embeddings), so never chosen
 automatically. Full-precision search is 4-9% faster, as vector addresses are resolved once per query.
 
+**LlamaIndex.** `epzero.llamaindex.EpzeroVectorStore` (`pip install "epzero[llamaindex]"`): nodes with
+their text and metadata, filters in the engine, `delete_ref_doc`, and persistence.
+
 **Windows.** The engine builds with MSVC and its tests run on Windows in CI; wheels for Windows (x64).
 
 ## 0.4.0
