@@ -79,6 +79,7 @@ labels, distances = index.search(queries, k=10, filter=index.filter(allowed))
 
 ```python
 print(index.health())          # growth since calibration, deleted share, fit of the directions, advice
+print(index.check_queries(queries))   # do these queries look like the data? (text vs images: no)
 index.recalibrate(queries)     # re-measure the beam width on real queries; saved in the profile
 guard = epzero.RecallGuard(index, sample_rate=0.01)   # or measure live recall and adjust as you go
 ```
