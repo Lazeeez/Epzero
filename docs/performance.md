@@ -743,6 +743,12 @@ Tried for the same goals and removed:
   `select_neighbors` and a full neighbour's links before re-pruning. Five alternating rounds on 6 threads:
   12.01 s median before, 12.14 s after. The candidates were scored just before by the search that found
   them, so their vectors are already in cache.
+- **A narrower first pass.** Building at `efConstruction` 100 before the second pass, instead of 200, cut a
+  GloVe-100 build by 25-30%, but recall fell 0.002-0.007 at every `ef`, so it is a trade, not a gain, and
+  `ef_construction` already lets a user make it.
+- **Per-thread buffers for the beam, the neighbour batch and the normalized query**, instead of allocating
+  them per search. On one saved GloVe-100 index, five alternating rounds: -3.6% to +0.1% at `ef` 16-128,
+  identical recall. The allocator already serves these small blocks cheaply.
 
 - **The alpha-convergent pruning rule** (Fast-Convergent Proximity Graphs, as a slack `tau` and `alpha`
   on the heuristic). GloVe-100, `tau` 0.1: about 2,200 against 3,900 QPS at recall 0.90, and every other
