@@ -725,22 +725,29 @@ against 212 s on the 24-core Gold. Large blocks are now zeroed on every core. No
 EPYC (round 7).
 
 **Round 8: modern embeddings and out-of-distribution queries** (VIBE's datasets, `*-speed-round8.json`,
-Threadripper PRO 9985WX). Queries per second as a multiple of Glass's at recall 0.90 / 0.95 / 0.98:
+on the Threadripper PRO 9985WX and the Xeon Gold 6226). Queries per second as a multiple of Glass's at
+recall 0.90 / 0.95 / 0.98:
 
-| Dataset | Queries | `epzero-auto` | Build, Epzero vs Glass |
-|---|---|---|---|
-| AG News, mxbai, 1024-d | like the data | 1.41× / 1.57× / 1.63× | 22 s vs 108 s |
-| arXiv, Nomic, 768-d | like the data | 1.04× / 1.17× / 1.17× | 37 s vs 147 s |
-| ImageNet, CLIP, 512-d | like the data | 0.97× / 1.09× / 1.37× | 35 s vs 44 s |
-| LAION, CLIP, 512-d | text against images | 3.18× at 0.90 (Glass stops at 0.908) | 49 s vs 59 s |
-| ImageNet, ALIGN, 640-d | text against images | 2.30× at 0.90 (Glass stops at 0.938) | 42 s vs 54 s |
-| Yandex, 200-d | text against images | 1.18× / 1.47× / 1.72× | 19 s vs 24 s |
+| Dataset | Queries | Threadripper | Gold 6226 | Build, Epzero vs Glass (Threadripper; Gold) |
+|---|---|---|---|---|
+| AG News, mxbai, 1024-d | like the data | 1.41× / 1.57× / 1.63× | 1.21× / 1.31× / 1.38× | 22 s vs 108 s; 82 s vs 112 s |
+| arXiv, Nomic, 768-d | like the data | 1.04× / 1.17× / 1.17× | 1.07× / 1.18× / 1.15× | 37 s vs 147 s; 144 s vs 191 s |
+| ImageNet, CLIP, 512-d | like the data | 0.97× / 1.09× / 1.37× | 0.87× / 0.97× / 1.13× | 35 s vs 44 s; 54 s vs 80 s |
+| LAION, CLIP, 512-d | text against images | 3.18× at 0.90 (Glass stops at 0.908) | 2.74× at 0.90 (Glass stops at 0.907) | 49 s vs 59 s; 66 s vs 87 s |
+| ImageNet, ALIGN, 640-d | text against images | 2.30× at 0.90 (Glass stops at 0.938) | 1.80× at 0.90 (Glass stops at 0.938) | 42 s vs 54 s; 61 s vs 95 s |
+| Yandex, 200-d | text against images | 1.18× / 1.47× / 1.72× | 0.99× / 1.08× / 1.29× | 19 s vs 24 s; 31 s vs 45 s |
+
+The losses are on the Gold at low recall: ImageNet-CLIP at 0.90 and 0.95, and Yandex at 0.90 (0.99×), where
+searches are shortest and fixed per-query costs weigh most. Builds were faster than Glass's everywhere;
+the 4-5× lead on the Threadripper's 64 cores narrows to 1.3-1.5× on the Gold's 24, as Glass's build
+scales less with cores.
 
 It walked on principal directions for the text embeddings (192 of mxbai's 1,024, 160 of Nomic's 768) and
 not for the image ones. Calibrated on rows of the data, its recall at the calibrated beam width was on
-target where queries are like the data (0.945, 0.955, 0.959) and far below where they aren't: 0.795, 0.753
-and 0.736 for a 0.95 target. Calibrated on the datasets' sample queries instead (`epzero-auto-ood`,
-`queries=`), it was 0.945, 0.953 and 0.958. A shifted query sits farther from its nearest neighbour than
+target where queries are like the data (0.945, 0.955, 0.959 on the Threadripper; 0.944, 0.955, 0.961 on
+the Gold) and far below where they aren't: 0.795, 0.753 and 0.736 (Gold: 0.798, 0.792, 0.741) for a 0.95
+target. Calibrated on the datasets' sample queries instead (`epzero-auto-ood`, `queries=`), it was 0.945,
+0.953 and 0.958 (Gold: 0.955, 0.947, 0.960). A shifted query sits farther from its nearest neighbour than
 rows of the data do: 2.2-2.3× on these sets, against 0.99-1.09× for queries like the data, which
 `check_queries` measures so a user knows to recalibrate.
 
