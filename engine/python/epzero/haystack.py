@@ -191,11 +191,7 @@ class EpzeroDocumentStore:
         vectors = np.zeros((self._capacity, self._dim), dtype=np.float32)
         vectors[: len(self._vectors)] = self._vectors
         self._vectors = vectors
-        index = self._new_index(self._capacity)  # fixed capacity: rebuild larger from the live vectors
-        live = np.array([label for label in self._ids if self._has_vector(label)], dtype=np.int64)
-        if len(live):
-            index.add(self._vectors[live], live)
-        self._index = index
+        self._index.reserve(self._capacity)  # copies the nodes and keeps the graph
 
     def _select(self, filters: dict[str, Any]) -> list[int]:
         """Labels of the documents matching `filters`, in insertion order."""
