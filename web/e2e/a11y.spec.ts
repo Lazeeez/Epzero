@@ -77,6 +77,12 @@ for (const theme of ["dark", "light"]) {
     await page.waitForTimeout(1200); // the reveal transitions finish
     await scan(page, "cluster");
 
+    await page.goto("download");
+    await expect(page.getByRole("tab")).toHaveCount(8);
+    await page.evaluate(() => document.querySelectorAll("[data-reveal]").forEach((el) => el.classList.add("revealed")));
+    await page.waitForTimeout(1200);
+    await scan(page, "download");
+
     await page.goto("blog");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Vector search is a memory problem");
     await scan(page, "blog");
