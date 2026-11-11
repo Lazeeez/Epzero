@@ -167,6 +167,8 @@ struct IndexProfile {
   float rerank_z = 0.0f;
   float recall_target = 0.0f;    // the recall ef was calibrated for (0: not calibrated)
   float recall_measured = 0.0f;  // what calibration reached
+  std::uint64_t calibrated_size = 0;  // live vectors when ef was calibrated
+  float nav_variance = 0.0f;     // share of the variance the walk's principal directions held when built
   bool built_on_codes = false;   // the build searched and pruned on 8-bit codes (fast_build)
   bool refined = false;          // refine_links ran after the build
   bool filled = false;           // fill_free_links ran after the build
@@ -288,6 +290,14 @@ class HnswIndex {
   // Measured: +17% on GloVe-100 at full precision, nothing on GIST1M with SQ8. Returns the setting.
   std::pair<std::size_t, std::size_t> tune_prefetch(const float* queries, std::size_t n, std::size_t k = 10,
                                                     std::size_t ef = 64);
+
+  // The stored vector of `label` (dim floats, normalized for cosine; decoded from the codes if the full
+  // vectors aren't kept). Returns false if the label isn't live.
+  bool get_vector(std::uint64_t label, float* out) const;
+  // Every live label, in no particular order.
+  std::vector<std::uint64_t> live_labels() const;
+  // The walk's principal directions (nav_dim rows of dim floats; empty without them).
+  const std::vector<float>& nav_basis() const noexcept { return nav_basis_; }
 
   const IndexProfile& profile() const noexcept { return profile_; }
   // Not thread-safe against concurrent searches that read it; set it before serving.
