@@ -43,6 +43,7 @@ struct Options {
   std::size_t nav_dim = 0;
   bool fill_links = false;
   bool fast_build = false;
+  bool half = false;
   bool fill_after = false;
   std::size_t refine = 0;
   bool refine_exact = false;
@@ -98,6 +99,7 @@ Options parse(int argc, char** argv) {
     else if (arg == "--nav-dim") o.nav_dim = std::stoul(value());
     else if (arg == "--fill-links") o.fill_links = true;
     else if (arg == "--fast-build") o.fast_build = true;
+    else if (arg == "--half") o.half = true;
     else if (arg == "--fill-after") o.fill_after = true;
     else if (arg == "--refine") o.refine = std::stoul(value());
     else if (arg == "--refine-exact") o.refine_exact = true;
@@ -191,7 +193,7 @@ int main(int argc, char** argv) try {
     HnswParams params{.dim = dim, .metric = opt.metric, .max_elements = base.n, .M = opt.M,
                       .ef_construction = opt.ef_construction, .seed = opt.seed, .quantization = opt.quantization,
                       .keep_vectors = opt.keep_vectors, .nav_dim = opt.nav_dim, .fill_links = opt.fill_links,
-                      .fast_build = opt.fast_build};
+                      .fast_build = opt.fast_build, .half_vectors = opt.half};
     loaded = std::make_unique<HnswIndex>(params);
     t0 = Clock::now();
     loaded->train(base.data.data(), std::min<std::size_t>(base.n, 100'000));  // no-op unquantized
