@@ -7,11 +7,12 @@ settings were chosen on the same queries they are measured on, so treat them as 
 figures until a run on held-out queries. Memory is the growth in the process's resident memory
 while an index loads or builds, which is approximate; blank where a run didn't record it. Build
 time uses every core of the node. Rank 1 is best; Epzero counts as one library, ranked on every
-measure by its configuration fastest at the middle recall target.
+measure by `epzero-auto` (automatic configuration, what `epzero.build` gives) where a run has it,
+and otherwise by its configuration fastest at the middle recall target.
 
 ## epyc7513
 
-### dbpedia-openai-1000k-angular: round 6, Glass against Epzero's tuned settings
+### dbpedia-openai-1000k-angular: round 6, Glass against Epzero's automatic and tuned settings
 
 990,000 vectors, 1536 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, AMD EPYC 7513 32-Core Processor.
 
@@ -22,7 +23,7 @@ measure by its configuration fastest at the middle recall target.
 | glass | 8,007 | 4,769 | 2,125 | 0.9932 | 510 s | 8,406 MB |
 | epzero-sq8 | 7,539 | 4,614 | 2,343 | 0.9960 | 705 s | 7,534 MB |
 
-### deep-image-96-angular: round 6, Glass against Epzero's tuned settings
+### deep-image-96-angular: round 6, Glass against Epzero's automatic and tuned settings
 
 9,990,000 vectors, 96 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, AMD EPYC 7513 32-Core Processor.
 
@@ -32,7 +33,7 @@ measure by its configuration fastest at the middle recall target.
 | epzero-sq8 | 18,686 | 11,248 | 5,472 | 0.9966 | 618 s | 7,035 MB |
 | glass | 15,213 | 9,844 | 4,740 | 0.9939 | 752 s | 9,018 MB |
 
-### gist-960-euclidean: round 6, Glass against Epzero's tuned settings
+### gist-960-euclidean: round 6, Glass against Epzero's automatic and tuned settings
 
 1,000,000 vectors, 960 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, AMD EPYC 7513 32-Core Processor.
 
@@ -43,7 +44,7 @@ measure by its configuration fastest at the middle recall target.
 | epzero-sq8 | 2,578 | 1,413 | — | 0.9764 | 698 s | 4,865 MB |
 | glass | 2,381 | 1,080 | — | 0.9657 | 363 s | 5,228 MB |
 
-### glove-100-angular: round 6, Glass against Epzero's tuned settings
+### glove-100-angular: round 6, Glass against Epzero's automatic and tuned settings
 
 1,183,514 vectors, 100 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, AMD EPYC 7513 32-Core Processor.
 
@@ -70,7 +71,7 @@ measure by its configuration fastest at the middle recall target.
 | epzero | 2,421 | 1,444 | 708 | 0.9962 | 288 s | — |
 | usearch | 1,773 | 1,072 | 515 | 0.9958 | 220 s | — |
 
-### dbpedia-openai-1000k-angular: round 7, Glass against Epzero's tuned settings
+### dbpedia-openai-1000k-angular: round 7, Glass against Epzero's automatic and tuned settings
 
 990,000 vectors, 1536 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, Intel(R) Xeon(R) Gold 6226 CPU @ 2.70GHz.
 
@@ -95,7 +96,7 @@ measure by its configuration fastest at the middle recall target.
 | usearch | 3,402 | 2,056 | 1,027 | 0.9961 | 422 s | — |
 | faiss-ivfpq | — | — | — | 0.8155 | 173 s | — |
 
-### deep-image-96-angular: round 7, Glass against Epzero's tuned settings
+### deep-image-96-angular: round 7, Glass against Epzero's automatic and tuned settings
 
 9,990,000 vectors, 96 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, Intel(R) Xeon(R) Gold 6226 CPU @ 2.70GHz.
 
@@ -120,7 +121,7 @@ measure by its configuration fastest at the middle recall target.
 | usearch | 467 | 261 | — | 0.9780 | 178 s | — |
 | faiss-ivfpq | 1,555 | — | — | 0.9499 | 30 s | — |
 
-### gist-960-euclidean: round 7, Glass against Epzero's tuned settings
+### gist-960-euclidean: round 7, Glass against Epzero's automatic and tuned settings
 
 1,000,000 vectors, 960 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, Intel(R) Xeon(R) Gold 6226 CPU @ 2.70GHz.
 
@@ -145,7 +146,7 @@ measure by its configuration fastest at the middle recall target.
 | usearch | 2,208 | 735 | 445 | 0.9458 | 51 s | — |
 | faiss-ivfpq | 5,706 | — | — | 0.8149 | 12 s | — |
 
-### glove-100-angular: round 7, Glass against Epzero's tuned settings
+### glove-100-angular: round 7, Glass against Epzero's automatic and tuned settings
 
 1,183,514 vectors, 100 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, Intel(R) Xeon(R) Gold 6226 CPU @ 2.70GHz.
 
@@ -157,7 +158,7 @@ measure by its configuration fastest at the middle recall target.
 
 ## threadripper
 
-### dbpedia-openai-1000k-angular: round 7, Glass against Epzero's tuned settings
+### dbpedia-openai-1000k-angular: round 7, Glass against Epzero's automatic and tuned settings
 
 990,000 vectors, 1536 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, AMD Ryzen Threadripper PRO 9985WX 64-Cores.
 
@@ -167,7 +168,7 @@ measure by its configuration fastest at the middle recall target.
 | epzero-sq8-nav256-r300-z3-fast-refine-after | 24,700 | 16,084 | 8,580 | 0.9956 | 46 s | 6,329 MB |
 | glass | 13,098 | 7,740 | 3,399 | 0.9931 | 224 s | 8,408 MB |
 
-### gist-960-euclidean: round 7, Glass against Epzero's tuned settings
+### gist-960-euclidean: round 7, Glass against Epzero's automatic and tuned settings
 
 1,000,000 vectors, 960 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, AMD Ryzen Threadripper PRO 9985WX 64-Cores.
 
@@ -177,7 +178,7 @@ measure by its configuration fastest at the middle recall target.
 | epzero-sq8-nav96-r400-z3-fast-refine-after | 9,072 | 5,556 | 3,267 | 0.9929 | 22 s | 4,013 MB |
 | glass | 4,139 | 1,926 | — | 0.9657 | 151 s | 5,229 MB |
 
-### glove-100-angular: round 7, Glass against Epzero's tuned settings
+### glove-100-angular: round 7, Glass against Epzero's automatic and tuned settings
 
 1,183,514 vectors, 100 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, AMD Ryzen Threadripper PRO 9985WX 64-Cores.
 
@@ -229,7 +230,7 @@ measure by its configuration fastest at the middle recall target.
 | gold6226 | deep-image-96-angular (round 7) | speed at 0.9 | 1 of 2 |
 | gold6226 | deep-image-96-angular (round 7) | speed at 0.95 | 1 of 2 |
 | gold6226 | deep-image-96-angular (round 7) | speed at 0.98 | 1 of 2 |
-| gold6226 | deep-image-96-angular (round 7) | build | 2 of 2 |
+| gold6226 | deep-image-96-angular (round 7) | build | 1 of 2 |
 | gold6226 | deep-image-96-angular (round 7) | memory | 1 of 2 |
 | gold6226 | gist-960-euclidean (every library) | speed at 0.9 | 3 of 7 |
 | gold6226 | gist-960-euclidean (every library) | speed at 0.95 | 1 of 7 |
