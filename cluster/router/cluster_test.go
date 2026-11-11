@@ -195,12 +195,19 @@ func TestClusterFailoverAndRecovery(t *testing.T) {
 	// Kill node2 without warning. Every shard still has a copy, so searches stay complete.
 	victim := procs[1]
 	victim.kill()
-	waitFor(t, "node2 marked down", 10*time.Second, func() bool { return !r.isUp("node2") })
-	for _, s := range r.View().Shards {
-		if s.Primary == "node2" {
-			t.Fatalf("shard %d still has the dead node as primary", s.ID)
+	// Marking the node down and promoting its replicas are separate steps a few milliseconds apart, so
+	// wait for the failover itself: checking the primaries right after "down" raced the promotion on CI.
+	waitFor(t, "node2 marked down and its shards failed over", 10*time.Second, func() bool {
+		if r.isUp("node2") {
+			return false
 		}
-	}
+		for _, s := range r.View().Shards {
+			if s.Primary == "node2" {
+				return false
+			}
+		}
+		return true
+	})
 	if got := recall(); got < 0.95 {
 		t.Fatalf("recall %.3f with a node down", got)
 	}
