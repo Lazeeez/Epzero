@@ -331,12 +331,7 @@ class EpzeroVectorStore(VectorStore):
             return
         while self._capacity < needed:
             self._capacity *= 2
-        # The index has a fixed capacity: rebuild a bigger one from the live vectors.
-        index = self._new_index(self._capacity)
-        live = np.array(sorted(self._labels.values()), dtype=np.uint64)
-        if len(live):
-            index.add(self._vectors[live.astype(np.int64)], live)
-        self._index = index
+        self._index.reserve(self._capacity)  # copies the nodes and keeps the graph
 
     # A field's values go to the engine when they are str, int, float or bool. The engine path is used for
     # a filter only when it gives exactly what the Python check below gives: Python treats True == 1 and
