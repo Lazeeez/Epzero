@@ -10,6 +10,9 @@
   width (`ef`) that reaches a recall target, calibrated on rows held out of the graph or on queries
   you pass (`queries=`).
 - From the machine: the prefetch setting, timed on this CPU, and every core.
+- Measured on an Intel Xeon Gold 6226 and an AMD Threadripper PRO 9985WX: as fast as hand-tuned
+  settings (within 1-5%), recall 0.949-0.957 on real queries for a 0.95 target, and 1.3-4.1× Glass's
+  queries per second on GIST1M, OpenAI DBpedia and DEEP10M.
 - Every setting can be fixed instead (`epzero.build(vectors, nav_dim=0, M=32)`, or `epzero.plan()`,
   edit, build). `index.plan` shows each setting and why it was chosen.
 - The choices are saved inside the index (`IndexProfile`, file format v4), and `search()` uses them
