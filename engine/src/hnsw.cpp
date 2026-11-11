@@ -1456,6 +1456,37 @@ void HnswIndex::add(std::uint64_t label, const float* vector) {
   }
 }
 
+void HnswIndex::reserve(std::size_t max_elements) {
+  if (max_elements <= params_.max_elements) return;
+  if (max_elements >= std::numeric_limits<id_t>::max()) throw std::invalid_argument("max_elements must fit in 32-bit node ids");
+  const std::size_t used = size();
+  // Each block is allocated zeroed (an unused node has no links) and the used part copied over.
+  std::unique_ptr<std::byte[], AlignedFree> level0(static_cast<std::byte*>(allocate_block(node_stride_ * max_elements)));
+  std::memcpy(level0.get(), level0_.get(), node_stride_ * used);
+  level0_ = std::move(level0);
+  if (full_) {
+    std::unique_ptr<float[], AlignedFree> full(static_cast<float*>(allocate_block(max_elements * params_.dim * sizeof(float))));
+    std::memcpy(full.get(), full_.get(), used * params_.dim * sizeof(float));
+    full_ = std::move(full);
+  }
+  if (half_) {
+    std::unique_ptr<std::uint16_t[], AlignedFree> half(
+        static_cast<std::uint16_t*>(allocate_block(max_elements * params_.dim * sizeof(std::uint16_t))));
+    std::memcpy(half.get(), half_.get(), used * params_.dim * sizeof(std::uint16_t));
+    half_ = std::move(half);
+  }
+  upper_links_.resize(max_elements);
+  levels_.resize(max_elements, 0);
+  labels_.resize(max_elements, 0);
+  auto deleted = std::make_unique<std::uint8_t[]>(max_elements);
+  std::memcpy(deleted.get(), deleted_.get(), used);
+  deleted_ = std::move(deleted);
+  node_locks_ = std::make_unique<std::mutex[]>(max_elements);
+  visited_pool_ = std::make_unique<detail::VisitedPool>(max_elements);
+  label_to_id_.reserve(max_elements);
+  params_.max_elements = max_elements;
+}
+
 bool HnswIndex::remove(std::uint64_t label) {
   id_t id;
   {
