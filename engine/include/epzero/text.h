@@ -25,14 +25,21 @@ namespace epzero {
 //
 // Tokens are maximal runs of letters and digits, lowercased (ASCII); bytes of multi-byte UTF-8
 // characters count as letters, so words in other scripts stay whole (they are matched exactly, not
-// case-folded). There is no stemming or stop-word list: BM25's idf already discounts common words.
+// case-folded). English words are then stemmed (Porter), unless Options::stemmer says not to. There is
+// no stop-word list: BM25's idf already discounts common words, and removing them changed nDCG@10 on
+// SciFact and NFCorpus by under 0.001 once words were stemmed.
 //
 // Thread safety: add() and remove() may run concurrently with search() and with each other.
 class TextIndex {
  public:
+  enum class Stemmer : std::uint8_t {
+    None = 0,    // words as tokenized
+    Porter = 1,  // English stems: "connections" and "connected" both match "connect"
+  };
   struct Options {
     float k1 = 1.2f;   // term-frequency saturation
     float b = 0.75f;   // document-length normalization
+    Stemmer stemmer = Stemmer::Porter;  // files from before stemming load with None
   };
 
   TextIndex() : TextIndex(Options{}) {}
@@ -53,8 +60,11 @@ class TextIndex {
   void save(const std::string& path) const;
   static TextIndex load(const std::string& path);
 
-  // The tokens `text` is indexed by (exposed for tests and for explaining matches).
+  // The words of `text`, before stemming.
   static std::vector<std::string> tokenize(std::string_view text);
+  // The terms `text` is indexed and searched by: its words, stemmed as the options say.
+  std::vector<std::string> terms(std::string_view text) const;
+  const Options& options() const noexcept { return options_; }
 
   TextIndex(TextIndex&& other) noexcept;
   TextIndex& operator=(TextIndex&& other) noexcept;
