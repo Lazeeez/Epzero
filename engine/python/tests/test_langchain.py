@@ -112,3 +112,20 @@ if VectorStoreIntegrationTests is not None:
         @pytest.fixture
         def vectorstore(self):
             return EpzeroVectorStore(embedding=self.get_embeddings())
+
+
+def test_dict_filters_use_the_engine_and_agree_with_python():
+    from langchain_core.embeddings import DeterministicFakeEmbedding
+    from epzero.langchain import EpzeroVectorStore
+
+    texts = [f"doc {i}" for i in range(300)]
+    metadatas = [{"source": ["faq", "blog", "docs"][i % 3], "year": 2000 + i % 30, "flag": i % 2 == 0} for i in range(300)]
+    metadatas[5]["tags"] = ["x"]  # a list: that field is checked in Python
+    store = EpzeroVectorStore.from_texts(texts, DeterministicFakeEmbedding(size=16), metadatas=metadatas)
+    for flt in ({"source": "faq"}, {"source": ["faq", "docs"], "year": 2010}, {"flag": True}, {"tags": ["x"]}):
+        python = [l for l in store._labels.values() if all(
+            (store._metadatas[l].get(k) in v) if isinstance(v, list) else store._metadatas[l].get(k) == v for k, v in flt.items())]
+        assert sorted(store._allowed(flt)) == sorted(python), flt
+    assert store._engine_filter({"source": "faq"}) and not store._engine_filter({"tags": ["x"]})
+    docs = store.similarity_search("doc 3", k=5, filter={"source": "faq"})
+    assert docs and all(d.metadata["source"] == "faq" for d in docs)
