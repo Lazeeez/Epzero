@@ -231,7 +231,9 @@
       multiple of Glass's at recall {MODERN_RECALLS.map((r) => r.toFixed(2)).join(" / ")}, one search thread; builds on every core.
     </p>
     <div class="card panel" use:reveal use:spotlight>
-      <div class="table-wrap">
+      <!-- Focusable, as it can scroll sideways on narrow screens: keyboard users can scroll it too. -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Round 8 results against Glass">
         <table class="modern">
           <thead>
             <tr>
@@ -503,6 +505,7 @@
 <style>
   .modern td {
     vertical-align: top;
+    white-space: normal; /* the notes under a cell wrap rather than widen the table */
   }
   .modern .set {
     display: block;
