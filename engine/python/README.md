@@ -92,8 +92,8 @@ guard = epzero.RecallGuard(index, sample_rate=0.01)   # or measure live recall a
 ```
 
 When later vectors drift outside the ranges the 8-bit codes were fitted on, they are clipped and
-the graph links chosen for them suffer: in one measurement the beam width needed for recall 0.95 went
-from 12 to 200. `requantize()` refits the codes and reconnects the graph in about half a rebuild's
+the graph links chosen for them suffer: in a synthetic test with a 4 sd drift, the beam width needed
+for recall 0.95 went from 12 to 200. `requantize()` refits the codes and reconnects the graph in about half a rebuild's
 time, back to 12.
 
 ## Configured by hand
