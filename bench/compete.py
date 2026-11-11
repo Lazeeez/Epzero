@@ -32,20 +32,35 @@ import time
 import numpy as np
 
 
+# Every library here is run on L2: cosine-like distances by normalizing first, which ranks the same.
+NORMALIZED_METRICS = ("angular", "cosine", "normalized")
+LEARN_QUERIES = 1000  # sample queries an out-of-distribution dataset ships, for calibration
+
+
 def load_dataset(path, max_queries):
-    """An ann-benchmarks HDF5 file: train (base), test (queries), neighbors (exact top 100)."""
+    """An ann-benchmarks or VIBE HDF5 file: train (base), test (queries), neighbors (exact top 100), and
+    for VIBE's out-of-distribution sets `learn`, sample queries from the query distribution."""
     import h5py
 
+    global LEARN
     with h5py.File(path, "r") as f:
         metric = f.attrs.get("distance", "euclidean")
         metric = metric.decode() if isinstance(metric, bytes) else str(metric)
         base = np.ascontiguousarray(f["train"][:], dtype=np.float32)
         queries = np.ascontiguousarray(f["test"][:max_queries], dtype=np.float32)
         truth = np.asarray(f["neighbors"][:max_queries])
-    if metric == "angular":
+        LEARN = np.ascontiguousarray(f["learn"][:LEARN_QUERIES], dtype=np.float32) if "learn" in f else None
+    if metric not in NORMALIZED_METRICS + ("euclidean",):
+        raise SystemExit(f"{path}: the {metric} distance isn't supported by this harness (only euclidean and cosine-like)")
+    if metric in NORMALIZED_METRICS:
         base /= np.linalg.norm(base, axis=1, keepdims=True) + 1e-12
         queries /= np.linalg.norm(queries, axis=1, keepdims=True) + 1e-12
+        if LEARN is not None:
+            LEARN /= np.linalg.norm(LEARN, axis=1, keepdims=True) + 1e-12
     return base, queries, truth, metric
+
+
+LEARN = None
 
 
 def rss_mb():
@@ -183,8 +198,12 @@ class EpzeroAuto(Library):
         print(f"{self.name:12s} {self.note}")
 
     def build(self, base):
-        self.index = self.mod.build(base, "l2", M=self.args.M, ef_construction=self.args.efc, threads=self.args.threads)
+        self.index = self.mod.build(base, "l2", M=self.args.M, ef_construction=self.args.efc, threads=self.args.threads,
+                                    queries=self.calibration_queries())
         self._describe()
+
+    def calibration_queries(self):
+        return None
 
     def save(self, path):
         self.index.save(path)
@@ -198,6 +217,21 @@ class EpzeroAuto(Library):
 
     def search(self, q, k, ef):
         return self.index.search(q, k=k, ef=ef, threads=self.args.search_threads)[0]
+
+
+class EpzeroAutoOod(EpzeroAuto):
+    """epzero-auto calibrated on the dataset's sample queries (VIBE's out-of-distribution `learn` set)
+    instead of rows of the data: what to do when queries look unlike the data, as text against images."""
+
+    name = "epzero-auto-ood"
+
+    def __init__(self, dim, args):
+        if LEARN is None:  # checked here, where an unavailable library is skipped, not mid-run
+            raise RuntimeError("this dataset has no sample queries (learn)")
+        super().__init__(dim, args)
+
+    def calibration_queries(self):
+        return LEARN
 
 
 class Hnswlib(Library):
@@ -400,7 +434,7 @@ class EpzeroSq8Avx512(EpzeroSq8):
             del os.environ["EPZERO_SQ8_KERNEL"]
 
 
-LIBRARIES = {cls.name: cls for cls in (*COMPARED, EpzeroAuto, EpzeroSq8Default, EpzeroSq8Adaptive, EpzeroSq8Avx512)}
+LIBRARIES = {cls.name: cls for cls in (*COMPARED, EpzeroAuto, EpzeroAutoOod, EpzeroSq8Default, EpzeroSq8Adaptive, EpzeroSq8Avx512)}
 
 
 def experiment(name):
