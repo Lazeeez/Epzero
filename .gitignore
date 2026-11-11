@@ -12,6 +12,8 @@ compile_commands.json
 # Datasets and generated indexes (download with scripts/); the demo dataset is published with the site
 data/
 !web/public/data/
+# ...but not the files the engine tests read (small, written by released versions)
+!engine/tests/data/
 *.idx
 *.fvecs
 *.ivecs
