@@ -50,7 +50,7 @@
       {/each}
       <article class="card tile install" use:reveal={0.24} use:spotlight>
         <div>
-          <span class="kicker">Linux · macOS · Windows from 0.5 · Python 3.10–3.13</span>
+          <span class="kicker">Linux · macOS · Windows · Python 3.10–3.13</span>
           <code><span aria-hidden="true">$ </span>pip install epzero</code>
         </div>
         <a class="btn btn-primary" href={router.href("download")}>
