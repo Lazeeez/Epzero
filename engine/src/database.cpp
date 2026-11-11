@@ -2,7 +2,11 @@
 
 #include <fcntl.h>
 #include <sys/stat.h>
+#if defined(_WIN32)
+#include <io.h>
+#else
 #include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -37,10 +41,51 @@ std::array<std::uint32_t, 256> make_crc_table() {
   throw std::runtime_error(what + ": " + std::strerror(errno));
 }
 
+// File access on POSIX and on Windows (the C runtime's descriptors, always in binary mode).
+namespace sys {
+#if defined(_WIN32)
+using offset_t = long long;
+inline int open(const fs::path& path, int flags) { return ::_wopen(path.c_str(), flags | _O_BINARY, _S_IREAD | _S_IWRITE); }
+inline long long write(int fd, const void* data, std::size_t size) {
+  return ::_write(fd, data, static_cast<unsigned>(std::min<std::size_t>(size, 1u << 30)));
+}
+inline long long read(int fd, void* data, std::size_t size) {
+  return ::_read(fd, data, static_cast<unsigned>(std::min<std::size_t>(size, 1u << 30)));
+}
+// The descriptor's position is where appends go, so a positioned read puts it back.
+inline long long read_at(int fd, void* data, std::size_t size, offset_t at) {
+  const offset_t was = ::_lseeki64(fd, 0, SEEK_CUR);
+  if (was < 0 || ::_lseeki64(fd, at, SEEK_SET) < 0) return -1;
+  const long long n = read(fd, data, size);
+  return ::_lseeki64(fd, was, SEEK_SET) < 0 ? -1 : n;
+}
+inline int sync(int fd) { return ::_commit(fd); }
+inline int truncate(int fd, offset_t size) { return ::_chsize_s(fd, size) == 0 ? 0 : -1; }
+inline offset_t seek(int fd, offset_t at) { return ::_lseeki64(fd, at, SEEK_SET); }
+inline int close(int fd) { return ::_close(fd); }
+#else
+using offset_t = off_t;
+inline int open(const fs::path& path, int flags) { return ::open(path.c_str(), flags, 0644); }
+inline long long write(int fd, const void* data, std::size_t size) { return ::write(fd, data, size); }
+inline long long read(int fd, void* data, std::size_t size) { return ::read(fd, data, size); }
+inline long long read_at(int fd, void* data, std::size_t size, offset_t at) { return ::pread(fd, data, size, at); }
+inline int sync(int fd) {
+#if defined(__linux__)
+  return ::fdatasync(fd);
+#else
+  return ::fsync(fd);
+#endif
+}
+inline int truncate(int fd, offset_t size) { return ::ftruncate(fd, size); }
+inline offset_t seek(int fd, offset_t at) { return ::lseek(fd, at, SEEK_SET); }
+inline int close(int fd) { return ::close(fd); }
+#endif
+}  // namespace sys
+
 void write_all(int fd, const void* data, std::size_t size) {
   const auto* p = static_cast<const std::uint8_t*>(data);
   while (size > 0) {
-    const ssize_t n = ::write(fd, p, size);
+    const long long n = sys::write(fd, p, size);
     if (n < 0) {
       if (errno == EINTR) continue;
       fail("write failed");
@@ -51,29 +96,31 @@ void write_all(int fd, const void* data, std::size_t size) {
 }
 
 void sync_fd(int fd) {
-#if defined(__linux__)
-  if (::fdatasync(fd) != 0) fail("fdatasync failed");
-#else
-  if (::fsync(fd) != 0) fail("fsync failed");
-#endif
+  if (sys::sync(fd) != 0) fail("fsync failed");
 }
 
 void sync_path(const fs::path& path, bool directory) {
-  const int fd = ::open(path.c_str(), directory ? O_RDONLY | O_DIRECTORY : O_RDONLY);
+#if defined(_WIN32)
+  // Windows can't open a directory to flush it; NTFS journals the rename itself.
+  if (directory) return;
+  const int fd = sys::open(path, O_RDWR);
+#else
+  const int fd = sys::open(path, directory ? O_RDONLY | O_DIRECTORY : O_RDONLY);
+#endif
   if (fd < 0) fail("open " + path.string());
-  const int result = ::fsync(fd);
-  ::close(fd);
+  const int result = sys::sync(fd);
+  sys::close(fd);
   if (result != 0) fail("fsync " + path.string());
 }
 
 // Writes `bytes` to `path` crash-safely: temporary file, fsync, rename, fsync the directory.
 void write_file_atomically(const fs::path& path, const void* bytes, std::size_t size) {
   const fs::path temp = path.string() + ".tmp";
-  const int fd = ::open(temp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  const int fd = sys::open(temp, O_WRONLY | O_CREAT | O_TRUNC);
   if (fd < 0) fail("open " + temp.string());
   write_all(fd, bytes, size);
   sync_fd(fd);
-  ::close(fd);
+  sys::close(fd);
   fs::rename(temp, path);
   sync_path(path.parent_path(), true);
 }
@@ -81,7 +128,7 @@ void write_file_atomically(const fs::path& path, const void* bytes, std::size_t 
 std::vector<std::uint8_t> read_file(int fd, std::size_t size, const std::string& name) {
   std::vector<std::uint8_t> bytes(size);
   for (std::size_t done = 0; done < size;) {
-    const ssize_t n = ::pread(fd, bytes.data() + done, size - done, static_cast<off_t>(done));
+    const long long n = sys::read_at(fd, bytes.data() + done, size - done, static_cast<sys::offset_t>(done));
     if (n <= 0) fail("read " + name);
     done += static_cast<std::size_t>(n);
   }
@@ -162,7 +209,7 @@ Database::Database(std::string dir, const HnswParams& params, const DatabaseOpti
     : dir_(std::move(dir)), params_(params), options_(options) {}
 
 Database::~Database() {
-  if (wal_fd_ >= 0) ::close(wal_fd_);
+  if (wal_fd_ >= 0) sys::close(wal_fd_);
 }
 
 std::unique_ptr<Database> Database::open(const std::string& dir, const HnswParams& params,
@@ -181,10 +228,10 @@ void Database::recover() {
   const fs::path checkpoint = dir / "CHECKPOINT";
   if (fs::exists(checkpoint)) {
     std::uint8_t buffer[12];
-    const int fd = ::open(checkpoint.c_str(), O_RDONLY);
+    const int fd = sys::open(checkpoint, O_RDONLY);
     if (fd < 0) fail("open CHECKPOINT");
-    const ssize_t n = ::read(fd, buffer, sizeof(buffer));
-    ::close(fd);
+    const long long n = sys::read(fd, buffer, sizeof(buffer));
+    sys::close(fd);
     std::uint32_t crc;
     std::memcpy(&snapshot_lsn, buffer, 8);
     std::memcpy(&crc, buffer + 8, 4);
@@ -200,7 +247,7 @@ void Database::recover() {
 
   // 2. Replay the log past the snapshot, stopping at the first torn or corrupt record.
   const fs::path wal = dir / "wal.log";
-  wal_fd_ = ::open(wal.c_str(), O_RDWR | O_CREAT, 0644);
+  wal_fd_ = sys::open(wal, O_RDWR | O_CREAT);
   if (wal_fd_ < 0) fail("open " + wal.string());
   const auto bytes = read_file(wal_fd_, static_cast<std::size_t>(fs::file_size(wal)), wal.string());
   const std::size_t good = parse_log(bytes, params_.dim, [&](LogRecord&& record) {
@@ -213,10 +260,10 @@ void Database::recover() {
   // 3. Drop the torn tail so new records are appended after the last good one.
   if (good < bytes.size()) {
     recovery_.truncated_bytes = bytes.size() - good;
-    if (::ftruncate(wal_fd_, static_cast<off_t>(good)) != 0) fail("truncate " + wal.string());
+    if (sys::truncate(wal_fd_, static_cast<sys::offset_t>(good)) != 0) fail("truncate " + wal.string());
     sync_fd(wal_fd_);
   }
-  if (::lseek(wal_fd_, static_cast<off_t>(good), SEEK_SET) < 0) fail("seek " + wal.string());
+  if (sys::seek(wal_fd_, static_cast<sys::offset_t>(good)) < 0) fail("seek " + wal.string());
   wal_bytes_ = good;
 }
 
@@ -386,8 +433,8 @@ void Database::import_snapshot(std::uint64_t lsn, const std::string& bytes) {
   auto loaded = HnswIndex::load(snapshot.string());  // validates before anything is replaced
   write_checkpoint_file(lsn);
 
-  if (::ftruncate(wal_fd_, 0) != 0) fail("truncate wal.log");
-  if (::lseek(wal_fd_, 0, SEEK_SET) < 0) fail("seek wal.log");
+  if (sys::truncate(wal_fd_, 0) != 0) fail("truncate wal.log");
+  if (sys::seek(wal_fd_, 0) < 0) fail("seek wal.log");
   sync_fd(wal_fd_);
   wal_bytes_ = 0;
   {
@@ -456,8 +503,8 @@ void Database::checkpoint_locked() {
   checkpoint_lsn_ = lsn;
 
   // 3. The log is now redundant: truncate it, and drop older snapshots.
-  if (::ftruncate(wal_fd_, 0) != 0) fail("truncate wal.log");
-  if (::lseek(wal_fd_, 0, SEEK_SET) < 0) fail("seek wal.log");
+  if (sys::truncate(wal_fd_, 0) != 0) fail("truncate wal.log");
+  if (sys::seek(wal_fd_, 0) < 0) fail("seek wal.log");
   sync_fd(wal_fd_);
   wal_bytes_ = 0;
   remove_other_snapshots(dir, snapshot);
