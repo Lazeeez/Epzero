@@ -27,6 +27,14 @@ by keyword (BM25) or both (reciprocal rank fusion), growing and shrinking after 
 in and out; relevance judgements in TREC or BEIR form; nDCG@k, MAP, recall, precision and MRR, matching
 trec_eval (tested against it); and a BEIR dataset loader.
 
+**Stemming.** `TextIndex` reduces English words to their Porter stems, so "connections" matches
+"connected" (`stemmer="none"` keeps words as written). It is the reference implementation's algorithm,
+the one Lucene and Anserini use, and agrees with NLTK's on all 39,011 words of SciFact's and NFCorpus's
+vocabularies. nDCG@10 for BM25 went from 0.660 to 0.688 on SciFact and from 0.305 to 0.321 on NFCorpus
+(BEIR's Anserini baselines: 0.665 and 0.325), and for hybrid search with all-MiniLM-L6-v2 from 0.682 to
+0.713 and from 0.344 to 0.354. Stemmed text indexes are saved as text format 2; files saved before load
+unstemmed, as they were written.
+
 **Fixes.** `hybrid_search` searched with a fixed beam width of 64 and the default re-rank, ignoring the
 index's calibrated profile; it now uses the profile unless `ef` is given. Calibration could settle on a
 beam width below k, which only k-sized searches had measured.
