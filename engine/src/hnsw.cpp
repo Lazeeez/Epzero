@@ -625,20 +625,25 @@ void HnswIndex::train(const float* data, std::size_t n) {
     nav_basis_ = pca::top_directions(stored, n, dim, params_.nav_dim, params_.seed);
     prepare_query_projection();
   }
+  fit_code_ranges(n, [&](std::size_t r, float* out) { stored(r, out); return true; }, 0);
+}
+
+void HnswIndex::fit_code_ranges(std::size_t n, const std::function<bool(std::size_t, float*)>& row_of, std::size_t threads) {
   // Each code's range over every row, in blocks of rows on all cores: with principal directions each
   // row is projected first, nav_dim x dim multiply-adds, which on one core took minutes at 1M rows.
+  const std::size_t dim = params_.dim;
   const std::size_t codes = code_dim();
   std::vector<float> lo(codes, std::numeric_limits<float>::max());
   std::vector<float> hi(codes, std::numeric_limits<float>::lowest());
   constexpr std::size_t kBlock = 4096;
   std::mutex merge;
-  parallel_for(0, (n + kBlock - 1) / kBlock, 0, [&](std::size_t block) {
+  parallel_for(0, (n + kBlock - 1) / kBlock, threads, [&](std::size_t block) {
     std::vector<float> block_lo(codes, std::numeric_limits<float>::max());
     std::vector<float> block_hi(codes, std::numeric_limits<float>::lowest());
     std::vector<float> row(dim);
     std::vector<float> walked(codes);
     for (std::size_t r = block * kBlock; r < std::min(n, (block + 1) * kBlock); ++r) {
-      stored(r, row.data());
+      if (!row_of(r, row.data())) continue;
       if (params_.nav_dim != 0) project(row.data(), walked.data());
       const float* v = params_.nav_dim != 0 ? walked.data() : row.data();
       for (std::size_t i = 0; i < codes; ++i) {
@@ -652,12 +657,83 @@ void HnswIndex::train(const float* data, std::size_t n) {
       hi[i] = std::max(hi[i], block_hi[i]);
     }
   });
+  if (lo.front() > hi.front()) throw std::invalid_argument("no vectors to fit the code ranges on");
   sq8_min_ = lo;
   sq8_scale_.resize(codes);
   for (std::size_t i = 0; i < codes; ++i) {
     const float range = hi[i] - lo[i];
     sq8_scale_[i] = range > 0.0f ? range / 255.0f : 1.0f;
   }
+}
+
+double HnswIndex::code_error(std::size_t sample, std::size_t threads) const {
+  if (!sq8() || !has_full_vectors() || size() == 0 || sample == 0) return 0.0;
+  const std::size_t codes = code_dim();
+  const std::size_t step = std::max<std::size_t>(1, size() / sample);
+  const std::size_t picks = (size() + step - 1) / step;
+  // The squared error of each pick's codes, and per code the sum and sum of squares, for the variance.
+  constexpr std::size_t kBlock = 256;
+  std::mutex merge;
+  double error = 0.0;
+  std::size_t counted = 0;
+  std::vector<double> sum(codes, 0.0), squares(codes, 0.0);
+  parallel_for(0, (picks + kBlock - 1) / kBlock, threads, [&](std::size_t block) {
+    std::vector<float> scratch, walked(codes);
+    std::vector<double> block_sum(codes, 0.0), block_squares(codes, 0.0);
+    double block_error = 0.0;
+    std::size_t block_counted = 0;
+    for (std::size_t p = block * kBlock; p < std::min(picks, (block + 1) * kBlock); ++p) {
+      const auto id = static_cast<id_t>(p * step);
+      if (is_deleted(id)) continue;
+      const float* v = full_floats(id, scratch);
+      if (params_.nav_dim != 0) {
+        project(v, walked.data());
+        v = walked.data();
+      }
+      const std::uint8_t* c = codes_of(id);
+      for (std::size_t i = 0; i < codes; ++i) {
+        const double x = v[i];
+        const double e = x - (sq8_min_[i] + c[i] * sq8_scale_[i]);
+        block_error += e * e;
+        block_sum[i] += x;
+        block_squares[i] += x * x;
+      }
+      ++block_counted;
+    }
+    std::lock_guard lock(merge);
+    error += block_error;
+    counted += block_counted;
+    for (std::size_t i = 0; i < codes; ++i) {
+      sum[i] += block_sum[i];
+      squares[i] += block_squares[i];
+    }
+  });
+  if (counted < 2) return 0.0;
+  const auto n = static_cast<double>(counted);
+  double variance = 0.0;
+  for (std::size_t i = 0; i < codes; ++i) variance += std::max(0.0, squares[i] / n - (sum[i] / n) * (sum[i] / n));
+  return variance > 0.0 ? error / n / variance : 0.0;
+}
+
+void HnswIndex::requantize(std::size_t threads) {
+  if (!sq8()) throw std::logic_error("requantize() applies to SQ8 indexes");
+  if (!has_full_vectors()) throw std::logic_error("requantize() needs the full vectors (keep_vectors)");
+  if (live_count() == 0) throw std::logic_error("requantize() needs live vectors");
+  const std::size_t dim = params_.dim;
+  fit_code_ranges(size(), [&](std::size_t i, float* out) {
+    const auto id = static_cast<id_t>(i);
+    if (is_deleted(id)) return false;
+    thread_local std::vector<float> scratch;
+    std::memcpy(out, full_floats(id, scratch), dim * sizeof(float));
+    return true;
+  }, threads);
+  // Deleted nodes too: searches still walk through them.
+  parallel_for(0, size(), threads, [&](std::size_t i) {
+    const auto id = static_cast<id_t>(i);
+    thread_local std::vector<float> scratch;
+    encode(full_floats(id, scratch), reinterpret_cast<std::uint8_t*>(record(id) + sizeof(float)),
+           reinterpret_cast<float*>(record(id)));
+  });
 }
 
 void HnswIndex::project(const float* v, float* out) const noexcept {
