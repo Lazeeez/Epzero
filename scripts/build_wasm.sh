@@ -10,8 +10,8 @@ for variant in mt st; do
   threads=$([ "$variant" = mt ] && echo ON || echo OFF)
   emcmake cmake -S "$ROOT/engine" -B "$BUILD/$variant" -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DEPZERO_BUILD_BENCH=OFF -DEPZERO_BUILD_TESTS=OFF -DEPZERO_WASM_THREADS="$threads" > /dev/null
-  cmake --build "$BUILD/$variant" --target epzero_web
+  cmake --build "$BUILD/$variant" --target epzero_web epzero_lab
   mkdir -p "$ROOT/web/public/wasm/$variant"
-  cp "$BUILD/$variant/epzero.js" "$BUILD/$variant/epzero.wasm" "$ROOT/web/public/wasm/$variant/"
+  cp "$BUILD/$variant"/epzero{,-lab}.{js,wasm} "$ROOT/web/public/wasm/$variant/"
 done
 ls -l "$ROOT"/web/public/wasm/*/
