@@ -46,8 +46,24 @@ test("benchmarks page: interactive charts, and the lab runs on this device", asy
   await expect(lab.locator(".env")).toContainText("SIMD128", { timeout: 30_000 });
   await expect(lab.locator(".env")).toContainText("threads");
   await lab.locator("label", { hasText: "20k" }).click();
+  // Configured automatically (the default): the plan, with a reason per choice, and the sweep includes
+  // the calibrated beam width, the highlighted operating point.
+  await expect(lab.getByRole("radio", { name: /Configure automatically/ })).toHaveAttribute("aria-checked", "true");
   await lab.getByRole("button", { name: "Run on this device" }).click();
   await expect(lab.locator('.stages li[data-state="done"]')).toHaveCount(6, { timeout: 150_000 });
+  await expect(lab.locator(".plan")).toContainText(/Calibrated ef \d+ for recall 0\.95/);
+  await expect(lab.locator(".plan dt").first()).toBeVisible();
+  await expect(lab.locator("tbody tr.op")).toHaveCount(1);
+  expect(Number(await lab.locator("tbody tr.op td:nth-child(2)").textContent())).toBeGreaterThan(0.9);
+  await expect(lab.locator(".tile.hero")).toContainText("calibrated beam width");
+  expect(await lab.locator("tbody tr").count()).toBeGreaterThanOrEqual(10);
+  if (shots) await lab.screenshot({ path: `${shots}/lab-auto.png` });
+
+  // By hand: M and efConstruction as chosen, ten beam widths, no plan.
+  await lab.getByRole("radio", { name: /By hand/ }).click();
+  await lab.getByRole("button", { name: "Run on this device" }).click();
+  await expect(lab.locator('.stages li[data-state="done"]')).toHaveCount(6, { timeout: 150_000 });
+  await expect(lab.locator(".plan")).toHaveCount(0);
   await expect(lab.locator("tbody tr")).toHaveCount(10);
   const recalls = await lab.locator("tbody tr td:nth-child(2)").allTextContents();
   expect(Number(recalls.at(-1))).toBeGreaterThan(0.99);
