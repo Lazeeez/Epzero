@@ -126,6 +126,12 @@ def test_text_index_and_hybrid_search(tmp_path, data):
     text.save(str(tmp_path / "text.idx"))
     again = epzero.TextIndex.load(str(tmp_path / "text.idx"))
     assert list(again.search("red", 5)[0]) == [11, 10]
+    assert again.stemmer == "porter" and again.terms("Connected cars") == ["connect", "car"]
+    plain = epzero.TextIndex(stemmer="none")
+    plain.add(None, ["connected cars"])
+    assert plain.stemmer == "none" and len(plain.search("connections")[0]) == 0
+    with pytest.raises(ValueError, match="stemmer"):
+        epzero.TextIndex(stemmer="snowball")
 
     # Hybrid: the vector side alone, then a keyword-only match pulled into the results.
     index = epzero.Index(dim=24, max_elements=len(base))
