@@ -160,3 +160,35 @@ def test_explain_and_trace_use_the_profile():
     explained = [index.explain(base[i], 1, i)["cause"] for i in range(20)]
     assert explained.count("returned") == hit  # the same search as search() runs
     assert index.trace(base[0], k=1)["results"][0][0] == labels[0, 0]
+
+
+def test_recalibrate_and_health_after_growth():
+    rows = clustered(8300, 32, 8)
+    base, more, queries = rows[:2000], rows[2000:8000], rows[8000:]
+    index = epzero.build(base, capacity=8000, threads=2)
+    assert index.health()["advice"] == []
+    index.add(more, labels=np.arange(2000, 8000))
+    health = index.health()
+    assert health["growth"] == pytest.approx(3.0) and "recalibrate" in health["advice"][0]
+    result = index.recalibrate(queries, threads=2)
+    assert result["recall"] >= 0.95 and index.profile["ef"] == result["ef"]
+    assert index.plan.reasons["ef"].startswith("recalibrated") and index.health()["advice"] == []
+    assert recall(index, np.vstack([base, more]), queries, 10) >= 0.93
+
+
+def test_recall_guard_starts_from_the_profile():
+    base = clustered(3000, 32, 8)
+    index = epzero.build(base, recall=0.9, threads=2)
+    guard = epzero.RecallGuard(index, sample_rate=1.0, min_samples=10**9)
+    guard.search(base[:5], k=10)
+    guard.drain()
+    report = guard.report()
+    assert report[0]["ef"] == index.profile["ef"]
+
+
+def test_get_vector():
+    base = clustered(100, 16, 4)
+    index = epzero.build(base, threads=1)
+    assert np.allclose(index.get_vector(5), base[5], atol=1e-6)
+    with pytest.raises(KeyError):
+        index.get_vector(1000)
