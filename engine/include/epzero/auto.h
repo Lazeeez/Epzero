@@ -88,6 +88,20 @@ struct IndexHealth {
 };
 IndexHealth check_health(const HnswIndex& index, std::size_t threads = 0);
 
+// Whether `queries` (count rows) look like the data the index was calibrated on. A query from the data's
+// distribution sits about as far from its nearest neighbour as rows of the data do from theirs; text
+// queries against image vectors, say, sit far farther (VIBE's text-to-image sets: 2.3x, against 0.99-1.09x
+// for queries like the data). Then recall calibrated on rows of the data overestimates theirs (0.74-0.80
+// against a 0.95 target on those sets), and `advice` says to recalibrate on them.
+struct QueryCheck {
+  double query_distance = 0.0;  // median distance from a query to its nearest neighbour (sample)
+  double row_distance = 0.0;    // the same for rows of the data
+  double ratio = 0.0;           // query_distance / row_distance
+  bool shifted = false;         // ratio above 1.5
+  std::vector<std::string> advice;
+};
+QueryCheck check_queries(const HnswIndex& index, const float* queries, std::size_t count, std::size_t threads = 0);
+
 // Share of the variance of the index's vectors (a sample) that its principal directions hold.
 double nav_variance(const HnswIndex& index, std::size_t threads = 0);
 
