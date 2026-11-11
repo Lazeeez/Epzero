@@ -16,9 +16,11 @@
 
   let stage: HTMLDivElement;
 
-  const modes: Record<string, SceneMode> = { home: "hero", try: "explore", play: "hidden", cluster: "hidden", benchmarks: "hidden", blog: "hidden", notfound: "hidden" };
+  const modes: Record<string, SceneMode> = { home: "hero", try: "explore", download: "hidden", play: "hidden", cluster: "hidden", benchmarks: "hidden", blog: "hidden", notfound: "hidden" };
   // The cluster page carries its own (Go) engine: load its code only when it is opened.
   const loadCluster = () => import("./pages/Cluster.svelte");
+  // So is the download page, which most visitors to the demo don't open.
+  const loadDownload = () => import("./pages/Download.svelte");
 
   // Pages that show the graph start the engine and the scene; the benchmarks page needs neither.
   $effect(() => {
@@ -41,7 +43,7 @@
   // which doesn't use them): the first text or photo search then answers without a download.
   let warmed = false;
   $effect(() => {
-    if (warmed || engine.status !== "ready" || router.route === "benchmarks" || router.route === "cluster" || router.route === "blog") return;
+    if (warmed || engine.status !== "ready" || router.route === "benchmarks" || router.route === "cluster" || router.route === "blog" || router.route === "download") return;
     warmed = true;
     warmUpEncoders();
   });
@@ -89,6 +91,12 @@
     <Landing />
   {:else if router.route === "try"}
     <Try />
+  {:else if router.route === "download"}
+    {#await loadDownload()}
+      <div class="page-pending"></div>
+    {:then { default: Download }}
+      <Download />
+    {/await}
   {:else if router.route === "play"}
     <Play />
   {:else if router.route === "cluster"}
