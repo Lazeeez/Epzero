@@ -2,12 +2,13 @@
 
 [ann-benchmarks](https://github.com/erikbern/ann-benchmarks) is the standard comparison of
 approximate nearest-neighbour libraries. `epzero/` is Epzero's entry in its format: a Dockerfile that
-installs `epzero` from PyPI, the parameter grid (`config.yml`: M 8/16/32 at full precision and
-with 8-bit codes, each swept over the search beam width), and the wrapper (`module.py`).
+installs a pinned `epzero` from PyPI, the parameter grid (`config.yml`: M 16 and 32, each swept over
+the search beam width), and the wrapper (`module.py`), which builds each index with `epzero.build` so
+Epzero configures itself for the dataset.
 
 ## Submitting
 
-Needs Docker and a published `epzero` release (see `.github/workflows/wheels.yml`).
+Needs Docker. The Dockerfile pins the released `epzero` the entry was tested with.
 
 ```bash
 git clone https://github.com/erikbern/ann-benchmarks.git && cd ann-benchmarks
