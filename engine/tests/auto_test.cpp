@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -179,6 +180,7 @@ TEST(Auto, ProfileSurvivesSaveLoadAndCompaction) {
   EXPECT_EQ(a.k, b.k);
   EXPECT_EQ(a.rerank, b.rerank);
   EXPECT_EQ(a.recall_measured, b.recall_measured);
+  EXPECT_EQ(a.calibrated_size, b.calibrated_size);
   EXPECT_EQ(a.machine, b.machine);
   EXPECT_EQ(a.notes, b.notes);
   EXPECT_TRUE(b.refined);
@@ -191,6 +193,66 @@ TEST(Auto, ProfileSurvivesSaveLoadAndCompaction) {
   const auto compact = index->compacted(2);
   EXPECT_EQ(compact->profile().ef, a.ef);
   EXPECT_EQ(compact->prefetch_settings(), index->prefetch_settings());
+}
+
+TEST(Auto, RecalibrateAfterGrowthAndHealthAdvice) {
+  const auto data = make_clustered(8000, 300, 32, 30, 11);
+  AutoOptions options;
+  options.threads = 2;
+  options.capacity = 8000;
+  auto index = build_auto(data.base.data.data(), nullptr, 2000, 32, options);
+  // A quarter grown is fine; four times the vectors is not, and health says so.
+  for (std::size_t i = 2000; i < 8000; ++i) index->add(i, data.base.row(i));
+  auto health = check_health(*index);
+  EXPECT_EQ(health.live, 8000u);
+  EXPECT_NEAR(health.growth, 3.0, 1e-9);
+  ASSERT_EQ(health.advice.size(), 1u);
+  EXPECT_NE(health.advice[0].find("recalibrate"), std::string::npos);
+
+  const auto [ef, reached] = recalibrate(*index, data.queries.data.data(), 300, 0.95f, 2);
+  EXPECT_EQ(index->profile().ef, ef);
+  EXPECT_GE(reached, 0.95f);
+  EXPECT_EQ(index->profile().calibrated_size, 8000u);
+  EXPECT_TRUE(check_health(*index).advice.empty());
+
+  for (std::uint64_t i = 0; i < 2500; ++i) index->remove(i);
+  health = check_health(*index);
+  ASSERT_FALSE(health.advice.empty());
+  EXPECT_NE(health.advice[0].find("compact"), std::string::npos);
+}
+
+TEST(Auto, HealthNoticesDataTheDirectionsDontFit) {
+  // Built on data from one subspace, then flooded with data from another.
+  auto first = low_rank(3000, 512, 16, 12);
+  const auto second = low_rank(9000, 512, 16, 13);
+  AutoOptions options;
+  options.threads = 4;
+  options.capacity = 12000;
+  auto index = build_auto(first.data(), nullptr, 3000, 512, options);
+  ASSERT_GT(index->params().nav_dim, 0u);
+  EXPECT_GT(index->profile().nav_variance, 0.8f);
+  EXPECT_NEAR(nav_variance(*index), index->profile().nav_variance, 0.03);
+  for (std::size_t i = 0; i < 9000; ++i) index->add(3000 + i, second.data() + i * 512);
+  const auto health = check_health(*index);
+  EXPECT_LT(health.nav_variance_now, health.nav_variance_built - 0.05);
+  EXPECT_TRUE(std::any_of(health.advice.begin(), health.advice.end(),
+                          [](const std::string& a) { return a.find("rebuild") != std::string::npos; }));
+}
+
+TEST(Auto, GetVectorReturnsWhatIsStored) {
+  const auto data = make_clustered(500, 0, 16, 5, 14);
+  HnswParams params;
+  params.dim = 16;
+  params.max_elements = 500;
+  params.metric = Metric::Cosine;
+  HnswIndex index(params);
+  index.add(7, data.base.row(3));
+  std::vector<float> out(16), expected(data.base.row(3), data.base.row(3) + 16);
+  normalize(expected.data(), 16);
+  ASSERT_TRUE(index.get_vector(7, out.data()));
+  for (std::size_t d = 0; d < 16; ++d) EXPECT_FLOAT_EQ(out[d], expected[d]);
+  EXPECT_FALSE(index.get_vector(8, out.data()));
+  EXPECT_EQ(index.live_labels(), std::vector<std::uint64_t>{7});
 }
 
 TEST(Auto, PlainIndexesKeepTheOlderFormat) {
