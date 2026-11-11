@@ -52,6 +52,10 @@ struct HnswParams {
   // Building, with SQ8: search for neighbours and prune them on the codes instead of the full
   // vectors. Not saved with the index: later inserts use full vectors.
   bool fast_build = false;
+  // SQ8 with keep_vectors: keep the full vectors as 16-bit floats, which halves the largest part of the
+  // index. They are read only to build the graph and to re-rank, where three significant digits are
+  // enough (recall identical to four decimals on GIST1M and OpenAI embeddings). Saved with the index.
+  bool half_vectors = false;
 };
 
 struct SearchResult {
@@ -329,7 +333,19 @@ class HnswIndex {
   std::size_t rabitq_record_bytes() const noexcept;
   std::byte* record(id_t id) const noexcept { return level0_.get() + id * node_stride_; }
   // Full-precision vector: inside the layer-0 record (None) or in full_ (quantized + keep_vectors).
-  const float* full_vector(id_t id) const noexcept;
+  const float* full_vector(id_t id) const noexcept;  // null with half_vectors
+  const std::uint16_t* half_vector(id_t id) const noexcept {
+    return half_.get() + static_cast<std::size_t>(id) * params_.dim;
+  }
+  // The full-precision distance from `query` to node `id`, from whichever copy is kept.
+  float full_distance(const float* query, id_t id) const noexcept {
+    return half_ ? dist_half_(query, half_vector(id), params_.dim) : dist_(query, full_vector(id), params_.dim);
+  }
+  const void* full_address(id_t id) const noexcept {
+    return half_ ? static_cast<const void*>(half_vector(id)) : static_cast<const void*>(full_vector(id));
+  }
+  // Node `id`'s full vector as floats: in place, or decoded from halves into `scratch`.
+  const float* full_floats(id_t id, std::vector<float>& scratch) const;
   bool has_full_vectors() const noexcept { return !quantized() || params_.keep_vectors; }
   // Bytes of SQ8 code per node, and the projection onto the walk's directions (nav_dim only).
   std::size_t code_dim() const noexcept { return params_.nav_dim != 0 ? params_.nav_dim : params_.dim; }
@@ -418,6 +434,8 @@ class HnswIndex {
   std::vector<float> nav_iscale_;
   std::vector<std::int64_t> nav_isum_;
   std::unique_ptr<float[], AlignedFree> full_;
+  std::unique_ptr<std::uint16_t[], AlignedFree> half_;  // instead of full_, with half_vectors
+  HalfDistanceFn dist_half_ = nullptr;
 
   // RaBitQ: the centroid, the rotation's random signs, and the padded (power of two) dimension.
   std::vector<float> rbq_center_;
