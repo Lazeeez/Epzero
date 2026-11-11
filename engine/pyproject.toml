@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "epzero"
-version = "0.4.0"
+version = "0.5.0"
 description = "A fast HNSW vector database in C++20 that configures itself: SIMD search, filtered search, recall monitoring, crash-safe storage"
 readme = "python/README.md"
 requires-python = ">=3.10"
