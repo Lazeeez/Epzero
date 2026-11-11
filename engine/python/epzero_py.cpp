@@ -27,14 +27,14 @@ epzero::Metric parse_metric(const std::string& name) {
   if (name == "l2") return epzero::Metric::L2;
   if (name == "ip") return epzero::Metric::InnerProduct;
   if (name == "cosine") return epzero::Metric::Cosine;
-  throw std::invalid_argument("metric must be 'l2', 'ip' or 'cosine'");
+  throw std::invalid_argument("metric must be 'l2', 'ip' or 'cosine', not '" + name + "'");
 }
 
 epzero::Quantization parse_quantization(const std::string& name) {
   if (name == "none") return epzero::Quantization::None;
   if (name == "sq8") return epzero::Quantization::SQ8;
   if (name == "rabitq") return epzero::Quantization::RaBitQ;
-  throw std::invalid_argument("quantization must be 'none', 'sq8' or 'rabitq'");
+  throw std::invalid_argument("quantization must be 'none', 'sq8' or 'rabitq', not '" + name + "'");
 }
 
 epzero::FilterStrategy parse_strategy(const std::string& name) {
@@ -68,7 +68,10 @@ const float* rows_of(const FloatArray& data, std::size_t dim, std::size_t& n) {
   } else if (data.ndim() == 2 && static_cast<std::size_t>(data.shape(1)) == dim) {
     n = static_cast<std::size_t>(data.shape(0));
   } else {
-    throw std::invalid_argument("expected an array of shape (n, " + std::to_string(dim) + ")");
+    std::string got = "(";
+    for (py::ssize_t i = 0; i < data.ndim(); ++i) got += (i ? ", " : "") + std::to_string(data.shape(i));
+    throw std::invalid_argument("expected an array of shape (n, " + std::to_string(dim) + "), got " + got +
+                                (data.ndim() == 1 ? ",)" : ")"));
   }
   return data.data();
 }
@@ -113,6 +116,13 @@ py::tuple batch_search(const FloatArray& queries, std::size_t dim, std::size_t k
     });
   }
   return py::make_tuple(labels, distances);
+}
+
+// 1234567 -> "1,234,567", for the reprs.
+std::string grouped(std::size_t n) {
+  std::string digits = std::to_string(n);
+  for (int i = static_cast<int>(digits.size()) - 3; i > 0; i -= 3) digits.insert(static_cast<std::size_t>(i), ",");
+  return digits;
 }
 
 std::string quantization_name(epzero::Quantization q) {
@@ -908,6 +918,18 @@ PYBIND11_MODULE(_core, m) {
            py::arg("label"), py::arg("layer") = 0)
       .def("__contains__", [](const Index& self, std::uint64_t label) { return self.raw().contains(label); })
       .def("__len__", [](const Index& self) { return self.raw().live_count(); })
+      .def("__repr__", [](const Index& self) {
+        const auto& index = self.raw();
+        const auto& p = index.params();
+        const auto& profile = index.profile();
+        std::string out = "<epzero.Index: " + grouped(index.live_count()) + " vectors of " + std::to_string(p.dim) + " dimensions, " +
+                          std::string(epzero::to_string(p.metric)) + ", " + quantization_name(p.quantization);
+        if (p.nav_dim != 0) out += ", walk on " + std::to_string(p.nav_dim) + " directions";
+        if (p.half_vectors) out += ", 16-bit vectors";
+        out += ", ef " + std::to_string(profile.ef);
+        if (profile.recall_target > 0.0f) out += " (calibrated for recall " + std::to_string(profile.recall_target).substr(0, 4) + ")";
+        return out + ", capacity " + grouped(p.max_elements) + ">";
+      })
       .def_property_readonly("dim", [](const Index& self) { return self.raw().params().dim; })
       .def_property_readonly("max_level", [](const Index& self) { return self.raw().max_level(); })
       .def_property_readonly("deleted_count", [](const Index& self) { return self.raw().deleted_count(); })
@@ -947,6 +969,7 @@ PYBIND11_MODULE(_core, m) {
       .def("save", &Metadata::save, py::arg("path"))
       .def_static("load", &Metadata::load, py::arg("path"))
       .def("__len__", &Metadata::size)
+      .def("__repr__", [](const Metadata& self) { return "<epzero.Metadata: " + grouped(self.size()) + " labels>"; })
       .def("__contains__", &Metadata::contains);
 
   py::class_<TextIndex>(m, "TextIndex",
@@ -962,6 +985,7 @@ PYBIND11_MODULE(_core, m) {
       .def_static("load", &TextIndex::load, py::arg("path"))
       .def_static("tokenize", &epzero::TextIndex::tokenize, py::arg("text"), "The words a text is indexed by.")
       .def("__len__", [](const TextIndex& self) { return self.raw().size(); })
+      .def("__repr__", [](const TextIndex& self) { return "<epzero.TextIndex: " + grouped(self.raw().size()) + " documents>"; })
       .def("__contains__", [](const TextIndex& self, std::uint64_t label) { return self.raw().contains(label); });
 
   m.def(
@@ -1018,5 +1042,8 @@ PYBIND11_MODULE(_core, m) {
       .def("recovery", &Database::recovery, "What the last open() recovered.")
       .def("__contains__", [](const Database& self, std::uint64_t label) { return self.raw().index().contains(label); })
       .def("__len__", [](const Database& self) { return self.raw().size(); })
+      .def("__repr__", [](const Database& self) {
+        return "<epzero.Database: " + grouped(self.raw().size()) + " vectors, last log record " + std::to_string(self.raw().last_lsn()) + ">";
+      })
       .def_property_readonly("last_lsn", [](const Database& self) { return self.raw().last_lsn(); });
 }
