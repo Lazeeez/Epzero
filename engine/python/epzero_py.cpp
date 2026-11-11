@@ -331,6 +331,24 @@ class Index {
     return out;
   }
 
+  py::dict check_queries(const FloatArray& queries, std::size_t threads) const {
+    std::size_t n;
+    const float* rows = rows_of(queries, index_->params().dim, n);
+    epzero::QueryCheck c;
+    {
+      py::gil_scoped_release release;
+      const auto lock = reading();
+      c = epzero::check_queries(*index_, rows, n, threads);
+    }
+    py::dict out;
+    out["query_distance"] = c.query_distance;
+    out["row_distance"] = c.row_distance;
+    out["ratio"] = c.ratio;
+    out["shifted"] = c.shifted;
+    out["advice"] = c.advice;
+    return out;
+  }
+
   py::array_t<float> get_vector(std::uint64_t label) const {
     py::array_t<float> out(static_cast<py::ssize_t>(index_->params().dim));
     if (!index_->get_vector(label, out.mutable_data())) throw py::key_error("label " + std::to_string(label) + " is not in the index");
@@ -888,6 +906,10 @@ PYBIND11_MODULE(_core, m) {
            "What the index needs since it was built: its size and tombstones, growth since calibration,\n"
            "how much of the data its principal directions still capture, and 'advice' in plain words\n"
            "(empty when nothing needs doing).")
+      .def("check_queries", &Index::check_queries, py::arg("queries"), py::arg("threads") = 0,
+           "Whether `queries` look like the data: the median distance from a query to its nearest neighbour,\n"
+           "against the same for rows of the data. Text queries against image vectors sit far farther, and then\n"
+           "recall calibrated on the data overestimates theirs: 'advice' says to recalibrate(queries).")
       .def("get_vector", &Index::get_vector, py::arg("label"),
            "The stored vector of `label` (normalized for cosine). KeyError if it isn't in the index.")
       .def("set_prefetch", &Index::set_prefetch, py::arg("depth") = py::none(), py::arg("lines") = 1,
