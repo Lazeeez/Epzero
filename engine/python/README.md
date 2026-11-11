@@ -16,12 +16,18 @@ An HNSW vector database written from scratch in C++20, with Python bindings.
   confidence interval and moves the search effort to hold a target; `explain()` says why any given
   item was not returned. With `per_query=True` each query also stops as soon as its answer settles,
   so easy queries cost less and hard ones search further.
-- **Hybrid search:** `TextIndex` (BM25 keyword search) and `hybrid_search()`, which merges it
-  with vector search by reciprocal rank fusion.
+- **Hybrid search:** `TextIndex` (BM25 keyword search, with English stemming) and `hybrid_search()`,
+  which merges it with vector search by reciprocal rank fusion.
+- **Retrieval evaluation:** `epzero.ir` keeps documents under string ids, runs dense, keyword and
+  hybrid retrieval, writes TREC run files and scores them against relevance judgements exactly as
+  trec_eval does. On BEIR with all-MiniLM-L6-v2, hybrid reaches nDCG@10 0.713 on SciFact and 0.354 on
+  NFCorpus, above either half alone.
 - **Durable:** `Database` adds a write-ahead log with crash recovery and checkpoints.
 - **8-bit quantization** with exact re-ranking, stopped early per query once the rest can't reach
   the top k.
-- **A LangChain vector store** in `epzero.langchain`.
+- **Stays accurate as data changes:** `health()` says when an index needs recalibrating,
+  requantizing, compacting or rebuilding, and each fix runs in place.
+- **LangChain, LlamaIndex and Haystack** stores, each passing its framework's own test suite.
 
 ```bash
 pip install epzero                 # the engine
@@ -78,11 +84,17 @@ labels, distances = index.search(queries, k=10, filter=index.filter(allowed))
 **After the build.** An index keeps changing; its calibration doesn't, by itself:
 
 ```python
-print(index.health())          # growth since calibration, deleted share, fit of the directions, advice
+print(index.health())          # growth since calibration, deleted share, code error, fit of the directions, advice
 print(index.check_queries(queries))   # do these queries look like the data? (text vs images: no)
 index.recalibrate(queries)     # re-measure the beam width on real queries; saved in the profile
+index.requantize()             # vectors drifted outside the 8-bit codes' ranges: refit and reconnect
 guard = epzero.RecallGuard(index, sample_rate=0.01)   # or measure live recall and adjust as you go
 ```
+
+When later vectors drift outside the ranges the 8-bit codes were fitted on, they are clipped and
+the graph links chosen for them suffer: in one measurement the beam width needed for recall 0.95 went
+from 12 to 200. `requantize()` refits the codes and reconnects the graph in about half a rebuild's
+time, back to 12.
 
 ## Configured by hand
 
@@ -168,6 +180,23 @@ pipeline.run({"retriever": {"query_embedding": embedding,
 Filters use Haystack's syntax and run in the engine wherever that gives exactly Haystack's answer;
 the rest (ranges on dates, `None`) go to Haystack's reference implementation. The store passes
 Haystack's document-store test suite.
+
+## Retrieval evaluation
+
+```python
+from epzero import ir
+
+corpus, queries, qrels = ir.load_beir("scifact")              # a BEIR dataset folder
+collection = ir.Collection.build(list(corpus), doc_vectors, texts=list(corpus.values()), metric="cosine")
+run = collection.retrieve(list(queries), vectors=query_vectors, texts=list(queries.values()),
+                          k=100, mode="hybrid")                # or "dense", "keyword"
+ir.write_run(run, "run.txt", tag="my-system")                  # TREC format, for CLEF or TREC
+print(ir.evaluate(run, qrels))                                 # nDCG@10, R@100, MAP, MRR@10
+```
+
+`evaluate` matches trec_eval (tested against it, ties included) and also takes `per_query=True` and
+measures like `P@5` or `nDCG@20`. Documents can be added, replaced and removed by id, and a collection
+saves to a folder.
 
 ## Platforms
 
