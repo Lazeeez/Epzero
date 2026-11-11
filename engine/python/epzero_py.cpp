@@ -5,7 +5,9 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <atomic>
 #include <limits>
+#include <shared_mutex>
 
 #include "epzero/auto.h"
 #include "epzero/database.h"
@@ -211,14 +213,43 @@ class Index {
     index_->train(rows, n);
   }
 
+  // Grows the capacity when the rows don't fit (at least doubling, so a stream of small adds stays
+  // cheap): the nodes are copied, the graph kept.
   void add(const FloatArray& data, const py::object& labels, std::size_t threads) {
     const std::size_t dim = index_->params().dim;
     std::size_t n;
     const float* rows = rows_of(data, dim, n);
     const auto ids = labels_of(labels, n, index_->size());
     py::gil_scoped_release release;
+    {
+      std::unique_lock growing(sync_->lock);
+      const std::size_t needed = index_->size() + n;
+      const std::size_t capacity = index_->params().max_elements;
+      if (needed > capacity) {
+        if (sync_->guards.load() > 0) {
+          throw std::length_error("the index is full; with a RecallGuard attached, grow it first with reserve()");
+        }
+        index_->reserve(std::max(needed, 2 * capacity));
+      }
+    }
+    std::shared_lock reading(sync_->lock);
     epzero::parallel_for(0, n, threads, [&](std::size_t i) { index_->add(ids[i], rows + i * dim); });
   }
+
+  void reserve(std::size_t capacity) {
+    py::gil_scoped_release release;
+    std::unique_lock growing(sync_->lock);
+    if (capacity > index_->params().max_elements && sync_->guards.load() > 0) {
+      throw std::length_error("reserve() moves the index's memory: detach the RecallGuard first");
+    }
+    index_->reserve(capacity);
+  }
+  std::size_t capacity() const { return index_->params().max_elements; }
+
+  // Searches hold this shared; growing the index takes it alone (its memory moves).
+  std::shared_lock<std::shared_mutex> reading() const { return std::shared_lock(sync_->lock); }
+  void attach_guard() const { ++sync_->guards; }
+  void detach_guard() const { --sync_->guards; }
 
   bool remove(std::uint64_t label) { return index_->remove(label); }
 
@@ -247,6 +278,7 @@ class Index {
     epzero::SearchFilter compiled;
     const epzero::SearchFilter* active = resolve_filter(filter, compiled);
     return batch_search(queries, index_->params().dim, k, threads, [&](const float* q, std::size_t kk) {
+      const auto lock = reading();
       return index_->search(q, kk, {.ef = ef, .patience = patience, .rerank = rerank, .rerank_z = rerank_z, .filter = active, .strategy = chosen});
     });
   }
@@ -323,6 +355,7 @@ class Index {
     epzero::SearchFilter compiled;
     const epzero::SearchFilter* active = resolve_filter(filter, compiled);
     return batch_search(queries, index_->params().dim, k, threads, [&](const float* q, std::size_t kk) {
+      const auto lock = reading();
       return index_->exact_search(q, kk, active);
     });
   }
@@ -409,6 +442,12 @@ class Index {
 
  private:
   std::unique_ptr<epzero::HnswIndex> index_;
+  // Behind a pointer, so the wrapper stays movable (it's returned by value).
+  struct Sync {
+    std::shared_mutex lock;
+    std::atomic<int> guards{0};
+  };
+  std::unique_ptr<Sync> sync_ = std::make_unique<Sync>();
 };
 
 py::dict estimate_to_dict(const epzero::RecallEstimate& e) {
@@ -436,7 +475,14 @@ class Guard {
                              .initial_ef = initial_ef_arg.is_none() ? index.raw().profile().ef : initial_ef_arg.cast<std::size_t>(),
                              .min_ef = min_ef, .max_ef = max_ef,
                              .min_samples = min_samples, .margin = margin, .per_query = per_query,
-                             .monitor = {.sample_rate = sample_rate, .window = window, .reference_ef = reference_ef}}) {}
+                             .monitor = {.sample_rate = sample_rate, .window = window, .reference_ef = reference_ef}}) {
+    // Its background checks search the index on their own thread, which the index's lock can't cover:
+    // while a guard is attached, the index refuses to grow.
+    index_.attach_guard();
+  }
+  ~Guard() { index_.detach_guard(); }
+  Guard(const Guard&) = delete;
+  Guard& operator=(const Guard&) = delete;
 
   py::tuple search(const FloatArray& queries, std::size_t k, std::size_t threads, const py::object& filter) {
     epzero::SearchFilter compiled;
@@ -448,7 +494,10 @@ class Guard {
       active = &compiled;
     }
     return batch_search(queries, index_.raw().params().dim, k, threads,
-                        [&](const float* q, std::size_t kk) { return guard_.search(q, kk, active); });
+                        [&](const float* q, std::size_t kk) {
+                          const auto lock = index_.reading();
+                          return guard_.search(q, kk, active);
+                        });
   }
 
   py::list report() const {
@@ -802,6 +851,10 @@ PYBIND11_MODULE(_core, m) {
       .def("add", &Index::add, py::arg("data"), py::arg("labels") = py::none(), py::arg("threads") = 0,
            "Insert rows of `data`; labels default to consecutive ids starting at the number of slots used.")
       .def("remove", &Index::remove, py::arg("label"), "Tombstone a label; returns False if it is absent.")
+      .def("reserve", &Index::reserve, py::arg("capacity"),
+           "Grows the capacity to `capacity` vectors, copying the nodes and keeping the graph. add() does this\n"
+           "by itself when rows don't fit.")
+      .def_property_readonly("capacity", &Index::capacity, "How many vectors fit before the index grows.")
       .def("search", &Index::search, py::arg("queries"), py::arg("k") = py::none(), py::arg("ef") = py::none(),
            py::arg("rerank") = py::none(), py::arg("threads") = 1, py::arg("filter") = py::none(),
            py::arg("strategy") = "auto", py::arg("patience") = 0, py::arg("rerank_z") = py::none(),
