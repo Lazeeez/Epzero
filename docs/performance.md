@@ -693,6 +693,31 @@ server run checks the target on the real queries.
 
 At those recalls it was 1.91×, 3.44× and 1.38× plain SQ8's queries per second.
 
+**Round 7: automatic configuration on the servers** (`*-speed-round7.json`). `epzero-auto` against the
+hand-tuned settings and Glass, at M = 16 and efConstruction 200, one search thread. QPS as a multiple
+of Glass's at the dataset's three recall targets (GIST1M: 0.90 and 0.95, as Glass stops at 0.967):
+
+| Dataset | Gold 6226: auto | Gold: hand-tuned | Threadripper PRO 9985WX (Zen 5): auto | Threadripper: hand-tuned |
+|---|---|---|---|---|
+| GIST1M | 2.97×, 4.12× | 2.94×, 3.99× | 2.23×, 3.02× | 2.19×, 2.88× |
+| DBpedia | 1.59×, 1.82×, 2.28× | 1.65×, 1.80×, 2.23× | 1.94×, 2.21×, 2.68× | 1.89×, 2.08×, 2.52× |
+| DEEP10M | 1.40×, 1.32×, 1.39× | 1.44×, 1.36×, 1.46× | 1.31×, 1.29×, 1.44× | 1.25×, 1.25×, 1.40× |
+| GloVe-100 | 0.97×, 1.08×, 1.16× | 1.00×, 1.13×, 1.21× | 1.29×, 1.43×, 1.52× | 1.30×, 1.47×, 1.58× |
+
+Builds, automatic against Glass: Gold 101 / 190 s (GIST1M), 166 / 245 (DBpedia), 444 / 495 (DEEP10M),
+60 / 56 (GloVe-100); Threadripper 28 / 151, 49 / 224, 260 / 517, 28 / 28. The automatic build includes
+calibration and prefetch timing. It chose 96 directions on GIST1M and 288 on DBpedia, none on the
+others, without being told. At the beam width it calibrated for recall 0.95, recall on the real queries
+was 0.949-0.957 in all eight runs, about what 500 calibration rows allow.
+
+So automatic configuration matched the hand-tuned settings: level or ahead on GIST1M and DBpedia, 1-5%
+behind on GloVe-100 and DEEP10M, where the half-beam second pass trades a few percent of search for
+15-25% faster builds. That trade turned DEEP10M's build from a loss on the Gold (595 s hand-tuned,
+against Glass's 495) into a win (444 s). The remaining losses are all on GloVe-100: 3% at recall 0.80
+and the build by 4 s on the Gold, a tied build on the Threadripper. Prefetch timing at GloVe's wide
+calibrated beam (`ef` 600) took 9 s of that build; it now runs on fewer queries at wide beams, 25%
+faster on the laptop, after this round. The EPYC 7513 jobs are still waiting for a free node.
+
 **Memory placement on many-socket servers.** Index memory was zeroed on one thread, which on Linux
 puts every page on that thread's NUMA node: a whole index on one of the EPYC 7513's eight. Every build
 thread then shared one node's bandwidth, the likeliest reason its default build took 698 s on GIST1M
