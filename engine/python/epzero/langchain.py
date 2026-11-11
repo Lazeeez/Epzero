@@ -33,7 +33,7 @@ try:
 except ImportError as error:  # pragma: no cover
     raise ImportError('epzero.langchain needs LangChain: pip install "epzero[langchain]"') from error
 
-from ._core import Index, TextIndex, fuse_rankings
+from ._core import Index, Metadata, TextIndex, fuse_rankings
 
 MetadataFilter = dict[str, Any] | Callable[[dict[str, Any]], bool]
 
@@ -75,6 +75,8 @@ class EpzeroVectorStore(VectorStore):
         self._texts: list[str] = []
         self._metadatas: list[dict[str, Any]] = []
         self._keywords = TextIndex()  # BM25 over the texts, same labels
+        self._meta = Metadata()  # the scalar metadata fields, so dict filters run in the engine
+        self._meta_kinds: dict[str, set[str]] = {}  # per field: the kinds of value it has held
 
     # ---- LangChain interface ----
 
@@ -127,6 +129,8 @@ class EpzeroVectorStore(VectorStore):
         self._labels.update({id_: int(label) for id_, label in zip(ids, labels)})
         self._texts.extend(texts)
         self._metadatas.extend(dict(m) for m in metadatas)
+        for label, metadata in zip(labels, metadatas):
+            self._index_metadata(int(label), metadata)
         self._index.add(vectors, labels)
         self._keywords.add(labels.astype(np.int64), list(texts))
         return list(ids)
@@ -139,6 +143,7 @@ class EpzeroVectorStore(VectorStore):
             if label is not None:
                 self._index.remove(label)
                 self._keywords.remove(label)
+                self._meta.remove(label)
                 self._ids[label] = None
         return True
 
@@ -284,6 +289,8 @@ class EpzeroVectorStore(VectorStore):
         store._labels = {id_: label for label, id_ in enumerate(store._ids) if id_ is not None}
         store._texts = state["texts"]
         store._metadatas = state["metadatas"]
+        for label in store._labels.values():
+            store._index_metadata(label, store._metadatas[label])
         store._vectors = np.load(os.path.join(folder, "vectors.npy"))
         index_path = os.path.join(folder, "index.epzero")
         if os.path.exists(index_path):
@@ -331,7 +338,48 @@ class EpzeroVectorStore(VectorStore):
             index.add(self._vectors[live.astype(np.int64)], live)
         self._index = index
 
+    # A field's values go to the engine when they are str, int, float or bool. The engine path is used for
+    # a filter only when it gives exactly what the Python check below gives: Python treats True == 1 and
+    # matches None to a missing field, so fields that held other kinds of value, or mixed booleans with
+    # numbers, and filters on None, are checked in Python.
+    @staticmethod
+    def _kind(value: Any) -> str | None:
+        if isinstance(value, bool):
+            return "bool"
+        if isinstance(value, (int, float)):
+            return "number"
+        if isinstance(value, str):
+            return "str"
+        return None
+
+    def _index_metadata(self, label: int, metadata: dict[str, Any]) -> None:
+        scalars = {}
+        for key, value in metadata.items():
+            kind = self._kind(value)
+            self._meta_kinds.setdefault(key, set()).add(kind or "other")
+            if kind is not None:
+                scalars[key] = value
+        if scalars:
+            self._meta.set(label, scalars)
+
+    def _engine_filter(self, filter: dict[str, Any]) -> bool:
+        for key, want in filter.items():
+            kinds = self._meta_kinds.get(key, set())
+            if "other" in kinds or {"bool", "number"} <= kinds:
+                return False
+            values = want if isinstance(want, (list, tuple, set)) else [want]
+            if not all(self._kind(v) is not None for v in values):
+                return False  # None, or a value the engine doesn't hold
+            if any(self._kind(v) == "bool" for v in values) and "number" in kinds:
+                return False
+            if any(self._kind(v) == "number" for v in values) and "bool" in kinds:
+                return False
+        return True
+
     def _allowed(self, filter: MetadataFilter) -> list[int]:
+        if not callable(filter) and self._engine_filter(filter):
+            where = {key: list(want) if isinstance(want, (tuple, set)) else want for key, want in filter.items()}
+            return self._meta.select(where).tolist()
         if callable(filter):
             test = filter
         else:
