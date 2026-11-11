@@ -9,7 +9,6 @@ the end-to-end tests, and deploys ([`.github/workflows/site.yml`](../.github/wor
 | Response headers | [`public/_headers`](public/_headers) | Cross-origin isolation (WebAssembly threads), CSP `frame-ancestors`, HSTS, `nosniff`, one-year caching for hashed bundles |
 | The two CLIP models (64 and 89 MB) | R2 bucket `epzero-assets`, served by [`worker/index.js`](worker/index.js) at `/models/*` | Over the 25 MiB static-asset limit; served from the same origin so the page stays isolated without CORS, with range requests, ETags and the edge cache |
 | `www.epzero.dev` | [`worker/www.js`](worker/www.js) | A 301 to the same path on `epzero.dev` |
-| The old GitHub Pages address | the `redirect` job | Forwards `lazeeez.github.io/<repo>/<path>` to `epzero.dev/<path>` |
 
 Unknown paths get the app's not-found page with a real 404 status; `/try/` redirects to `/try`.
 
