@@ -12,10 +12,32 @@ export interface LabConfig {
   dim: number;
   queries: number;
   clusters: number;
+  /** manual: M and efConstruction as given; auto: epzero.build's choices for a recall target. */
+  mode: "manual" | "auto";
+  /** auto: the recall the beam width is calibrated for. */
+  recall: number;
   M: number;
   efConstruction: number;
   k: number;
   efs: number[];
+}
+
+/** What automatic configuration chose, as epzero.build reports it (index.plan). */
+export interface AutoPlan {
+  buildMs: number;
+  quantization: string;
+  M: number;
+  efConstruction: number;
+  navDim: number;
+  /** The calibrated beam width, and the re-rank depth searches use. */
+  ef: number;
+  rerank: number;
+  recallTarget: number;
+  /** Recall at `ef` on rows held out of the graph during calibration. */
+  recallMeasured: number;
+  refined: boolean;
+  machine: string;
+  notes: { setting: string; why: string }[];
 }
 
 export interface EngineInfo {
@@ -67,6 +89,7 @@ export type FromWorker =
   | { type: "baseline"; qps: number }
   | { type: "kernel"; row: KernelRow }
   | { type: "summary"; buildMs: number; memoryBytes: number; layers: number }
+  | { type: "plan"; plan: AutoPlan }
   | { type: "inspected"; role: "base" | "queries"; info: VectorInfo }
   | { type: "inspect-error"; role: "base" | "queries"; message: string }
   /** own: what the run indexes (after holding out queries). */
