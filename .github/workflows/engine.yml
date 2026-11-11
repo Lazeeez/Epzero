@@ -32,6 +32,9 @@ jobs:
         run: build/bench_distance
       - name: Recall smoke benchmark
         run: build/bench_recall --synthetic --n 20000 --queries 500 --json bench-${{ matrix.os }}-${{ matrix.compiler }}.json
+      - name: No regression in recall or search work (x86)
+        if: matrix.os == 'ubuntu-24.04'
+        run: python3 scripts/check_regression.py build/bench_recall
       - uses: actions/upload-artifact@v4
         with:
           name: bench-${{ matrix.os }}-${{ matrix.compiler }}
