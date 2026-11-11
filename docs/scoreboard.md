@@ -158,6 +158,24 @@ and otherwise by its configuration fastest at the middle recall target.
 
 ## threadripper
 
+### agnews-mxbai-1024-euclidean: round 8, Glass against Epzero's automatic and tuned settings
+
+769,382 vectors, 1024 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, AMD Ryzen Threadripper PRO 9985WX 64-Cores.
+
+| Library | QPS at 0.9 | QPS at 0.95 | QPS at 0.98 | Highest recall | Build | Memory |
+|---|---|---|---|---|---|---|
+| epzero-auto | 44,276 | 33,024 | 20,239 | 0.9989 | 22 s | 3,366 MB |
+| glass | 31,441 | 21,040 | 12,439 | 0.9997 | 108 s | 3,992 MB |
+
+### arxiv-nomic-768-normalized: round 8, Glass against Epzero's automatic and tuned settings
+
+1,344,643 vectors, 768 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, AMD Ryzen Threadripper PRO 9985WX 64-Cores.
+
+| Library | QPS at 0.9 | QPS at 0.95 | QPS at 0.98 | Highest recall | Build | Memory |
+|---|---|---|---|---|---|---|
+| epzero-auto | 36,544 | 27,723 | 16,555 | 0.9994 | 37 s | 4,482 MB |
+| glass | 35,062 | 23,773 | 14,149 | 0.9998 | 147 s | 5,363 MB |
+
 ### dbpedia-openai-1000k-angular: round 7, Glass against Epzero's automatic and tuned settings
 
 990,000 vectors, 1536 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, AMD Ryzen Threadripper PRO 9985WX 64-Cores.
@@ -197,6 +215,45 @@ and otherwise by its configuration fastest at the middle recall target.
 | epzero-sq8-fast-refine | 17,528 | 5,930 | 3,683 | 0.9611 | 33 s | 862 MB |
 | epzero-auto | 17,395 | 5,774 | 3,539 | 0.9592 | 28 s | 859 MB |
 | glass | 13,433 | 4,031 | 2,333 | 0.9436 | 28 s | 900 MB |
+
+### imagenet-align-640-normalized: round 8, Glass against Epzero's automatic and tuned settings
+
+1,281,167 vectors, 640 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, AMD Ryzen Threadripper PRO 9985WX 64-Cores.
+
+| Library | QPS at 0.9 | QPS at 0.95 | QPS at 0.98 | Highest recall | Build | Memory |
+|---|---|---|---|---|---|---|
+| epzero-auto-ood | 15,969 | 8,671 | 3,173 | 0.9836 | 48 s | 4,273 MB |
+| epzero-auto | 14,252 | 8,351 | 3,267 | 0.9848 | 42 s | 4,270 MB |
+| glass | 6,185 | — | — | 0.9376 | 54 s | 5,146 MB |
+
+### imagenet-clip-512-normalized: round 8, Glass against Epzero's automatic and tuned settings
+
+1,281,167 vectors, 512 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, AMD Ryzen Threadripper PRO 9985WX 64-Cores.
+
+| Library | QPS at 0.9 | QPS at 0.95 | QPS at 0.98 | Highest recall | Build | Memory |
+|---|---|---|---|---|---|---|
+| epzero-auto | 49,749 | 38,834 | 28,312 | 0.9992 | 35 s | 3,489 MB |
+| glass | 51,346 | 35,653 | 20,717 | 0.9937 | 44 s | 3,967 MB |
+
+### laion-clip-512-normalized: round 8, Glass against Epzero's automatic and tuned settings
+
+1,000,448 vectors, 512 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, AMD Ryzen Threadripper PRO 9985WX 64-Cores.
+
+| Library | QPS at 0.9 | QPS at 0.95 | QPS at 0.98 | Highest recall | Build | Memory |
+|---|---|---|---|---|---|---|
+| epzero-auto-ood | 8,763 | 3,216 | — | 0.9606 | 53 s | 2,725 MB |
+| epzero-auto | 8,064 | 2,389 | — | 0.9523 | 49 s | 2,725 MB |
+| glass | 2,536 | — | — | 0.9077 | 59 s | 2,751 MB |
+
+### yandex-200-cosine: round 8, Glass against Epzero's automatic and tuned settings
+
+1,000,000 vectors, 200 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, AMD Ryzen Threadripper PRO 9985WX 64-Cores.
+
+| Library | QPS at 0.9 | QPS at 0.95 | QPS at 0.98 | Highest recall | Build | Memory |
+|---|---|---|---|---|---|---|
+| epzero-auto | 18,935 | 10,356 | 5,230 | 0.9925 | 19 s | 1,230 MB |
+| epzero-auto-ood | 19,465 | 10,030 | 5,163 | 0.9928 | 21 s | 1,231 MB |
+| glass | 16,055 | 7,025 | 3,038 | 0.9858 | 24 s | 1,253 MB |
 
 ## Where Epzero stands
 
@@ -262,6 +319,16 @@ and otherwise by its configuration fastest at the middle recall target.
 | gold6226 | glove-100-angular (round 7) | speed at 0.93 | 1 of 2 |
 | gold6226 | glove-100-angular (round 7) | build | 2 of 2 |
 | gold6226 | glove-100-angular (round 7) | memory | 2 of 2 |
+| threadripper | agnews-mxbai-1024-euclidean (round 8) | speed at 0.9 | 1 of 2 |
+| threadripper | agnews-mxbai-1024-euclidean (round 8) | speed at 0.95 | 1 of 2 |
+| threadripper | agnews-mxbai-1024-euclidean (round 8) | speed at 0.98 | 1 of 2 |
+| threadripper | agnews-mxbai-1024-euclidean (round 8) | build | 1 of 2 |
+| threadripper | agnews-mxbai-1024-euclidean (round 8) | memory | 1 of 2 |
+| threadripper | arxiv-nomic-768-normalized (round 8) | speed at 0.9 | 1 of 2 |
+| threadripper | arxiv-nomic-768-normalized (round 8) | speed at 0.95 | 1 of 2 |
+| threadripper | arxiv-nomic-768-normalized (round 8) | speed at 0.98 | 1 of 2 |
+| threadripper | arxiv-nomic-768-normalized (round 8) | build | 1 of 2 |
+| threadripper | arxiv-nomic-768-normalized (round 8) | memory | 1 of 2 |
 | threadripper | dbpedia-openai-1000k-angular (round 7) | speed at 0.9 | 1 of 2 |
 | threadripper | dbpedia-openai-1000k-angular (round 7) | speed at 0.95 | 1 of 2 |
 | threadripper | dbpedia-openai-1000k-angular (round 7) | speed at 0.98 | 1 of 2 |
@@ -282,3 +349,23 @@ and otherwise by its configuration fastest at the middle recall target.
 | threadripper | glove-100-angular (round 7) | speed at 0.93 | 1 of 2 |
 | threadripper | glove-100-angular (round 7) | build | 2 of 2 |
 | threadripper | glove-100-angular (round 7) | memory | 1 of 2 |
+| threadripper | imagenet-align-640-normalized (round 8) | speed at 0.9 | 1 of 2 |
+| threadripper | imagenet-align-640-normalized (round 8) | speed at 0.95 | 1 of 2 |
+| threadripper | imagenet-align-640-normalized (round 8) | speed at 0.98 | 1 of 2 |
+| threadripper | imagenet-align-640-normalized (round 8) | build | 1 of 2 |
+| threadripper | imagenet-align-640-normalized (round 8) | memory | 1 of 2 |
+| threadripper | imagenet-clip-512-normalized (round 8) | speed at 0.9 | 2 of 2 |
+| threadripper | imagenet-clip-512-normalized (round 8) | speed at 0.95 | 1 of 2 |
+| threadripper | imagenet-clip-512-normalized (round 8) | speed at 0.98 | 1 of 2 |
+| threadripper | imagenet-clip-512-normalized (round 8) | build | 1 of 2 |
+| threadripper | imagenet-clip-512-normalized (round 8) | memory | 1 of 2 |
+| threadripper | laion-clip-512-normalized (round 8) | speed at 0.9 | 1 of 2 |
+| threadripper | laion-clip-512-normalized (round 8) | speed at 0.95 | 1 of 2 |
+| threadripper | laion-clip-512-normalized (round 8) | speed at 0.98 | — |
+| threadripper | laion-clip-512-normalized (round 8) | build | 1 of 2 |
+| threadripper | laion-clip-512-normalized (round 8) | memory | 1 of 2 |
+| threadripper | yandex-200-cosine (round 8) | speed at 0.9 | 1 of 2 |
+| threadripper | yandex-200-cosine (round 8) | speed at 0.95 | 1 of 2 |
+| threadripper | yandex-200-cosine (round 8) | speed at 0.98 | 1 of 2 |
+| threadripper | yandex-200-cosine (round 8) | build | 1 of 2 |
+| threadripper | yandex-200-cosine (round 8) | memory | 1 of 2 |
