@@ -9,6 +9,7 @@
 
 #include "common.h"
 #include "epzero/database.h"
+#include "epzero/metadata.h"
 #include "epzero/text.h"
 
 namespace fs = std::filesystem;
@@ -20,7 +21,7 @@ int main(int argc, char** argv) {
     return 2;
   }
   const fs::path out = argv[1];
-  for (const char* name : {"snapshot", "graph", "wal", "text"}) fs::create_directories(out / name);
+  for (const char* name : {"snapshot", "graph", "wal", "text", "metadata"}) fs::create_directories(out / name);
 
   std::vector<float> vectors(40 * kDim);
   for (std::size_t i = 0; i < vectors.size(); ++i) vectors[i] = static_cast<float>((i * 7919) % 101) / 101.0f;
@@ -69,6 +70,11 @@ int main(int argc, char** argv) {
   text.add(2, "night city lights, city traffic");
   text.add(7, "café über 42");
   text.save((out / "text" / "valid").string());
+
+  epzero::MetadataIndex meta;
+  meta.set(1, {{"source", std::string("faq")}, {"year", std::int64_t{2021}}, {"public", true}});
+  meta.set(2, {{"source", std::string("blog")}, {"score", 0.5}});
+  meta.save((out / "metadata" / "valid").string());
   std::printf("seeds written to %s\n", out.string().c_str());
   return 0;
 }
