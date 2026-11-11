@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdio>
 #include <cmath>
 #include <random>
 #include <stdexcept>
@@ -41,6 +42,8 @@ constexpr double kCompactShare = 0.2;
 constexpr double kRecalibrateGrowth = 0.25;
 constexpr double kNavVarianceDrop = 0.05;
 constexpr std::size_t kHealthSample = 5000;
+constexpr std::size_t kQueryCheckSample = 200;
+constexpr double kShiftRatio = 1.5;  // between 1.09 (queries like the data) and 2.26 (text against images)
 
 std::string percent(double share) { return std::to_string(static_cast<int>(share * 100.0 + 0.5)) + "%"; }
 
@@ -341,6 +344,48 @@ double nav_variance(const HnswIndex& index, std::size_t threads) {
     h += held[i];
   }
   return t > 0.0 ? std::min(1.0, h / t) : 0.0;
+}
+
+QueryCheck check_queries(const HnswIndex& index, const float* queries, std::size_t count, std::size_t threads) {
+  if (queries == nullptr || count == 0) throw std::invalid_argument("check_queries needs queries");
+  auto labels = index.live_labels();
+  if (labels.size() < 3) throw std::invalid_argument("check_queries needs an index of at least 3 vectors");
+  const std::size_t dim = index.params().dim;
+  const std::size_t q = std::min(count, kQueryCheckSample);
+  std::shuffle(labels.begin(), labels.end(), std::mt19937_64(11));
+  labels.resize(std::min(labels.size(), kQueryCheckSample));
+  std::vector<float> rows(labels.size() * dim);
+  for (std::size_t i = 0; i < labels.size(); ++i) index.get_vector(labels[i], rows.data() + i * dim);
+  std::vector<double> query_distance(q), row_distance(labels.size());
+  parallel_for(0, q, threads, [&](std::size_t i) {
+    query_distance[i] = index.exact_search(queries + i * dim, 1).front().distance;
+  });
+  // A row's nearest neighbour other than itself: the second result (the first is the row, at distance 0).
+  parallel_for(0, labels.size(), threads, [&](std::size_t i) {
+    const auto found = index.exact_search(rows.data() + i * dim, 2);
+    row_distance[i] = found.size() > 1 ? found[1].distance : found.front().distance;
+  });
+  const auto median = [](std::vector<double>& v) {
+    std::nth_element(v.begin(), v.begin() + static_cast<std::ptrdiff_t>(v.size() / 2), v.end());
+    return v[v.size() / 2];
+  };
+  QueryCheck out;
+  out.query_distance = median(query_distance);
+  out.row_distance = median(row_distance);
+  out.ratio = out.row_distance > 0.0 ? out.query_distance / out.row_distance : (out.query_distance > 0.0 ? 1e9 : 1.0);
+  out.shifted = out.ratio > kShiftRatio;
+  const IndexProfile& profile = index.profile();
+  const bool calibrated_on_queries = std::any_of(profile.notes.begin(), profile.notes.end(), [](const auto& note) {
+    return note.first == "ef" && note.second.find("your queries") != std::string::npos;
+  });
+  if (out.shifted && !calibrated_on_queries) {
+    char ratio[16];
+    std::snprintf(ratio, sizeof(ratio), "%.1f", out.ratio);
+    out.advice.push_back(std::string("recalibrate(queries): these queries sit ") + ratio +
+                         "x farther from their nearest neighbours than rows of the data do, so recall calibrated on "
+                         "the data overestimates theirs");
+  }
+  return out;
 }
 
 IndexHealth check_health(const HnswIndex& index, std::size_t threads) {
