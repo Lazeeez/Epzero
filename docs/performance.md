@@ -738,6 +738,12 @@ can't use the 2 MiB huge pages worth 10-15% of search speed.
 
 Tried for the same goals and removed:
 
+- **Prefetching during pruning.** Float distances were a quarter of a GloVe-100 build's profile, mostly the
+  diversity heuristic comparing candidates, so the next candidates' vectors were prefetched in
+  `select_neighbors` and a full neighbour's links before re-pruning. Five alternating rounds on 6 threads:
+  12.01 s median before, 12.14 s after. The candidates were scored just before by the search that found
+  them, so their vectors are already in cache.
+
 - **The alpha-convergent pruning rule** (Fast-Convergent Proximity Graphs, as a slack `tau` and `alpha`
   on the heuristic). GloVe-100, `tau` 0.1: about 2,200 against 3,900 QPS at recall 0.90, and every other
   `tau` and `alpha` tried was also worse. The links kept are all short once the list is full at 32; the
