@@ -304,3 +304,18 @@ def test_growth_refuses_while_a_guard_is_attached(data):
     gc.collect()
     index.add(base[100:110], labels=np.arange(100, 110))
     assert len(index) == 110
+
+
+def test_reprs_and_error_messages(data, tmp_path):
+    base, _ = data
+    index = epzero.build(base, metric="cosine", recall=0.9, threads=2)
+    assert repr(index).startswith(f"<epzero.Index: {len(base):,} vectors of 24 dimensions, cosine, sq8")
+    assert "calibrated for recall 0.90" in repr(index)
+    meta = epzero.Metadata()
+    meta.set(1, {"a": 1})
+    assert repr(meta) == "<epzero.Metadata: 1 labels>"
+    assert repr(epzero.TextIndex()) == "<epzero.TextIndex: 0 documents>"
+    with pytest.raises(ValueError, match=r"got \(2, 7\)"):
+        index.search(np.zeros((2, 7), dtype=np.float32))
+    with pytest.raises(ValueError, match="not 'dot'"):
+        epzero.Index(dim=4, metric="dot")
