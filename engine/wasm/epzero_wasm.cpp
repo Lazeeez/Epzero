@@ -15,6 +15,9 @@
 #include <string>
 #include <vector>
 
+#if EPZERO_WASM_LAB_AUTO
+#include "epzero/auto.h"
+#endif
 #include "epzero/brute_force.h"
 #include "epzero/dataset.h"
 #include "epzero/hnsw.h"
@@ -122,17 +125,61 @@ class Lab {
     return built_;
   }
 
-  // One ef setting over every query, single-threaded: recall, throughput, latency percentiles.
+#if EPZERO_WASM_LAB_AUTO
+  // epzero.build() in the browser: the index configured for this data and this machine, as the Python
+  // package does it (8-bit codes, principal directions, build passes, re-rank, calibrated beam width,
+  // prefetch timed here). Returns every choice with its reason, and what calibration measured.
+  val auto_build(double recall, std::size_t k, std::size_t threads) {
+    require_data();
+    epzero::AutoOptions options;
+    options.metric = metric_;
+    options.recall = static_cast<float>(recall);
+    options.k = k;
+    options.threads = threads;
+    const auto start = Clock::now();
+    index_ = epzero::build_auto(base_.data.data(), nullptr, base_.n, base_.dim, options);
+    build_ms_ = ms_since(start);
+    built_ = base_.n;
+    const epzero::HnswParams& p = index_->params();
+    const epzero::IndexProfile& profile = index_->profile();
+    val out = val::object();
+    out.set("buildMs", build_ms_);
+    out.set("quantization", std::string(p.quantization == epzero::Quantization::SQ8 ? "sq8" : p.quantization == epzero::Quantization::RaBitQ ? "rabitq" : "none"));
+    out.set("M", p.M);
+    out.set("efConstruction", p.ef_construction);
+    out.set("navDim", p.nav_dim);
+    out.set("ef", profile.ef);
+    out.set("rerank", profile.rerank == 0 ? 2 * profile.k : profile.rerank);
+    out.set("recallTarget", profile.recall_target);
+    out.set("recallMeasured", profile.recall_measured);
+    out.set("refined", profile.refined);
+    out.set("machine", profile.machine);
+    val notes = val::array();
+    for (const auto& [setting, why] : profile.notes) {
+      val note = val::object();
+      note.set("setting", setting);
+      note.set("why", why);
+      notes.call<void>("push", note);
+    }
+    out.set("notes", notes);
+    return out;
+  }
+#endif
+
+  // One ef setting over every query, single-threaded: recall, throughput, latency percentiles. The
+  // re-rank is the index's own (an automatic index's calibrated one; 2 x k for one built by hand).
   val sweep(std::size_t ef, std::size_t k) const {
     require_index();
     std::vector<double> latencies(queries_.n);
     std::vector<std::vector<epzero::SearchResult>> results(queries_.n);
     std::size_t distances = 0;
+    const std::size_t rerank = index_->profile().rerank;
+    const float rerank_z = index_->profile().rerank_z;
     const auto start = Clock::now();
     for (std::size_t q = 0; q < queries_.n; ++q) {
       epzero::SearchStats stats;
       const auto t0 = Clock::now();
-      results[q] = index_->search(queries_.row(q), k, {.ef = ef, .stats = &stats});
+      results[q] = index_->search(queries_.row(q), k, {.ef = ef, .rerank = rerank, .rerank_z = rerank_z, .stats = &stats});
       latencies[q] = std::chrono::duration<double, std::micro>(Clock::now() - t0).count();
       distances += stats.distance_computations;
     }
@@ -683,6 +730,9 @@ EMSCRIPTEN_BINDINGS(epzero) {
       .function("computeTruth", &Lab::compute_truth)
       .function("beginBuild", &Lab::begin_build)
       .function("buildStep", &Lab::build_step)
+#if EPZERO_WASM_LAB_AUTO
+      .function("autoBuild", &Lab::auto_build)
+#endif
       .function("sweep", &Lab::sweep)
       .function("bruteForceQps", &Lab::brute_force_qps)
       .function("kernelBench", &Lab::kernel_bench)
