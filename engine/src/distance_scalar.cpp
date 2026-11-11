@@ -1,5 +1,6 @@
 #include <bit>
 
+#include "half.h"
 #include "kernels.h"
 
 namespace epzero::kernels {
@@ -48,6 +49,21 @@ std::uint32_t rabitq_ip_scalar(const std::uint64_t* bits, const std::uint64_t* p
     sum += count << j;
   }
   return sum;
+}
+
+float l2_half_scalar(const float* a, const std::uint16_t* b, std::size_t dim) noexcept {
+  float sum = 0.0f;
+  for (std::size_t i = 0; i < dim; ++i) {
+    const float d = a[i] - half::to_float(b[i]);
+    sum += d * d;
+  }
+  return sum;
+}
+
+float ip_half_scalar(const float* a, const std::uint16_t* b, std::size_t dim) noexcept {
+  float dot = 0.0f;
+  for (std::size_t i = 0; i < dim; ++i) dot += a[i] * half::to_float(b[i]);
+  return 1.0f - dot;
 }
 
 }  // namespace epzero::kernels
