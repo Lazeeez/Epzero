@@ -30,11 +30,14 @@ namespace {
 constexpr char kMagic[8] = {'E', 'P', 'Z', 'R', 'H', 'N', 'S', 'W'};
 // Written before the project was renamed from Oryx; still loaded.
 constexpr char kLegacyMagic[8] = {'O', 'R', 'Y', 'X', 'H', 'N', 'S', 'W'};
-// v2: quantization + tombstones. v3: nav_dim and its directions. v4: v3 plus the IndexProfile. Each
-// newer version is written only by indexes that need it, so others stay readable by older builds.
+// v2: quantization + tombstones. v3: nav_dim and its directions. v4 (0.4.0): v3 plus the IndexProfile.
+// v5: v4 plus a storage-flags byte (16-bit vectors) and the profile's calibration size and variance held.
+// Each newer version is written only by indexes that need it, so others stay readable by older builds,
+// and every older version stays readable (docs/file-format.md).
 constexpr std::uint32_t kFormatVersion = 2;
 constexpr std::uint32_t kFormatVersionNav = 3;
-constexpr std::uint32_t kFormatVersionProfile = 4;
+constexpr std::uint32_t kFormatVersionProfile = 4;  // read only: written by 0.4
+constexpr std::uint32_t kFormatVersionFlags = 5;
 constexpr std::size_t kMaxProfileString = 4096;
 constexpr std::size_t kRerankBlock = 16;
 constexpr int kMaxLevel = 31;
@@ -1793,7 +1796,7 @@ void HnswIndex::save(const std::string& path) const {
   ChunkedWriter out(path);
   out.write(kMagic, sizeof(kMagic));
   const bool with_profile = !is_default(profile_) || params_.half_vectors;
-  out.pod(with_profile ? kFormatVersionProfile : params_.nav_dim != 0 ? kFormatVersionNav : kFormatVersion);
+  out.pod(with_profile ? kFormatVersionFlags : params_.nav_dim != 0 ? kFormatVersionNav : kFormatVersion);
   out.pod<std::uint64_t>(params_.dim);
   out.pod<std::uint32_t>(static_cast<std::uint32_t>(params_.metric));
   out.pod<std::uint64_t>(params_.max_elements);
@@ -1896,7 +1899,7 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
     throw std::runtime_error(path + " is not an Epzero index");
   }
   const auto version = in.pod<std::uint32_t>();
-  if (version < 1 || version > kFormatVersionProfile) throw std::runtime_error(path + ": unsupported format version");
+  if (version < 1 || version > kFormatVersionFlags) throw std::runtime_error(path + ": unsupported format version");
 
   HnswParams params;
   params.dim = in.pod<std::uint64_t>();
@@ -1921,17 +1924,21 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
       in.read(text.data(), length);
       return text;
     };
-    const auto flags = in.pod<std::uint8_t>();
-    if ((flags & ~1u) != 0) throw std::runtime_error(path + ": unsupported storage flags");
-    params.half_vectors = (flags & 1u) != 0;
+    if (version >= kFormatVersionFlags) {
+      const auto flags = in.pod<std::uint8_t>();
+      if ((flags & ~1u) != 0) throw std::runtime_error(path + ": unsupported storage flags");
+      params.half_vectors = (flags & 1u) != 0;
+    }
     profile.k = in.pod<std::uint64_t>();
     profile.ef = in.pod<std::uint64_t>();
     profile.rerank = in.pod<std::uint64_t>();
     profile.rerank_z = in.pod<float>();
     profile.recall_target = in.pod<float>();
     profile.recall_measured = in.pod<float>();
-    profile.calibrated_size = in.pod<std::uint64_t>();
-    profile.nav_variance = in.pod<float>();
+    if (version >= kFormatVersionFlags) {
+      profile.calibrated_size = in.pod<std::uint64_t>();
+      profile.nav_variance = in.pod<float>();
+    }
     const auto passes = in.pod<std::uint8_t>();
     profile.refined = (passes & 1) != 0;
     profile.built_on_codes = (passes & 2) != 0;
