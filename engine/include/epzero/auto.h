@@ -18,7 +18,9 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "epzero/hnsw.h"
 
@@ -66,5 +68,26 @@ AutoPlan plan_auto(const float* data, std::size_t n, std::size_t dim, const Auto
 // Builds an index of `data` with labels[i] for row i (labels null: 0..n-1), configured automatically.
 std::unique_ptr<HnswIndex> build_auto(const float* data, const std::uint64_t* labels, std::size_t n, std::size_t dim,
                                       const AutoOptions& options = {});
+
+// Re-measures the beam width that reaches `recall` (0: the profile's target, else 0.95) on `queries`
+// (count rows of dim floats) and stores it in the index's profile, which search() then uses. Pass real
+// queries: rows already in the graph are linked to their own neighbours, so they make the search look
+// easier than it is. Not thread-safe against concurrent searches. Returns (ef, recall reached).
+std::pair<std::size_t, float> recalibrate(HnswIndex& index, const float* queries, std::size_t count, float recall = 0.0f,
+                                          std::size_t threads = 0);
+
+// What an index needs, if anything, since it was built: a measurement plus advice in plain words.
+struct IndexHealth {
+  std::size_t live = 0;
+  std::size_t deleted = 0;          // tombstones still in the graph
+  double growth = 0.0;              // change in live vectors since calibration, as a share (0.3: 30% more)
+  double nav_variance_built = 0.0;  // share of the variance the principal directions held when built
+  double nav_variance_now = 0.0;    // and on the vectors in the index now (0 without principal directions)
+  std::vector<std::string> advice;  // empty when nothing needs doing
+};
+IndexHealth check_health(const HnswIndex& index, std::size_t threads = 0);
+
+// Share of the variance of the index's vectors (a sample) that its principal directions hold.
+double nav_variance(const HnswIndex& index, std::size_t threads = 0);
 
 }  // namespace epzero
