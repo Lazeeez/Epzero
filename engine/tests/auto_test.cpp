@@ -239,6 +239,25 @@ TEST(Auto, HealthNoticesDataTheDirectionsDontFit) {
                           [](const std::string& a) { return a.find("rebuild") != std::string::npos; }));
 }
 
+TEST(Auto, CheckQueriesSeesAShift) {
+  const auto data = make_clustered(4000, 200, 32, 20, 16);
+  AutoOptions options;
+  options.threads = 2;
+  const auto index = build_auto(data.base.data.data(), nullptr, 4000, 32, options);
+  const auto same = check_queries(*index, data.queries.data.data(), 200);
+  EXPECT_FALSE(same.shifted);
+  EXPECT_TRUE(same.advice.empty());
+  std::vector<float> far = data.queries.data;
+  std::mt19937_64 rng(4);
+  std::normal_distribution<float> noise(0.0f, 4.0f);
+  for (float& v : far) v += noise(rng);
+  const auto shifted = check_queries(*index, far.data(), 200);
+  EXPECT_TRUE(shifted.shifted);
+  EXPECT_GT(shifted.ratio, 1.5);
+  ASSERT_EQ(shifted.advice.size(), 1u);
+  EXPECT_THROW(check_queries(*index, nullptr, 0), std::invalid_argument);
+}
+
 TEST(Auto, GetVectorReturnsWhatIsStored) {
   const auto data = make_clustered(500, 0, 16, 5, 14);
   HnswParams params;
