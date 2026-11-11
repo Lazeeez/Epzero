@@ -7,7 +7,7 @@ version number.
 |---|---|---|---|
 | Index snapshot | `Index.save`, `HnswIndex::save` | `EPZRHNSW` (`ORYXHNSW` before the rename, still read) | 1-5 |
 | Metadata | `Metadata.save`, `MetadataIndex::save` | `EPZRMETA` | 1 |
-| Text index | `TextIndex.save` | `EPZRTXT1` (`ORYXTXT1` still read) | 1 |
+| Text index | `TextIndex.save` | `EPZRTXT1`, `EPZRTXT2` (`ORYXTXT1` still read) | 1-2 |
 | Database | `Database` directory: `wal.log`, `CHECKPOINT` and `snapshot-<lsn>.epzero` (an index snapshot) | per record CRC32C | 1 |
 
 ## The promise
@@ -39,6 +39,15 @@ capacity, M, efConstruction, seed, quantization, whether full vectors are kept, 
 quantizer's state, and then each node's record (codes or vector, layer-0 links, label, level, tombstone,
 upper-layer links, and the full-precision copy when kept). Prefetch settings are machine-specific: a
 loaded index applies its saved one only on the same kind of CPU (`epzero.machine()`).
+
+## Text index versions
+
+The text index's version is the last character of its magic string.
+
+| Version | Since | Adds |
+|---|---|---|
+| 1 | before 0.5 | k1 and b, then each live document's label, length and (term, count) pairs |
+| 2 | 0.5 | A stemmer byte after b (1: Porter). Written only by indexes that stem; version 1 files were written without stemming and load with `stemmer="none"`, so their terms still match their queries |
 
 ## Changing a format
 
