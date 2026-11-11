@@ -70,16 +70,15 @@ measure by its configuration fastest at the middle recall target.
 | epzero | 2,421 | 1,444 | 708 | 0.9962 | 288 s | — |
 | usearch | 1,773 | 1,072 | 515 | 0.9958 | 220 s | — |
 
-### dbpedia-openai-1000k-angular: round 6, Glass against Epzero's tuned settings
+### dbpedia-openai-1000k-angular: round 7, Glass against Epzero's tuned settings
 
 990,000 vectors, 1536 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, Intel(R) Xeon(R) Gold 6226 CPU @ 2.70GHz.
 
 | Library | QPS at 0.9 | QPS at 0.95 | QPS at 0.98 | Highest recall | Build | Memory |
 |---|---|---|---|---|---|---|
-| epzero-sq8-nav256-r300-z3-fast-refine-after | 10,560 | 6,775 | 3,598 | 0.9956 | 148 s | 6,321 MB |
-| epzero-sq8-nav384-r300-z3-fast-refine-after | 9,909 | 6,678 | 3,880 | 0.9970 | 197 s | 6,447 MB |
-| glass | 6,739 | 3,971 | 1,731 | 0.9930 | 224 s | 8,367 MB |
-| epzero-sq8 | 5,780 | 3,613 | 1,815 | 0.9961 | 274 s | 7,534 MB |
+| epzero-auto | 10,182 | 6,909 | 3,740 | 0.9958 | 166 s | 6,320 MB |
+| epzero-sq8-nav256-r300-z3-fast-refine-after | 10,606 | 6,831 | 3,644 | 0.9956 | 134 s | 6,335 MB |
+| glass | 6,421 | 3,792 | 1,637 | 0.9930 | 245 s | 8,367 MB |
 
 ### deep-image-96-angular: every library, shipped defaults
 
@@ -96,15 +95,15 @@ measure by its configuration fastest at the middle recall target.
 | usearch | 3,402 | 2,056 | 1,027 | 0.9961 | 422 s | — |
 | faiss-ivfpq | — | — | — | 0.8155 | 173 s | — |
 
-### deep-image-96-angular: round 6, Glass against Epzero's tuned settings
+### deep-image-96-angular: round 7, Glass against Epzero's tuned settings
 
 9,990,000 vectors, 96 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, Intel(R) Xeon(R) Gold 6226 CPU @ 2.70GHz.
 
 | Library | QPS at 0.9 | QPS at 0.95 | QPS at 0.98 | Highest recall | Build | Memory |
 |---|---|---|---|---|---|---|
-| epzero-sq8-fast-refine | 13,078 | 8,233 | 4,424 | 0.9984 | 643 s | 7,093 MB |
-| epzero-sq8 | 11,532 | 7,037 | 3,466 | 0.9967 | 397 s | 7,024 MB |
-| glass | 9,130 | 5,926 | 2,953 | 0.9939 | 589 s | 8,665 MB |
+| epzero-sq8-fast-refine | 14,306 | 8,949 | 4,769 | 0.9984 | 595 s | 7,097 MB |
+| epzero-auto | 13,990 | 8,675 | 4,554 | 0.9982 | 444 s | 7,025 MB |
+| glass | 9,968 | 6,566 | 3,269 | 0.9939 | 495 s | 8,675 MB |
 
 ### gist-960-euclidean: every library, shipped defaults
 
@@ -121,16 +120,15 @@ measure by its configuration fastest at the middle recall target.
 | usearch | 467 | 261 | — | 0.9780 | 178 s | — |
 | faiss-ivfpq | 1,555 | — | — | 0.9499 | 30 s | — |
 
-### gist-960-euclidean: round 6, Glass against Epzero's tuned settings
+### gist-960-euclidean: round 7, Glass against Epzero's tuned settings
 
 1,000,000 vectors, 960 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, Intel(R) Xeon(R) Gold 6226 CPU @ 2.70GHz.
 
 | Library | QPS at 0.9 | QPS at 0.95 | QPS at 0.98 | Highest recall | Build | Memory |
 |---|---|---|---|---|---|---|
-| epzero-sq8-nav96-r400-z3-fast-refine-after | 4,607 | 2,861 | 1,682 | 0.9929 | 91 s | 4,009 MB |
-| epzero-sq8-nav192-r400-z3-fast-refine-after | 4,455 | 2,786 | 1,546 | 0.9929 | 133 s | 4,133 MB |
-| epzero-sq8 | 1,624 | 883 | — | 0.9755 | 212 s | 4,865 MB |
-| glass | 1,660 | 776 | — | 0.9660 | 173 s | 5,188 MB |
+| epzero-auto | 4,597 | 2,911 | 1,605 | 0.9927 | 101 s | 4,007 MB |
+| epzero-sq8-nav96-r400-z3-fast-refine-after | 4,555 | 2,821 | 1,663 | 0.9926 | 87 s | 4,012 MB |
+| glass | 1,549 | 707 | — | 0.9667 | 190 s | 5,189 MB |
 
 ### glove-100-angular: every library, shipped defaults
 
@@ -147,15 +145,47 @@ measure by its configuration fastest at the middle recall target.
 | usearch | 2,208 | 735 | 445 | 0.9458 | 51 s | — |
 | faiss-ivfpq | 5,706 | — | — | 0.8149 | 12 s | — |
 
-### glove-100-angular: round 6, Glass against Epzero's tuned settings
+### glove-100-angular: round 7, Glass against Epzero's tuned settings
 
 1,183,514 vectors, 100 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, Intel(R) Xeon(R) Gold 6226 CPU @ 2.70GHz.
 
 | Library | QPS at 0.8 | QPS at 0.9 | QPS at 0.93 | Highest recall | Build | Memory |
 |---|---|---|---|---|---|---|
-| epzero-sq8-fast-refine | 9,747 | 3,276 | 2,009 | 0.9617 | 70 s | 860 MB |
-| glass | 9,534 | 2,888 | 1,651 | 0.9434 | 57 s | 855 MB |
-| epzero-sq8 | 8,211 | 2,540 | 1,480 | 0.9461 | 42 s | 861 MB |
+| epzero-sq8-fast-refine | 9,693 | 3,318 | 2,025 | 0.9614 | 71 s | 862 MB |
+| epzero-auto | 9,428 | 3,188 | 1,949 | 0.9595 | 60 s | 856 MB |
+| glass | 9,703 | 2,940 | 1,675 | 0.9432 | 56 s | 853 MB |
+
+## threadripper
+
+### dbpedia-openai-1000k-angular: round 7, Glass against Epzero's tuned settings
+
+990,000 vectors, 1536 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, AMD Ryzen Threadripper PRO 9985WX 64-Cores.
+
+| Library | QPS at 0.9 | QPS at 0.95 | QPS at 0.98 | Highest recall | Build | Memory |
+|---|---|---|---|---|---|---|
+| epzero-auto | 25,427 | 17,111 | 9,098 | 0.9958 | 49 s | 6,320 MB |
+| epzero-sq8-nav256-r300-z3-fast-refine-after | 24,700 | 16,084 | 8,580 | 0.9956 | 46 s | 6,329 MB |
+| glass | 13,098 | 7,740 | 3,399 | 0.9931 | 224 s | 8,408 MB |
+
+### gist-960-euclidean: round 7, Glass against Epzero's tuned settings
+
+1,000,000 vectors, 960 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, AMD Ryzen Threadripper PRO 9985WX 64-Cores.
+
+| Library | QPS at 0.9 | QPS at 0.95 | QPS at 0.98 | Highest recall | Build | Memory |
+|---|---|---|---|---|---|---|
+| epzero-auto | 9,210 | 5,811 | 3,178 | 0.9926 | 28 s | 4,009 MB |
+| epzero-sq8-nav96-r400-z3-fast-refine-after | 9,072 | 5,556 | 3,267 | 0.9929 | 22 s | 4,013 MB |
+| glass | 4,139 | 1,926 | — | 0.9657 | 151 s | 5,229 MB |
+
+### glove-100-angular: round 7, Glass against Epzero's tuned settings
+
+1,183,514 vectors, 100 dimensions, k = 10, M = 16, efConstruction = 200, 3 rounds, one search thread, AMD Ryzen Threadripper PRO 9985WX 64-Cores.
+
+| Library | QPS at 0.8 | QPS at 0.9 | QPS at 0.93 | Highest recall | Build | Memory |
+|---|---|---|---|---|---|---|
+| epzero-sq8-fast-refine | 17,528 | 5,930 | 3,683 | 0.9611 | 33 s | 862 MB |
+| epzero-auto | 17,395 | 5,774 | 3,539 | 0.9592 | 28 s | 859 MB |
+| glass | 13,433 | 4,031 | 2,333 | 0.9436 | 28 s | 900 MB |
 
 ## Where Epzero stands
 
@@ -186,38 +216,53 @@ measure by its configuration fastest at the middle recall target.
 | gold6226 | dbpedia-openai-1000k-angular (every library) | speed at 0.98 | 2 of 7 |
 | gold6226 | dbpedia-openai-1000k-angular (every library) | build | 5 of 7 |
 | gold6226 | dbpedia-openai-1000k-angular (every library) | memory | — |
-| gold6226 | dbpedia-openai-1000k-angular (round 6) | speed at 0.9 | 1 of 2 |
-| gold6226 | dbpedia-openai-1000k-angular (round 6) | speed at 0.95 | 1 of 2 |
-| gold6226 | dbpedia-openai-1000k-angular (round 6) | speed at 0.98 | 1 of 2 |
-| gold6226 | dbpedia-openai-1000k-angular (round 6) | build | 1 of 2 |
-| gold6226 | dbpedia-openai-1000k-angular (round 6) | memory | 1 of 2 |
+| gold6226 | dbpedia-openai-1000k-angular (round 7) | speed at 0.9 | 1 of 2 |
+| gold6226 | dbpedia-openai-1000k-angular (round 7) | speed at 0.95 | 1 of 2 |
+| gold6226 | dbpedia-openai-1000k-angular (round 7) | speed at 0.98 | 1 of 2 |
+| gold6226 | dbpedia-openai-1000k-angular (round 7) | build | 1 of 2 |
+| gold6226 | dbpedia-openai-1000k-angular (round 7) | memory | 1 of 2 |
 | gold6226 | deep-image-96-angular (every library) | speed at 0.9 | 1 of 7 |
 | gold6226 | deep-image-96-angular (every library) | speed at 0.95 | 1 of 7 |
 | gold6226 | deep-image-96-angular (every library) | speed at 0.98 | 1 of 7 |
 | gold6226 | deep-image-96-angular (every library) | build | 3 of 7 |
 | gold6226 | deep-image-96-angular (every library) | memory | — |
-| gold6226 | deep-image-96-angular (round 6) | speed at 0.9 | 1 of 2 |
-| gold6226 | deep-image-96-angular (round 6) | speed at 0.95 | 1 of 2 |
-| gold6226 | deep-image-96-angular (round 6) | speed at 0.98 | 1 of 2 |
-| gold6226 | deep-image-96-angular (round 6) | build | 2 of 2 |
-| gold6226 | deep-image-96-angular (round 6) | memory | 1 of 2 |
+| gold6226 | deep-image-96-angular (round 7) | speed at 0.9 | 1 of 2 |
+| gold6226 | deep-image-96-angular (round 7) | speed at 0.95 | 1 of 2 |
+| gold6226 | deep-image-96-angular (round 7) | speed at 0.98 | 1 of 2 |
+| gold6226 | deep-image-96-angular (round 7) | build | 2 of 2 |
+| gold6226 | deep-image-96-angular (round 7) | memory | 1 of 2 |
 | gold6226 | gist-960-euclidean (every library) | speed at 0.9 | 3 of 7 |
 | gold6226 | gist-960-euclidean (every library) | speed at 0.95 | 1 of 7 |
 | gold6226 | gist-960-euclidean (every library) | speed at 0.98 | — |
 | gold6226 | gist-960-euclidean (every library) | build | 5 of 7 |
 | gold6226 | gist-960-euclidean (every library) | memory | — |
-| gold6226 | gist-960-euclidean (round 6) | speed at 0.9 | 1 of 2 |
-| gold6226 | gist-960-euclidean (round 6) | speed at 0.95 | 1 of 2 |
-| gold6226 | gist-960-euclidean (round 6) | speed at 0.98 | 1 of 2 |
-| gold6226 | gist-960-euclidean (round 6) | build | 1 of 2 |
-| gold6226 | gist-960-euclidean (round 6) | memory | 1 of 2 |
+| gold6226 | gist-960-euclidean (round 7) | speed at 0.9 | 1 of 2 |
+| gold6226 | gist-960-euclidean (round 7) | speed at 0.95 | 1 of 2 |
+| gold6226 | gist-960-euclidean (round 7) | speed at 0.98 | 1 of 2 |
+| gold6226 | gist-960-euclidean (round 7) | build | 1 of 2 |
+| gold6226 | gist-960-euclidean (round 7) | memory | 1 of 2 |
 | gold6226 | glove-100-angular (every library) | speed at 0.8 | 2 of 7 |
 | gold6226 | glove-100-angular (every library) | speed at 0.9 | 2 of 7 |
 | gold6226 | glove-100-angular (every library) | speed at 0.93 | 2 of 7 |
 | gold6226 | glove-100-angular (every library) | build | 3 of 7 |
 | gold6226 | glove-100-angular (every library) | memory | — |
-| gold6226 | glove-100-angular (round 6) | speed at 0.8 | 1 of 2 |
-| gold6226 | glove-100-angular (round 6) | speed at 0.9 | 1 of 2 |
-| gold6226 | glove-100-angular (round 6) | speed at 0.93 | 1 of 2 |
-| gold6226 | glove-100-angular (round 6) | build | 2 of 2 |
-| gold6226 | glove-100-angular (round 6) | memory | 2 of 2 |
+| gold6226 | glove-100-angular (round 7) | speed at 0.8 | 2 of 2 |
+| gold6226 | glove-100-angular (round 7) | speed at 0.9 | 1 of 2 |
+| gold6226 | glove-100-angular (round 7) | speed at 0.93 | 1 of 2 |
+| gold6226 | glove-100-angular (round 7) | build | 2 of 2 |
+| gold6226 | glove-100-angular (round 7) | memory | 2 of 2 |
+| threadripper | dbpedia-openai-1000k-angular (round 7) | speed at 0.9 | 1 of 2 |
+| threadripper | dbpedia-openai-1000k-angular (round 7) | speed at 0.95 | 1 of 2 |
+| threadripper | dbpedia-openai-1000k-angular (round 7) | speed at 0.98 | 1 of 2 |
+| threadripper | dbpedia-openai-1000k-angular (round 7) | build | 1 of 2 |
+| threadripper | dbpedia-openai-1000k-angular (round 7) | memory | 1 of 2 |
+| threadripper | gist-960-euclidean (round 7) | speed at 0.9 | 1 of 2 |
+| threadripper | gist-960-euclidean (round 7) | speed at 0.95 | 1 of 2 |
+| threadripper | gist-960-euclidean (round 7) | speed at 0.98 | 1 of 2 |
+| threadripper | gist-960-euclidean (round 7) | build | 1 of 2 |
+| threadripper | gist-960-euclidean (round 7) | memory | 1 of 2 |
+| threadripper | glove-100-angular (round 7) | speed at 0.8 | 1 of 2 |
+| threadripper | glove-100-angular (round 7) | speed at 0.9 | 1 of 2 |
+| threadripper | glove-100-angular (round 7) | speed at 0.93 | 1 of 2 |
+| threadripper | glove-100-angular (round 7) | build | 2 of 2 |
+| threadripper | glove-100-angular (round 7) | memory | 1 of 2 |
