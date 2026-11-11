@@ -1,6 +1,9 @@
 """ann-benchmarks wrapper for Epzero (https://pypi.org/project/epzero/).
 
-Copied into ann_benchmarks/algorithms/epzero/ in the ann-benchmarks repository.
+Copied into ann_benchmarks/algorithms/epzero/ in the ann-benchmarks repository. Each index is
+configured by epzero.build (8-bit codes, a walk on principal directions where the data allows, the
+build passes, the re-rank, and prefetching timed on the machine); ann-benchmarks then sweeps the
+beam width.
 """
 
 import os
@@ -12,31 +15,23 @@ from ..base.module import BaseANN
 
 
 class Epzero(BaseANN):
-    def __init__(self, metric, method_param, quantization="none"):
+    def __init__(self, metric, method_param):
         if metric not in ("angular", "euclidean"):
             raise NotImplementedError(f"Epzero does not support the {metric} metric")
         self.metric = "cosine" if metric == "angular" else "l2"
         self.M = method_param["M"]
         self.ef_construction = method_param["efConstruction"]
-        self.quantization = quantization
         self.ef = 10
-        self.name = f"epzero(M={self.M}, efC={self.ef_construction}, {quantization})"
+        self.name = f"epzero(M={self.M}, efC={self.ef_construction})"
 
     def fit(self, X):
         X = np.ascontiguousarray(X, dtype=np.float32)
-        self.index = epzero.Index(
-            X.shape[1], self.metric, len(X), self.M, self.ef_construction, quantization=self.quantization
-        )
-        if self.quantization != "none":
-            self.index.train(X[: min(len(X), 200_000)])
-        self.index.add(X, threads=os.cpu_count() or 1)
-        # Measure the best memory-prefetch setting for this machine on a sample of the data.
-        sample = np.random.default_rng(0).choice(len(X), min(len(X), 1000), replace=False)
-        self.index.tune_prefetch(X[sample])
+        self.index = epzero.build(X, metric=self.metric, M=self.M, ef_construction=self.ef_construction,
+                                  threads=os.cpu_count() or 1)
 
     def set_query_arguments(self, ef):
         self.ef = ef
-        self.name = f"epzero(M={self.M}, efC={self.ef_construction}, {self.quantization}, ef={ef})"
+        self.name = f"epzero(M={self.M}, efC={self.ef_construction}, ef={ef})"
 
     def query(self, v, n):
         labels, _ = self.index.search(np.ascontiguousarray(v[None, :], dtype=np.float32), k=n, ef=max(self.ef, n))
@@ -51,8 +46,3 @@ class Epzero(BaseANN):
 
     def __str__(self):
         return self.name
-
-
-class EpzeroSQ8(Epzero):
-    def __init__(self, metric, method_param):
-        super().__init__(metric, method_param, quantization="sq8")
