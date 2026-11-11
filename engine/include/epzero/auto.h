@@ -37,6 +37,7 @@ struct AutoFixed {
   std::optional<float> rerank_z;
   std::optional<std::size_t> ef;   // skips calibration
   std::optional<std::pair<std::size_t, std::size_t>> prefetch;  // (depth, lines); skips timing
+  std::optional<bool> half_vectors;  // 16-bit full vectors: half their memory (never chosen automatically)
 };
 
 struct AutoOptions {
