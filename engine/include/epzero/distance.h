@@ -38,6 +38,12 @@ std::string machine_name();
 DistanceFn get_distance_fn(Metric metric, SimdLevel level) noexcept;
 DistanceFn get_distance_fn(Metric metric) noexcept;
 
+// A float query against a vector stored as IEEE half floats (HnswParams::half_vectors): the metric's
+// distance as get_distance_fn computes it. Always available (a scalar fallback); F16C or NEON where
+// the CPU has them.
+using HalfDistanceFn = float (*)(const float* query, const std::uint16_t* v, std::size_t dim) noexcept;
+HalfDistanceFn get_half_distance_fn(Metric metric, SimdLevel level) noexcept;
+
 // Asymmetric-distance kernel for 8-bit scalar quantization: returns sum_i w[i] * codes[i].
 // The quantizer folds its per-dimension scales and offsets into `w` once per query, so scoring a
 // node reads only `dim` bytes. Returns nullptr if `level` is not supported.
