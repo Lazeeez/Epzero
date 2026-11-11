@@ -218,6 +218,11 @@ class HnswIndex {
   // Tombstones `label`; returns false if it is not present. The label may be added again.
   bool remove(std::uint64_t label);
 
+  // Raises the capacity to `max_elements` vectors (never lowers it). The nodes are copied into larger
+  // blocks and the graph is kept, so growing costs a copy, not a rebuild. Not thread-safe: nothing else
+  // may use the index meanwhile, as its memory moves.
+  void reserve(std::size_t max_elements);
+
   // Returns up to k nearest live neighbors, closest first.
   std::vector<SearchResult> search(const float* query, std::size_t k,
                                    const SearchOptions& options = {}) const;
