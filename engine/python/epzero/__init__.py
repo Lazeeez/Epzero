@@ -19,7 +19,7 @@ search (BM25), and `hybrid_search` merges it with vector search. A LangChain vec
 
 from importlib.metadata import PackageNotFoundError, version
 
-from ._core import Database, Filter, Index, RecallGuard, TextIndex, fuse_rankings, hybrid_search, machine, simd_level
+from ._core import Database, Filter, Index, Metadata, RecallGuard, TextIndex, fuse_rankings, hybrid_search, machine, simd_level
 from .auto import Plan, build, plan
 
 try:
@@ -31,6 +31,7 @@ __all__ = [
     "Database",
     "Filter",
     "Index",
+    "Metadata",
     "Plan",
     "RecallGuard",
     "TextIndex",
