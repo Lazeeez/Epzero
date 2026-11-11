@@ -8,10 +8,9 @@
 #include <string_view>
 
 #include "kernels.h"
+#include "platform.h"
 
-#if defined(__x86_64__) || defined(_M_X64)
-#include <cpuid.h>
-#elif defined(__APPLE__)
+#if defined(__APPLE__)
 #include <sys/sysctl.h>
 #endif
 
@@ -41,8 +40,8 @@ bool simd_level_supported(SimdLevel level) noexcept {
   switch (level) {
     case SimdLevel::Scalar: return true;
 #if defined(__x86_64__) || defined(_M_X64)
-    case SimdLevel::AVX2: return __builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma");
-    case SimdLevel::AVX512: return __builtin_cpu_supports("avx512f");
+    case SimdLevel::AVX2: return platform::cpu().avx2 && platform::cpu().fma;
+    case SimdLevel::AVX512: return platform::cpu().avx512f;
 #endif
 #if defined(__aarch64__)
     case SimdLevel::NEON: return true;
@@ -60,7 +59,7 @@ namespace {
 // the newer ones are also the ones with VBMI2. On the older ones the AVX-512 integer SQ8 kernel is
 // slow on short vectors (see get_sq8_int_dot_fn).
 #if defined(__x86_64__) || defined(_M_X64)
-bool avx512_runs_at_full_clock() noexcept { return __builtin_cpu_supports("avx512vbmi2"); }
+bool avx512_runs_at_full_clock() noexcept { return platform::cpu().avx512vbmi2; }
 #endif
 
 SimdLevel detect_simd_level() noexcept {
@@ -87,13 +86,7 @@ SimdLevel active_simd_level() noexcept {
 std::string machine_name() {
   std::string cpu;
 #if defined(__x86_64__) || defined(_M_X64)
-  unsigned int words[12] = {};
-  if (__get_cpuid(0x80000000u, &words[0], &words[1], &words[2], &words[3]) && words[0] >= 0x80000004u) {
-    for (unsigned int leaf = 0; leaf < 3; ++leaf) {
-      __get_cpuid(0x80000002u + leaf, &words[4 * leaf], &words[4 * leaf + 1], &words[4 * leaf + 2], &words[4 * leaf + 3]);
-    }
-    cpu.assign(reinterpret_cast<const char*>(words), sizeof(words));
-  }
+  cpu = platform::cpu_brand();
 #elif defined(__APPLE__)
   char brand[256] = {};
   std::size_t size = sizeof(brand);
@@ -128,7 +121,7 @@ HalfDistanceFn get_half_distance_fn(Metric metric, SimdLevel level) noexcept {
   const bool l2 = metric == Metric::L2;
 #if defined(__x86_64__) || defined(_M_X64)
   if ((level == SimdLevel::AVX2 || level == SimdLevel::AVX512) && simd_level_supported(level) &&
-      __builtin_cpu_supports("f16c")) {
+      platform::cpu().f16c) {
     return l2 ? kernels::l2_half_f16c : kernels::ip_half_f16c;
   }
 #elif defined(__aarch64__)
@@ -185,14 +178,8 @@ namespace {
 #if defined(__x86_64__) || defined(_M_X64)
 // VNNI is an extension within each SIMD level, so it is checked on its own (CPUID leaf 7).
 // The level's own check already covers the OS saving the vector registers.
-bool cpu_has_avx_vnni() noexcept {
-  unsigned a = 0, b = 0, c = 0, d = 0;
-  return __get_cpuid_count(7, 1, &a, &b, &c, &d) && (a & (1u << 4)) != 0;
-}
-bool cpu_has_avx512_vnni() noexcept {
-  unsigned a = 0, b = 0, c = 0, d = 0;
-  return __get_cpuid_count(7, 0, &a, &b, &c, &d) && (c & (1u << 11)) != 0 && (b & (1u << 30)) != 0;  // + AVX512BW
-}
+bool cpu_has_avx_vnni() noexcept { return platform::cpu().avx_vnni; }
+bool cpu_has_avx512_vnni() noexcept { return platform::cpu().avx512vnni; }  // with AVX512BW
 #endif
 
 }  // namespace
