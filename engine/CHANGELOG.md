@@ -25,6 +25,10 @@ automatically. Full-precision search is 4-9% faster, as vector addresses are res
 **LlamaIndex.** `epzero.llamaindex.EpzeroVectorStore` (`pip install "epzero[llamaindex]"`): nodes with
 their text and metadata, filters in the engine, `delete_ref_doc`, and persistence.
 
+**Haystack.** `epzero.haystack.EpzeroDocumentStore` and `EpzeroEmbeddingRetriever`
+(`pip install "epzero[haystack]"`): Haystack filters in the engine where the answer is provably the same,
+and Haystack's document-store test suite passes.
+
 **Windows.** The engine builds with MSVC and its tests run on Windows in CI; wheels for Windows (x64).
 
 ## 0.4.0
