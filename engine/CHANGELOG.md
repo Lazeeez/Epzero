@@ -10,6 +10,11 @@
   much of the data the principal directions still capture, with advice in plain words: compact,
   recalibrate, or rebuild.
 - `RecallGuard(index)` takes its target and starting beam width from the profile.
+- `index.check_queries(queries)` (C++: `check_queries`) says whether queries look like the data: text
+  queries against image vectors sit 2.2-2.3× farther from their nearest neighbours than rows of the data,
+  against 0.99-1.09× for queries like the data, and recall calibrated on the data then falls to 0.74-0.80
+  for a 0.95 target. Its advice: `recalibrate(queries)`, which restored 0.945-0.958 on VIBE's
+  text-to-image sets.
 - `index.get_vector(label)` returns a stored vector.
 
 **File format 5.** Indexes with a profile or 16-bit vectors are written as version 5; 0.4's version 4
