@@ -273,7 +273,8 @@ pipeline.run({"retriever": {"query_embedding": embedding,
       published ones exactly; hybrid search beats both of its halves.
     </p>
     <div class="card panel" use:reveal use:spotlight>
-      <div class="table-wrap">
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <div class="table-wrap" tabindex="0" role="region" aria-label="BEIR results">
         <table>
           <thead>
             <tr><th>Dataset</th><th>Keyword (BM25)</th><th>Dense</th><th>Hybrid</th></tr>
