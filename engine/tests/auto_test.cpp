@@ -182,7 +182,11 @@ TEST(Auto, ProfileSurvivesSaveLoadAndCompaction) {
   EXPECT_EQ(a.machine, b.machine);
   EXPECT_EQ(a.notes, b.notes);
   EXPECT_TRUE(b.refined);
-  EXPECT_EQ(loaded->prefetch_settings(), index->prefetch_settings());  // the same machine
+  // The same machine keeps the timed setting; where the CPU can't be named (WebAssembly: "/wasm") a
+  // loaded index can't tell it's the same machine, and keeps the default.
+  const bool named = !a.machine.empty() && a.machine.front() != '/';
+  const HnswIndex defaults(index->params());
+  EXPECT_EQ(loaded->prefetch_settings(), named ? index->prefetch_settings() : defaults.prefetch_settings());
   index->remove(5);
   const auto compact = index->compacted(2);
   EXPECT_EQ(compact->profile().ef, a.ef);
