@@ -1,7 +1,7 @@
 // Runs the Epzero engine (C++ compiled to WebAssembly) off the main thread, so the page stays at
 // 60 fps while the engine saturates every core.
 import { UNSUPPORTED_BROWSER, wasmSimdSupported } from "../support";
-import type { FromWorker, KernelRow, LabConfig, SweepRow, ToWorker } from "./protocol";
+import type { AutoPlan, FromWorker, KernelRow, LabConfig, SweepRow, ToWorker } from "./protocol";
 import { norms, readVectors, VectorFileError, type Vectors } from "./vectors";
 
 interface Lab {
@@ -12,6 +12,7 @@ interface Lab {
   computeTruth(k: number, threads: number): number;
   beginBuild(M: number, efConstruction: number): void;
   buildStep(count: number, threads: number): number;
+  autoBuild(recall: number, k: number, threads: number): AutoPlan;
   sweep(ef: number, k: number): SweepRow;
   bruteForceQps(k: number, maxQueries: number): number;
   kernelBench(dim: number): KernelRow;
@@ -29,7 +30,8 @@ const variant: "mt" | "st" = self.crossOriginIsolated ? "mt" : "st";
 const threads = variant === "mt" ? Math.min(navigator.hardwareConcurrency || 4, 16) : 1;
 
 async function loadEngine(): Promise<EpzeroModule> {
-  const url = `${import.meta.env.BASE_URL}wasm/${variant}/epzero.js`;
+  // The lab module: the shared one plus build_auto, for "configure automatically".
+  const url = `${import.meta.env.BASE_URL}wasm/${variant}/epzero-lab.js`;
   const { default: createEpzero } = await import(/* @vite-ignore */ url);
   return createEpzero();
 }
@@ -137,15 +139,25 @@ async function run(config: LabConfig) {
     const truthMs = lab.computeTruth(config.k, threads);
     post({ type: "stage", stage: "truth", state: "done", ms: truthMs });
 
-    // Build in slices so progress streams to the page while every core inserts.
-    post({ type: "stage", stage: "build", state: "running" });
-    lab.beginBuild(config.M, config.efConstruction);
-    const slice = Math.max(1000, Math.round(config.n / 40));
-    const start = performance.now();
-    for (let built = 0; built < config.n; ) {
-      built = lab.buildStep(slice, threads);
-      const elapsed = (performance.now() - start) / 1000;
-      post({ type: "progress", built, total: config.n, insertsPerSec: built / elapsed });
+    post({ type: "stage", stage: "build", state: "running", detail: config.mode === "auto" ? "configuring" : undefined });
+    let efs = config.efs;
+    if (config.mode === "auto") {
+      // One call, as epzero.build: it plans, builds, calibrates the beam width on held-out rows and
+      // times prefetching here. The sweep then includes the calibrated width, to compare the recall
+      // calibration promised with what these queries get.
+      const plan = lab.autoBuild(config.recall, config.k, threads);
+      post({ type: "plan", plan });
+      efs = [...new Set([...config.efs, plan.ef])].sort((a, b) => a - b);
+    } else {
+      // Build in slices so progress streams to the page while every core inserts.
+      lab.beginBuild(config.M, config.efConstruction);
+      const slice = Math.max(1000, Math.round(config.n / 40));
+      const start = performance.now();
+      for (let built = 0; built < config.n; ) {
+        built = lab.buildStep(slice, threads);
+        const elapsed = (performance.now() - start) / 1000;
+        post({ type: "progress", built, total: config.n, insertsPerSec: built / elapsed });
+      }
     }
     const info = lab.info();
     post({ type: "stage", stage: "build", state: "done", ms: info.buildMs });
@@ -157,7 +169,7 @@ async function run(config: LabConfig) {
     post({ type: "stage", stage: "baseline", state: "done" });
 
     post({ type: "stage", stage: "sweep", state: "running" });
-    for (const ef of config.efs) {
+    for (const ef of efs) {
       const row = lab.sweep(ef, config.k);
       if (Number.isFinite(row.qps) && row.qps > 0) post({ type: "sweep", row });
     }
