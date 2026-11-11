@@ -5,7 +5,7 @@
 #include <random>
 #include <set>
 
-#if !defined(__EMSCRIPTEN__)
+#if !defined(__EMSCRIPTEN__) && !defined(_WIN32)  // fork() and kill -9
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -291,7 +291,7 @@ TEST(Crc32c, KnownVector) {
   EXPECT_EQ(crc32c("123456789", 9), 0xE3069283u);
 }
 
-#if !defined(__EMSCRIPTEN__)
+#if !defined(__EMSCRIPTEN__) && !defined(_WIN32)  // fork() and kill -9
 // A real crash: a child process writes with fsync-per-write and reports each acknowledged label
 // through a pipe; the parent SIGKILLs it at a random moment. Every acknowledged write must be
 // there after recovery, and the database must still open cleanly.
