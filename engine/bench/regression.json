@@ -1,0 +1,58 @@
+{
+  "float-l2": {
+    "4": {
+      "recall": 0.9068,
+      "distances": 209.99
+    },
+    "8": {
+      "recall": 0.9068,
+      "distances": 209.99
+    },
+    "16": {
+      "recall": 0.9664,
+      "distances": 247.212
+    }
+  },
+  "float-cosine": {
+    "4": {
+      "recall": 0.9042,
+      "distances": 222.262
+    },
+    "8": {
+      "recall": 0.9042,
+      "distances": 222.262
+    },
+    "16": {
+      "recall": 0.967,
+      "distances": 263.986
+    }
+  },
+  "sq8-second-pass": {
+    "4": {
+      "recall": 0.9132,
+      "distances": 234.102
+    },
+    "8": {
+      "recall": 0.9132,
+      "distances": 234.102
+    },
+    "16": {
+      "recall": 0.981,
+      "distances": 275.388
+    }
+  },
+  "sq8-directions": {
+    "32": {
+      "recall": 0.4988,
+      "distances": 323.592
+    },
+    "64": {
+      "recall": 0.7316,
+      "distances": 390.994
+    },
+    "128": {
+      "recall": 0.9518,
+      "distances": 508.41
+    }
+  }
+}
