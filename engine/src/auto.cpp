@@ -178,6 +178,14 @@ AutoPlan plan_auto(const float* data, std::size_t n, std::size_t dim, const Auto
     throw std::invalid_argument("nav_dim needs 8-bit quantization and at most dim directions");
   }
 
+  // 16-bit full vectors halve the largest part of the index, but were 5-17% slower on GIST1M and lost
+  // 0.003-0.004 recall on OpenAI embeddings (laptop), so they are only ever the caller's choice.
+  params.half_vectors = fixed.half_vectors.value_or(false);
+  note(profile, "half_vectors", fixed.half_vectors ? yours
+                                : "off: 16-bit vectors halve their memory but cost speed and some recall; set it to save memory");
+  if (params.half_vectors && params.quantization != Quantization::SQ8) {
+    throw std::invalid_argument("half_vectors needs 8-bit quantization");
+  }
   params.fast_build = fixed.fast_build.value_or(params.quantization == Quantization::SQ8);
   note(profile, "fast_build", fixed.fast_build ? yours
                               : params.fast_build ? "built on the codes: faster, and as good a graph in our measurements"
