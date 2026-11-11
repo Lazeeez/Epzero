@@ -255,6 +255,47 @@ TEST(Auto, GetVectorReturnsWhatIsStored) {
   EXPECT_EQ(index.live_labels(), std::vector<std::uint64_t>{7});
 }
 
+// A file the released 0.4.0 wrote (format v4, before the storage flags and the v5 profile fields):
+// every release must keep reading it. Written by epzero 0.4.0 from PyPI:
+//   x = np.random.default_rng(7).normal(size=(300, 16)).astype(np.float32)
+//   epzero.build(x, metric="cosine", ef=24, prefetch=(8, 2), threads=1, seed=5).save(...)
+// and its search(x[:3], k=3) returned [[0, 6, 23], [1, 162, 101], [2, 118, 36]].
+TEST(Auto, ReadsTheFormatThatVersion040Wrote) {
+  const auto index = HnswIndex::load(std::string(EPZERO_TEST_DATA) + "/v4-from-0.4.0.epzero");
+  const auto& p = index->profile();
+  EXPECT_EQ(index->live_count(), 300u);
+  EXPECT_EQ(index->params().metric, Metric::Cosine);
+  EXPECT_EQ(p.ef, 24u);
+  EXPECT_TRUE(p.refined);
+  EXPECT_EQ(p.calibrated_size, 0u);  // not in v4
+  EXPECT_FALSE(index->params().half_vectors);
+  const std::vector<std::vector<std::uint64_t>> expected = {{0, 6, 23}, {1, 162, 101}, {2, 118, 36}};
+  std::vector<float> query(16);
+  for (std::uint64_t q = 0; q < 3; ++q) {
+    ASSERT_TRUE(index->get_vector(q, query.data()));
+    const auto found = index->search(query.data(), 3, {.ef = p.ef, .rerank = p.rerank, .rerank_z = p.rerank_z});
+    ASSERT_EQ(found.size(), 3u);
+    for (std::size_t i = 0; i < 3; ++i) EXPECT_EQ(found[i].label, expected[q][i]);
+  }
+}
+
+TEST(Auto, ProfiledIndexesWriteVersion5) {
+  const auto data = make_clustered(500, 0, 16, 5, 15);
+  AutoOptions options;
+  options.threads = 1;
+  const auto index = build_auto(data.base.data.data(), nullptr, 500, 16, options);
+  const auto path = (std::filesystem::temp_directory_path() / "epzero_v5.idx").string();
+  index->save(path);
+  std::ifstream in(path, std::ios::binary);
+  char header[12];
+  in.read(header, sizeof(header));
+  in.close();
+  std::filesystem::remove(path);
+  std::uint32_t version;
+  std::memcpy(&version, header + 8, sizeof(version));
+  EXPECT_EQ(version, 5u);
+}
+
 TEST(Auto, PlainIndexesKeepTheOlderFormat) {
   HnswParams params;
   params.dim = 8;
