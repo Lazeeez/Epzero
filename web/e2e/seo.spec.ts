@@ -6,6 +6,7 @@ import { expect, test } from "@playwright/test";
 const pages = [
   { path: "", title: /^Epzero · A vector database/ },
   { path: "try", title: /^Semantic photo search/ },
+  { path: "download", title: /^Download Epzero: pip install epzero/ },
   { path: "play", title: /out-navigate/ },
   { path: "cluster", title: /^Break a vector database cluster/ },
   { path: "benchmarks", title: /^Vector search benchmarks: Epzero vs/ },
