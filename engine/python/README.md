@@ -88,7 +88,7 @@ guard = epzero.RecallGuard(index, sample_rate=0.01)   # or measure live recall a
 ```python
 vectors = np.random.rand(100_000, 128).astype(np.float32)
 index = epzero.Index(dim=128, metric="l2", max_elements=100_000, M=16, ef_construction=200)
-index.add(vectors)                                   # labels 0..n-1 (or pass labels=)
+index.add(vectors)                                   # labels 0..n-1 (or pass labels=); grows as needed
 
 labels, distances = index.search(vectors[:5], k=10, ef=64)
 
