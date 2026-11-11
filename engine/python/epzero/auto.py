@@ -29,7 +29,8 @@ import numpy as np
 from ._core import Index, _build_auto, _plan_auto
 
 # Settings the C++ planner decides, which a caller can fix instead.
-_DECIDED = ("quantization", "nav_dim", "fast_build", "refine", "fill_after", "rerank", "rerank_z", "ef", "prefetch")
+_DECIDED = ("quantization", "nav_dim", "fast_build", "refine", "fill_after", "rerank", "rerank_z", "ef", "prefetch",
+            "half_vectors")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -44,6 +45,7 @@ class Plan:
     fast_build: bool = True     # build on the 8-bit codes
     refine: bool = True         # a second pass: every node searches the finished graph and reconnects
     fill_after: bool = False    # give free link slots to the closest two-hop neighbours
+    half_vectors: bool = False  # keep the full vectors as 16-bit floats: half their memory, a little speed and recall
     rerank: int = 0             # candidates re-scored with full vectors (0: twice k)
     rerank_z: float = 0.0       # stop the re-rank early at this many standard deviations (0: off)
     recall: float = 0.95        # the target the beam width is calibrated for
@@ -90,7 +92,8 @@ def _from_core(params, profile, recall, threads, seed, built):
     return Plan(metric=params["metric"], quantization=params["quantization"], M=params["M"],
                 ef_construction=params["ef_construction"], nav_dim=params["nav_dim"],
                 fast_build=profile["fast_build"] if built else params["fast_build"],
-                refine=profile["refine"], fill_after=profile["fill_after"], rerank=profile["rerank"],
+                refine=profile["refine"], fill_after=profile["fill_after"], half_vectors=params["half_vectors"],
+                rerank=profile["rerank"],
                 rerank_z=round(float(profile["rerank_z"]), 4), recall=round(float(profile["recall_target"] or recall), 4),
                 k=profile["k"], ef=profile["ef"] or None, prefetch=tuple(profile["prefetch"]) if built else None,
                 threads=threads, seed=seed, reasons=dict(profile["notes"]), measured=measured)
