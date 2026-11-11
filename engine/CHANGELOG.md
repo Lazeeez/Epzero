@@ -12,6 +12,9 @@
 - `RecallGuard(index)` takes its target and starting beam width from the profile.
 - `index.get_vector(label)` returns a stored vector.
 
+**File format 5.** Indexes with a profile or 16-bit vectors are written as version 5; 0.4's version 4
+files are still read (a file written by 0.4.0 is part of the test suite). See `docs/file-format.md`.
+
 **Indexes grow.** `add()` no longer fails when an index is full: it grows the capacity (at least
 doubling), copying the nodes and keeping the graph; `index.reserve(n)` and `index.capacity` do it ahead.
 The LangChain, LlamaIndex and Haystack stores, which rebuilt their whole graph each time they filled, now
