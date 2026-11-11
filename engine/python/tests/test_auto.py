@@ -176,6 +176,26 @@ def test_recalibrate_and_health_after_growth():
     assert recall(index, np.vstack([base, more]), queries, 10) >= 0.93
 
 
+def test_requantize_after_drift():
+    rows = clustered(6300, 32, 8)
+    base, more, queries = rows[:3000], rows[3000:6000].copy(), rows[6000:].copy()
+    shift = np.where(np.arange(32) % 2 == 0, 4 * rows.std(), 0).astype(np.float32)  # later rows drift
+    more += shift
+    queries += shift
+    index = epzero.build(base, capacity=6000, threads=2)
+    assert index.health()["code_error"] < 0.001
+    index.add(more, labels=np.arange(3000, 6000))
+    health = index.health()
+    assert health["code_error"] > 0.01 and any(a.startswith("requantize()") for a in health["advice"])
+    result = index.requantize(threads=2)
+    assert result["code_error_before"] > 0.01 and result["code_error_after"] < 0.001
+    assert not any(a.startswith("requantize()") for a in index.health()["advice"])
+    index.recalibrate(queries, threads=2)
+    assert recall(index, np.vstack([base, more]), queries, 10) >= 0.93
+    with pytest.raises(Exception, match="SQ8"):
+        epzero.build(base, quantization="none").requantize()
+
+
 def test_recall_guard_starts_from_the_profile():
     base = clustered(3000, 32, 8)
     index = epzero.build(base, recall=0.9, threads=2)
