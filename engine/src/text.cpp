@@ -295,7 +295,11 @@ std::vector<SearchResult> fuse_rankings(const std::vector<std::vector<SearchResu
 std::vector<SearchResult> hybrid_search(const HnswIndex& vectors, const TextIndex& text, const float* query_vector,
                                         std::string_view query_text, std::size_t k, const HybridOptions& options) {
   const std::size_t candidates = std::max(options.candidates, k);
-  return fuse_rankings({vectors.search(query_vector, candidates, {.ef = std::max(options.ef, candidates)}),
+  // The index's own settings (its profile) unless ef is given: an index that walks on principal
+  // directions needs its deeper re-rank, and an automatic one its calibrated beam width.
+  const IndexProfile& profile = vectors.profile();
+  const std::size_t ef = std::max(options.ef != 0 ? options.ef : profile.ef, candidates);
+  return fuse_rankings({vectors.search(query_vector, candidates, {.ef = ef, .rerank = profile.rerank, .rerank_z = profile.rerank_z}),
                         text.search(query_text, candidates)},
                        k, options.rrf_k, {options.vector_weight, options.text_weight});
 }
