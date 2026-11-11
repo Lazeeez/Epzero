@@ -8,12 +8,17 @@
 #include <stdexcept>
 #include <unordered_set>
 
+#include "porter.h"
+
 namespace epzero {
 
 namespace {
 
-constexpr char kMagic[8] = {'E', 'P', 'Z', 'R', 'T', 'X', 'T', '1'};
-constexpr char kLegacyMagic[8] = {'O', 'R', 'Y', 'X', 'T', 'X', 'T', '1'};  // from before the rename
+// Version 2 adds the stemmer after b; version 1 files (and the Oryx ones from before the rename) were
+// written without stemming, and load with Stemmer::None so their terms still match.
+constexpr char kMagic[8] = {'E', 'P', 'Z', 'R', 'T', 'X', 'T', '2'};
+constexpr char kMagicV1[8] = {'E', 'P', 'Z', 'R', 'T', 'X', 'T', '1'};
+constexpr char kLegacyMagic[8] = {'O', 'R', 'Y', 'X', 'T', 'X', 'T', '1'};
 
 bool word_byte(unsigned char c) noexcept {
   return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c >= 0x80;
@@ -49,6 +54,15 @@ std::vector<std::string> TextIndex::tokenize(std::string_view text) {
   return tokens;
 }
 
+std::vector<std::string> TextIndex::terms(std::string_view text) const {
+  auto words = tokenize(text);
+  if (options_.stemmer == Stemmer::Porter) {
+    thread_local porter::Stemmer stemmer;
+    for (auto& w : words) w = stemmer.stem(w);
+  }
+  return words;
+}
+
 TextIndex::TextIndex(TextIndex&& other) noexcept {
   std::unique_lock lock(other.lock_);
   options_ = other.options_;
@@ -77,7 +91,7 @@ TextIndex& TextIndex::operator=(TextIndex&& other) noexcept {
 }
 
 void TextIndex::add(std::uint64_t label, std::string_view text) {
-  const auto tokens = tokenize(text);
+  const auto tokens = terms(text);
   std::unordered_map<std::string_view, std::uint32_t> counts;
   for (const auto& t : tokens) ++counts[t];
 
@@ -151,7 +165,7 @@ bool TextIndex::contains(std::uint64_t label) const {
 }
 
 std::vector<SearchResult> TextIndex::search(std::string_view query, std::size_t k) const {
-  auto tokens = tokenize(query);
+  auto tokens = terms(query);
   std::sort(tokens.begin(), tokens.end());
   tokens.erase(std::unique(tokens.begin(), tokens.end()), tokens.end());
 
@@ -200,9 +214,12 @@ void TextIndex::save(const std::string& path) const {
 
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
   if (!out) throw std::runtime_error("cannot write " + path);
-  out.write(kMagic, sizeof(kMagic));
+  // The oldest version that holds it: an index without stemming is still version 1.
+  const bool stemmed = options_.stemmer != Stemmer::None;
+  out.write(stemmed ? kMagic : kMagicV1, sizeof(kMagic));
   put(out, options_.k1);
   put(out, options_.b);
+  if (stemmed) put(out, static_cast<std::uint8_t>(options_.stemmer));
   put(out, static_cast<std::uint64_t>(live_));
   for (std::uint32_t i = 0; i < docs_.size(); ++i) {
     if (!docs_[i].live) continue;
@@ -222,13 +239,20 @@ TextIndex TextIndex::load(const std::string& path) {
   std::ifstream in(path, std::ios::binary);
   if (!in) throw std::runtime_error("cannot open " + path);
   char magic[sizeof(kMagic)];
-  if (!in.read(magic, sizeof(magic)) ||
-      (std::memcmp(magic, kMagic, sizeof(kMagic)) != 0 && std::memcmp(magic, kLegacyMagic, sizeof(kMagic)) != 0)) {
+  if (!in.read(magic, sizeof(magic))) throw std::runtime_error(path + " is not an Epzero text index");
+  const bool current = std::memcmp(magic, kMagic, sizeof(kMagic)) == 0;
+  if (!current && std::memcmp(magic, kMagicV1, sizeof(kMagic)) != 0 && std::memcmp(magic, kLegacyMagic, sizeof(kMagic)) != 0) {
     throw std::runtime_error(path + " is not an Epzero text index");
   }
   Options options;
   options.k1 = get<float>(in);
   options.b = get<float>(in);
+  options.stemmer = Stemmer::None;
+  if (current) {
+    const auto stemmer = get<std::uint8_t>(in);
+    if (stemmer > static_cast<std::uint8_t>(Stemmer::Porter)) throw std::runtime_error("text index file has an unknown stemmer");
+    options.stemmer = static_cast<Stemmer>(stemmer);
+  }
   TextIndex index(options);
   const auto docs = get<std::uint64_t>(in);
   std::unordered_set<std::uint64_t> seen;
