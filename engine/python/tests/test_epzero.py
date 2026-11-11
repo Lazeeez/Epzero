@@ -245,7 +245,62 @@ def test_errors_are_python_exceptions(data):
     with pytest.raises(ValueError):
         index.add(np.zeros((2, 7), dtype=np.float32))
     index.add(base[:2])
-    with pytest.raises(Exception, match="full"):
-        index.add(base[2:3])
+    index.add(base[2:3])  # a full index grows
+    assert len(index) == 3
+    with pytest.raises(ValueError, match="duplicate label"):
+        index.add(base[3:4], labels=[1])
     with pytest.raises(ValueError):
         epzero.Index(dim=24, metric="manhattan")
+
+
+def test_add_grows_the_index_and_keeps_the_graph(data):
+    base, queries = data
+    index = epzero.Index(dim=24, max_elements=100)
+    for start in range(0, len(base), 250):  # many small adds past the first capacity
+        index.add(base[start:start + 250], labels=np.arange(start, min(start + 250, len(base))))
+    assert len(index) == len(base) and index.capacity >= len(base)
+    labels, _ = index.search(queries, k=10, ef=100)
+    truth = exact_knn(base, queries, 10)
+    assert np.mean([len(set(l) & set(t)) / 10 for l, t in zip(labels, truth)]) >= 0.95
+    index.reserve(10_000)
+    assert index.capacity == 10_000
+
+
+def test_growth_waits_for_searches_on_other_threads(data):
+    import threading
+
+    base, queries = data
+    index = epzero.Index(dim=24, max_elements=64)
+    index.add(base[:64])
+    errors = []
+
+    def search():
+        try:
+            for _ in range(300):
+                index.search(queries, k=5, ef=32, threads=2)
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    readers = [threading.Thread(target=search) for _ in range(3)]
+    for r in readers:
+        r.start()
+    for start in range(64, len(base), 64):  # grows repeatedly while the readers search
+        index.add(base[start:start + 64], labels=np.arange(start, min(start + 64, len(base))))
+    for r in readers:
+        r.join()
+    assert not errors and len(index) == len(base)
+
+
+def test_growth_refuses_while_a_guard_is_attached(data):
+    base, _ = data
+    index = epzero.Index(dim=24, max_elements=100)
+    index.add(base[:100])
+    guard = epzero.RecallGuard(index)
+    with pytest.raises(ValueError, match="RecallGuard"):
+        index.add(base[100:110], labels=np.arange(100, 110))
+    del guard
+    import gc
+
+    gc.collect()
+    index.add(base[100:110], labels=np.arange(100, 110))
+    assert len(index) == 110
