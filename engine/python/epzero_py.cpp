@@ -12,6 +12,7 @@
 #include "epzero/hnsw.h"
 #include "epzero/parallel.h"
 #include "epzero/recall.h"
+#include "epzero/metadata.h"
 #include "epzero/text.h"
 
 namespace py = pybind11;
@@ -483,6 +484,138 @@ py::tuple ranked(const std::vector<epzero::SearchResult>& results) {
   return py::make_tuple(labels, scores);
 }
 
+// Python values <-> metadata values. bool is checked before int (in Python a bool is an int).
+std::optional<epzero::MetaValue> meta_value(const py::handle& v) {
+  if (py::isinstance<py::bool_>(v)) return epzero::MetaValue(v.cast<bool>());
+  if (py::isinstance<py::int_>(v)) return epzero::MetaValue(v.cast<std::int64_t>());
+  if (py::isinstance<py::float_>(v)) return epzero::MetaValue(v.cast<double>());
+  if (py::isinstance<py::str>(v)) return epzero::MetaValue(v.cast<std::string>());
+  return std::nullopt;
+}
+
+py::object meta_object(const epzero::MetaValue& v) {
+  if (const auto* i = std::get_if<std::int64_t>(&v)) return py::int_(*i);
+  if (const auto* d = std::get_if<double>(&v)) return py::float_(*d);
+  if (const auto* t = std::get_if<std::string>(&v)) return py::str(*t);
+  return py::bool_(std::get<bool>(v));
+}
+
+epzero::MetadataIndex::Fields meta_fields(const py::dict& fields) {
+  epzero::MetadataIndex::Fields out;
+  for (const auto& [key, value] : fields) {
+    const auto v = meta_value(value);
+    if (!v) {
+      throw std::invalid_argument("metadata values must be str, int, float or bool (field '" + key.cast<std::string>() + "')");
+    }
+    out.emplace_back(key.cast<std::string>(), *v);
+  }
+  return out;
+}
+
+std::vector<epzero::MetaValue> meta_list(const py::handle& values, const std::string& field) {
+  std::vector<epzero::MetaValue> out;
+  for (const auto& item : values) {
+    const auto v = meta_value(item);
+    if (!v) throw std::invalid_argument("filter values must be str, int, float or bool (field '" + field + "')");
+    out.push_back(*v);
+  }
+  return out;
+}
+
+// A `where` dict: {field: value} for equality, {field: [values]} for any of them, or {field: {op: x}}
+// with $eq, $ne, $in, $nin, $gt, $gte, $lt, $lte and $exists. Every entry must hold.
+std::vector<epzero::MetaCondition> meta_where(const py::dict& where) {
+  std::vector<epzero::MetaCondition> out;
+  for (const auto& [key, spec] : where) {
+    const auto field = key.cast<std::string>();
+    if (py::isinstance<py::dict>(spec)) {
+      for (const auto& [op_key, arg] : spec.cast<py::dict>()) {
+        const auto op = op_key.cast<std::string>();
+        epzero::MetaCondition c{.field = field};
+        const auto one = [&] {
+          const auto v = meta_value(arg);
+          if (!v) throw std::invalid_argument(op + " needs a str, int, float or bool (field '" + field + "')");
+          return *v;
+        };
+        const auto number = [&] {
+          if (py::isinstance<py::bool_>(arg) || !(py::isinstance<py::int_>(arg) || py::isinstance<py::float_>(arg))) {
+            throw std::invalid_argument(op + " needs a number (field '" + field + "')");
+          }
+          return arg.cast<double>();
+        };
+        if (op == "$eq") c.any_of = {one()};
+        else if (op == "$ne") { c.any_of = {one()}; c.negate = true; }
+        else if (op == "$in") c.any_of = meta_list(arg, field);
+        else if (op == "$nin") { c.any_of = meta_list(arg, field); c.negate = true; }
+        else if (op == "$gt") { c.min = number(); c.min_exclusive = true; }
+        else if (op == "$gte") c.min = number();
+        else if (op == "$lt") { c.max = number(); c.max_exclusive = true; }
+        else if (op == "$lte") c.max = number();
+        else if (op == "$exists") {
+          // A condition with no values and no range means "has the field".
+          if (!arg.cast<bool>()) throw std::invalid_argument("$exists: false is not supported (labels without the field aren't indexed)");
+        } else {
+          throw std::invalid_argument("unknown filter operator " + op);
+        }
+        out.push_back(std::move(c));
+      }
+    } else if (py::isinstance<py::list>(spec) || py::isinstance<py::tuple>(spec) || py::isinstance<py::set>(spec)) {
+      out.push_back({.field = field, .any_of = meta_list(spec, field)});
+    } else {
+      const auto v = meta_value(spec);
+      if (!v) throw std::invalid_argument("filter values must be str, int, float or bool (field '" + field + "')");
+      out.push_back({.field = field, .any_of = {*v}});
+    }
+  }
+  return out;
+}
+
+class Metadata {
+ public:
+  Metadata() = default;
+  explicit Metadata(epzero::MetadataIndex index) : index_(std::move(index)) {}
+
+  void set(std::uint64_t label, const py::dict& fields) { index_.set(label, meta_fields(fields)); }
+  void set_many(const py::object& labels, const py::list& rows) {
+    const auto ids = labels_of(labels, rows.size(), 0);
+    std::vector<epzero::MetadataIndex::Fields> parsed;
+    parsed.reserve(rows.size());
+    for (const auto& row : rows) parsed.push_back(meta_fields(row.cast<py::dict>()));
+    py::gil_scoped_release release;
+    for (std::size_t i = 0; i < ids.size(); ++i) index_.set(ids[i], parsed[i]);
+  }
+  bool remove(std::uint64_t label) { return index_.remove(label); }
+  py::array_t<std::int64_t> select(const py::dict& where) const {
+    const auto conditions = meta_where(where);
+    std::vector<std::uint64_t> labels;
+    {
+      py::gil_scoped_release release;
+      labels = index_.select(conditions);
+    }
+    py::array_t<std::int64_t> out(static_cast<py::ssize_t>(labels.size()));
+    for (std::size_t i = 0; i < labels.size(); ++i) out.mutable_data()[i] = static_cast<std::int64_t>(labels[i]);
+    return out;
+  }
+  py::dict get(std::uint64_t label) const {
+    py::dict out;
+    for (const auto& [name, value] : index_.get(label)) out[py::str(name)] = meta_object(value);
+    return out;
+  }
+  std::size_t size() const { return index_.size(); }
+  bool contains(std::uint64_t label) const { return index_.contains(label); }
+  void save(const std::string& path) const {
+    py::gil_scoped_release release;
+    index_.save(path);
+  }
+  static Metadata load(const std::string& path) {
+    py::gil_scoped_release release;
+    return Metadata(epzero::MetadataIndex::load(path));
+  }
+
+ private:
+  epzero::MetadataIndex index_;
+};
+
 class TextIndex {
  public:
   TextIndex(float k1, float b) : index_({.k1 = k1, .b = b}) {}
@@ -743,6 +876,25 @@ PYBIND11_MODULE(_core, m) {
       .def("report", &Guard::report,
            "Per segment: its beam width, how often it moved, and the recall estimate with its interval.")
       .def("drain", &Guard::drain, "Waits for the queued exact checks to finish.");
+
+  py::class_<Metadata>(m, "Metadata",
+                       "Fields per label (str, int, float, bool) for filtered search: select(where) returns the\n"
+                       "labels that pass, to hand to Index.search(filter=...) or Index.filter().")
+      .def(py::init<>())
+      .def("set", &Metadata::set, py::arg("label"), py::arg("fields"),
+           "Sets `label`'s fields from a dict, replacing any it had.")
+      .def("set_many", &Metadata::set_many, py::arg("labels"), py::arg("rows"),
+           "Sets many labels' fields: rows is a list of dicts, one per label (labels None: 0..n-1).")
+      .def("remove", &Metadata::remove, py::arg("label"), "Forgets `label`; returns False if it had no fields.")
+      .def("select", &Metadata::select, py::arg("where"),
+           "Labels whose fields meet every entry of `where`, sorted: {field: value} for equality,\n"
+           "{field: [values]} for any of them, or {field: {op: x}} with $eq, $ne, $in, $nin, $gt, $gte,\n"
+           "$lt, $lte or $exists. Integers and floats compare as numbers.")
+      .def("get", &Metadata::get, py::arg("label"), "`label`'s fields as a dict ({} if none).")
+      .def("save", &Metadata::save, py::arg("path"))
+      .def_static("load", &Metadata::load, py::arg("path"))
+      .def("__len__", &Metadata::size)
+      .def("__contains__", &Metadata::contains);
 
   py::class_<TextIndex>(m, "TextIndex",
                         "Keyword search (Okapi BM25) over short texts, keyed by the same labels as an Index:\n"
