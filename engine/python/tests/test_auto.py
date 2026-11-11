@@ -204,3 +204,15 @@ def test_half_vectors_only_when_asked():
     plain.train(base)
     plain.add(base)
     assert plain.search(base[:1], k=1)[0][0, 0] == 0
+
+
+def test_check_queries_tells_shifted_queries_apart():
+    rows = clustered(5200, 48, 12)
+    base, alike = rows[:5000], rows[5000:]
+    index = epzero.build(base, threads=2)
+    same = index.check_queries(alike)
+    assert not same["shifted"] and 0.7 < same["ratio"] < 1.3 and same["advice"] == []
+    shifted = index.check_queries(alike + 4.0 * np.random.default_rng(3).normal(size=alike.shape).astype(np.float32))
+    assert shifted["shifted"] and shifted["ratio"] > 1.5 and "recalibrate" in shifted["advice"][0]
+    calibrated = epzero.build(base, queries=alike, threads=2)  # already calibrated on queries: no advice
+    assert calibrated.check_queries(alike + 4.0)["advice"] == []
