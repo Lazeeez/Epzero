@@ -200,7 +200,6 @@ saves to a folder.
 
 ## Platforms
 
-Wheels for Linux (x86-64 and ARM64, glibc 2.28+), macOS (Apple silicon and Intel) and, from 0.5,
-Windows (x64), Python 3.10 to 3.13. Elsewhere, `pip install epzero` builds from source (CMake 3.20+, a C++20 compiler).
+Wheels for Linux (x86-64 and ARM64, glibc 2.28+), macOS (Apple silicon and Intel) and Windows (x64), Python 3.10 to 3.13. Elsewhere, `pip install epzero` builds from source (CMake 3.20+, a C++20 compiler).
 
 Live demo, benchmarks and design notes: https://epzero.dev/ · MIT license.
