@@ -51,11 +51,12 @@ epzero::SyncMode parse_sync(const std::string& name) {
 
 epzero::HnswParams make_params(std::size_t dim, const std::string& metric, std::size_t max_elements, std::size_t M,
                              std::size_t ef_construction, std::uint64_t seed, const std::string& quantization,
-                             bool keep_vectors, std::size_t nav_dim = 0, bool fill_links = false, bool fast_build = false) {
+                             bool keep_vectors, std::size_t nav_dim = 0, bool fill_links = false, bool fast_build = false,
+                             bool half_vectors = false) {
   return {.dim = dim, .metric = parse_metric(metric), .max_elements = max_elements, .M = M,
           .ef_construction = ef_construction, .seed = seed, .quantization = parse_quantization(quantization),
           .keep_vectors = keep_vectors, .nav_dim = nav_dim, .fill_links = fill_links,
-          .fast_build = fast_build};
+          .fast_build = fast_build, .half_vectors = half_vectors};
 }
 
 const float* rows_of(const FloatArray& data, std::size_t dim, std::size_t& n) {
@@ -136,6 +137,7 @@ py::dict params_dict(const epzero::HnswParams& p) {
   d["keep_vectors"] = p.keep_vectors;
   d["nav_dim"] = p.nav_dim;
   d["fast_build"] = p.fast_build;
+  d["half_vectors"] = p.half_vectors;
   return d;
 }
 
@@ -177,6 +179,7 @@ epzero::AutoOptions auto_options(const std::string& metric, std::size_t M, std::
     else if (name == "rerank") o.fixed.rerank = value.cast<std::size_t>();
     else if (name == "rerank_z") o.fixed.rerank_z = value.cast<float>();
     else if (name == "ef") o.fixed.ef = value.cast<std::size_t>();
+    else if (name == "half_vectors") o.fixed.half_vectors = value.cast<bool>();
     else if (name == "prefetch") {
       const auto pair = value.cast<py::tuple>();
       if (pair.size() != 2) throw std::invalid_argument("prefetch must be (depth, lines)");
@@ -193,9 +196,10 @@ class Index {
  public:
   Index(std::size_t dim, const std::string& metric, std::size_t max_elements, std::size_t M,
         std::size_t ef_construction, std::uint64_t seed, const std::string& quantization, bool keep_vectors,
-        std::size_t nav_dim, bool fill_links, bool fast_build)
+        std::size_t nav_dim, bool fill_links, bool fast_build, bool half_vectors)
       : index_(std::make_unique<epzero::HnswIndex>(make_params(dim, metric, max_elements, M, ef_construction, seed,
-                                                               quantization, keep_vectors, nav_dim, fill_links, fast_build))) {}
+                                                               quantization, keep_vectors, nav_dim, fill_links, fast_build,
+                                                               half_vectors))) {}
 
   explicit Index(std::unique_ptr<epzero::HnswIndex> index) : index_(std::move(index)) {}
 
@@ -656,11 +660,11 @@ PYBIND11_MODULE(_core, m) {
 
   py::class_<Index>(m, "Index")
       .def(py::init<std::size_t, const std::string&, std::size_t, std::size_t, std::size_t, std::uint64_t,
-                    const std::string&, bool, std::size_t, bool, bool>(),
+                    const std::string&, bool, std::size_t, bool, bool, bool>(),
            py::arg("dim"), py::arg("metric") = "l2", py::arg("max_elements") = 1'000'000, py::arg("M") = 16,
            py::arg("ef_construction") = 200, py::arg("seed") = 42, py::arg("quantization") = "none",
            py::arg("keep_vectors") = true, py::arg("nav_dim") = 0, py::arg("fill_links") = false,
-           py::arg("fast_build") = false)
+           py::arg("fast_build") = false, py::arg("half_vectors") = false)
       .def("train", &Index::train, py::arg("data"), "SQ8: learn per-dimension ranges before the first add().")
       .def("add", &Index::add, py::arg("data"), py::arg("labels") = py::none(), py::arg("threads") = 0,
            "Insert rows of `data`; labels default to consecutive ids starting at the number of slots used.")
