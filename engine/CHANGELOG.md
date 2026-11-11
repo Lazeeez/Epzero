@@ -12,6 +12,13 @@
 - `RecallGuard(index)` takes its target and starting beam width from the profile.
 - `index.get_vector(label)` returns a stored vector.
 
+**Indexes grow.** `add()` no longer fails when an index is full: it grows the capacity (at least
+doubling), copying the nodes and keeping the graph; `index.reserve(n)` and `index.capacity` do it ahead.
+The LangChain, LlamaIndex and Haystack stores, which rebuilt their whole graph each time they filled, now
+grow in place: loading 40,000 documents in batches of 100 went from 6.0 s to 3.4 s. Searches on other
+threads wait for a growth, which moves the index's memory; with a RecallGuard attached, growing must be
+done beforehand with `reserve()`.
+
 **Metadata in the engine.** `epzero.Metadata` (C++: `MetadataIndex`) keeps str, int, float and bool fields
 per label, with an inverted index per field and ordered numeric values, and `select(where)` returns the
 labels that pass ({field: value}, {field: [values]}, or `$eq`, `$ne`, `$in`, `$nin`, `$gt`, `$gte`, `$lt`,
