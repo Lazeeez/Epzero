@@ -724,6 +724,26 @@ thread then shared one node's bandwidth, the likeliest reason its default build 
 against 212 s on the 24-core Gold. Large blocks are now zeroed on every core. Not yet measured on the
 EPYC (round 7).
 
+**Round 8: modern embeddings and out-of-distribution queries** (VIBE's datasets, `*-speed-round8.json`,
+Threadripper PRO 9985WX). Queries per second as a multiple of Glass's at recall 0.90 / 0.95 / 0.98:
+
+| Dataset | Queries | `epzero-auto` | Build, Epzero vs Glass |
+|---|---|---|---|
+| AG News, mxbai, 1024-d | like the data | 1.41× / 1.57× / 1.63× | 22 s vs 108 s |
+| arXiv, Nomic, 768-d | like the data | 1.04× / 1.17× / 1.17× | 37 s vs 147 s |
+| ImageNet, CLIP, 512-d | like the data | 0.97× / 1.09× / 1.37× | 35 s vs 44 s |
+| LAION, CLIP, 512-d | text against images | 3.18× at 0.90 (Glass stops at 0.908) | 49 s vs 59 s |
+| ImageNet, ALIGN, 640-d | text against images | 2.30× at 0.90 (Glass stops at 0.938) | 42 s vs 54 s |
+| Yandex, 200-d | text against images | 1.18× / 1.47× / 1.72× | 19 s vs 24 s |
+
+It walked on principal directions for the text embeddings (192 of mxbai's 1,024, 160 of Nomic's 768) and
+not for the image ones. Calibrated on rows of the data, its recall at the calibrated beam width was on
+target where queries are like the data (0.945, 0.955, 0.959) and far below where they aren't: 0.795, 0.753
+and 0.736 for a 0.95 target. Calibrated on the datasets' sample queries instead (`epzero-auto-ood`,
+`queries=`), it was 0.945, 0.953 and 0.958. A shifted query sits farther from its nearest neighbour than
+rows of the data do: 2.2-2.3× on these sets, against 0.99-1.09× for queries like the data, which
+`check_queries` measures so a user knows to recalibrate.
+
 **16-bit full vectors, opt-in only.** Keeping the re-rank copy as half floats cut GIST1M's 200k index from
 800 to 434 MiB, but in alternating laptop runs search was up to 17% slower there, and on the DBpedia sample
 recall fell 0.003-0.004 (0.983 to 0.980 at `ef` 40): OpenAI embeddings' near neighbours are close enough
