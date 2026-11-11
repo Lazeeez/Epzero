@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -34,6 +35,12 @@ constexpr std::size_t kTuneQueries = 300;
 constexpr std::size_t kTuneEf = 96;
 constexpr std::size_t kMinTuneQueries = 50;
 constexpr std::size_t kMaxEf = 4096;
+// Advice thresholds: tombstones still cost search time; growth makes a calibrated beam stale; a fall in
+// the variance the directions hold means the data moved away from what the walk was built for.
+constexpr double kCompactShare = 0.2;
+constexpr double kRecalibrateGrowth = 0.25;
+constexpr double kNavVarianceDrop = 0.05;
+constexpr std::size_t kHealthSample = 5000;
 
 std::string percent(double share) { return std::to_string(static_cast<int>(share * 100.0 + 0.5)) + "%"; }
 
@@ -262,8 +269,101 @@ std::unique_ptr<HnswIndex> build_auto(const float* data, const std::uint64_t* la
     index->set_prefetch(profile.prefetch_depth, profile.prefetch_lines);
   }
   profile.machine = machine_name();
+  profile.calibrated_size = plan.calibrate ? n : 0;
   index->set_profile(std::move(profile));
+  if (plan.params.nav_dim != 0) {
+    IndexProfile p = index->profile();
+    p.nav_variance = static_cast<float>(nav_variance(*index, threads));
+    index->set_profile(std::move(p));
+  }
   return index;
+}
+
+std::pair<std::size_t, float> recalibrate(HnswIndex& index, const float* queries, std::size_t count, float recall,
+                                          std::size_t threads) {
+  if (queries == nullptr || count == 0) throw std::invalid_argument("recalibrate needs queries");
+  IndexProfile profile = index.profile();
+  const float target = recall > 0.0f ? recall : profile.recall_target > 0.0f ? profile.recall_target : 0.95f;
+  if (!(target > 0.0f && target <= 1.0f)) throw std::invalid_argument("recall must be in (0, 1]");
+  const auto [ef, reached] = calibrate(index, queries, count, profile, target, threads);
+  profile.ef = ef;
+  profile.recall_target = target;
+  profile.recall_measured = reached;
+  profile.calibrated_size = index.live_count();
+  std::erase_if(profile.notes, [](const auto& note) { return note.first == "ef"; });
+  note(profile, "ef", "recalibrated for recall " + std::to_string(target).substr(0, 4) + " on your queries");
+  index.set_profile(std::move(profile));
+  return {ef, reached};
+}
+
+double nav_variance(const HnswIndex& index, std::size_t threads) {
+  const std::vector<float>& basis = index.nav_basis();
+  const std::size_t dim = index.params().dim;
+  const std::size_t directions = index.params().nav_dim;
+  if (basis.empty() || directions == 0) return 0.0;
+  auto labels = index.live_labels();
+  if (labels.size() < 2) return 0.0;
+  std::shuffle(labels.begin(), labels.end(), std::mt19937_64(7));
+  labels.resize(std::min(labels.size(), kHealthSample));
+  std::vector<float> rows(labels.size() * dim);
+  parallel_for(0, labels.size(), threads, [&](std::size_t i) { index.get_vector(labels[i], rows.data() + i * dim); });
+  std::vector<double> mean(dim, 0.0);
+  for (std::size_t i = 0; i < labels.size(); ++i) {
+    for (std::size_t d = 0; d < dim; ++d) mean[d] += rows[i * dim + d];
+  }
+  for (double& m : mean) m /= static_cast<double>(labels.size());
+  // Per row: its squared distance from the mean, and the part of it along the directions (orthonormal).
+  std::vector<double> total(labels.size()), held(labels.size());
+  parallel_for(0, labels.size(), threads, [&](std::size_t i) {
+    const float* v = rows.data() + i * dim;
+    double t = 0.0, h = 0.0;
+    for (std::size_t d = 0; d < dim; ++d) t += (v[d] - mean[d]) * (v[d] - mean[d]);
+    for (std::size_t r = 0; r < directions; ++r) {
+      const float* q = basis.data() + r * dim;
+      double dot = 0.0;
+      for (std::size_t d = 0; d < dim; ++d) dot += q[d] * (v[d] - mean[d]);
+      h += dot * dot;
+    }
+    total[i] = t;
+    held[i] = h;
+  });
+  double t = 0.0, h = 0.0;
+  for (std::size_t i = 0; i < labels.size(); ++i) {
+    t += total[i];
+    h += held[i];
+  }
+  return t > 0.0 ? std::min(1.0, h / t) : 0.0;
+}
+
+IndexHealth check_health(const HnswIndex& index, std::size_t threads) {
+  IndexHealth out;
+  const IndexProfile& profile = index.profile();
+  out.live = index.live_count();
+  out.deleted = index.deleted_count();
+  const auto percent_of = [](double share) { return std::to_string(static_cast<long long>(std::lround(share * 100.0))) + "%"; };
+  const double slots = static_cast<double>(out.live + out.deleted);
+  if (slots > 0 && out.deleted / slots > kCompactShare) {
+    out.advice.push_back("compact(): " + percent_of(out.deleted / slots) +
+                         " of the index is deleted vectors, which still cost search time");
+  }
+  if (profile.calibrated_size > 0) {
+    out.growth = static_cast<double>(out.live) / static_cast<double>(profile.calibrated_size) - 1.0;
+    if (std::abs(out.growth) > kRecalibrateGrowth) {
+      out.advice.push_back(std::string("recalibrate(queries): the index has ") + (out.growth > 0 ? "grown " : "shrunk ") +
+                           percent_of(std::abs(out.growth)) + " since its beam width was calibrated");
+    }
+  } else if (profile.recall_target == 0.0f) {
+    out.advice.push_back("recalibrate(queries): the beam width was never calibrated for a recall target");
+  }
+  if (index.params().nav_dim != 0) {
+    out.nav_variance_built = profile.nav_variance;
+    out.nav_variance_now = nav_variance(index, threads);
+    if (profile.nav_variance > 0.0f && out.nav_variance_now < out.nav_variance_built - kNavVarianceDrop) {
+      out.advice.push_back("rebuild with build_auto: the principal directions now hold " + percent_of(out.nav_variance_now) +
+                           " of the variance, down from " + percent_of(out.nav_variance_built) + " when built");
+    }
+  }
+  return out;
 }
 
 }  // namespace epzero
