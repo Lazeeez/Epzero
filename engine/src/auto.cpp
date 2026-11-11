@@ -42,6 +42,7 @@ constexpr double kCompactShare = 0.2;
 constexpr double kRecalibrateGrowth = 0.25;
 constexpr double kNavVarianceDrop = 0.05;
 constexpr std::size_t kHealthSample = 5000;
+constexpr double kCodeErrorLimit = 0.01;
 constexpr std::size_t kQueryCheckSample = 200;
 constexpr double kShiftRatio = 1.5;  // between 1.09 (queries like the data) and 2.26 (text against images)
 
@@ -104,7 +105,9 @@ std::pair<std::size_t, float> calibrate(const HnswIndex& index, const float* que
     return expected == 0 ? 1.0f : static_cast<float>(hits.load()) / static_cast<float>(expected);
   };
 
-  std::size_t low = 0;
+  // A beam below k measures as k (the search widens it), so the answer is at least k: a lower one would
+  // run unmeasured at a smaller k (a beam of 2 for k = 1 missed rows added since).
+  std::size_t low = k - 1;
   std::size_t ef = std::max<std::size_t>(16, k);
   float reached = recall(ef);
   while (reached < target && ef < kMaxEf) {
@@ -407,6 +410,11 @@ IndexHealth check_health(const HnswIndex& index, std::size_t threads) {
     }
   } else if (profile.recall_target == 0.0f) {
     out.advice.push_back("recalibrate(queries): the beam width was never calibrated for a recall target");
+  }
+  out.code_error = index.code_error(kHealthSample, threads);
+  if (out.code_error > kCodeErrorLimit) {
+    out.advice.push_back("requantize(): vectors added since the build lie outside the ranges the 8-bit codes were "
+                         "fitted on, and their codes miss " + percent_of(out.code_error) + " of the variance");
   }
   if (index.params().nav_dim != 0) {
     out.nav_variance_built = profile.nav_variance;
