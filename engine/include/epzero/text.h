@@ -90,7 +90,7 @@ std::vector<SearchResult> fuse_rankings(const std::vector<std::vector<SearchResu
                                         double rrf_k = 60.0, const std::vector<double>& weights = {});
 
 struct HybridOptions {
-  std::size_t ef = 64;            // vector search beam width (at least `candidates`)
+  std::size_t ef = 0;             // vector search beam width, at least `candidates` (0: the index's profile)
   std::size_t candidates = 50;    // how many results each retriever contributes to the fusion
   double rrf_k = 60.0;            // the fusion's rank offset (60 is the paper's default)
   double vector_weight = 1.0;
