@@ -2,16 +2,22 @@
 
 **[epzero.dev](https://epzero.dev/)**
 
-A vector database built from scratch in C++20. It implements HNSW
-(Hierarchical Navigable Small World) approximate nearest-neighbor search, with
-hand-written SIMD kernels, lock-free concurrent search and memory-system
-tuning. On SIFT1M, on a dedicated server where every library gets huge pages,
-it serves **1.08× the queries per second of hnswlib and 1.12× FAISS at the same
-recall**, builds the graph fastest, and scales to 10× on a 12-core socket.
-Against five other libraries on four more datasets (up to 10M vectors and 1,536
-dimensions), its 8-bit mode is the fastest on GIST1M and DEEP10M, ahead of Glass,
-and second to Glass on GloVe and OpenAI embeddings
-([results](docs/performance.md#against-the-field-four-more-datasets)).
+A vector database built from scratch in C++20: HNSW (Hierarchical Navigable
+Small World) approximate nearest-neighbor search, with hand-written SIMD kernels,
+8-bit quantization, lock-free concurrent search and memory-system tuning. **It
+configures itself:** `epzero.build(vectors)` chooses the compression, the graph
+build and the search effort for your data and recall target, and times its
+memory prefetching on your CPU (`pip install epzero`).
+
+On dedicated servers (Georgia Tech's PACE cluster), with the same code on an
+Intel Xeon Gold 6226, an AMD EPYC 7513 and an AMD Threadripper PRO 9985WX, it
+answers **1.3–4.2× as many queries per second as Glass**, the fastest of the five
+other libraries compared, at equal recall on GIST1M, OpenAI DBpedia embeddings and
+DEEP10M, and 1.1–1.5× on GloVe-100 at recall 0.90 and above (3% behind at 0.80 on
+one CPU). It builds those indexes up to 5× faster and, on the larger datasets, in
+less memory. On SIFT1M at full precision it serves 1.08× hnswlib's and 1.12×
+FAISS's queries per second at the same recall and scales to 10× on a 12-core
+socket. [The scoreboard lists every run, losses included →](docs/scoreboard.md)
 
 **It also makes recall visible and keeps it on target.** Every approximate
 index trades accuracy for speed, and in production nobody measures the
@@ -71,17 +77,21 @@ WebAssembly (SIMD128 + threads), running entirely in your browser:
   their exact answers, then switch between strong and eventual reads and
   check the live history for linearizability with Porcupine.
 - **[Benchmarks](https://epzero.dev/benchmarks).** Interactive
-  SIFT1M charts against hnswlib and FAISS, the optimization log, SQ8 results,
-  and a lab that benchmarks the engine on your own device.
+  SIFT1M charts against hnswlib and FAISS, the comparison with five libraries on
+  four more datasets, the tuned results against Glass on Intel and AMD, the
+  optimization log, SQ8 results, and a lab that benchmarks the engine on your own
+  device.
 
 The site works in Chrome, Edge, Firefox and Safari (16.4+), on desktop and
 mobile, and offline after one visit. Browsers without WebGL get everything but
 the 3D view; browsers too old for WebAssembly SIMD get a clear explanation.
 
-> **Status:** milestones 1–9 are done: milestone 8's cluster is built and tested
-> in CI (a real three-node failover on every push), with its cloud deployment on
-> hold, and the wider competitive benchmarks (10) are under way. See the
-> [roadmap](#roadmap).
+> **Status:** 0.4.0, with automatic configuration, is the current release. On `main`
+> for 0.5: recalibrating and health-checking an index after the build, and 16-bit
+> full vectors (half their memory, opt-in). Next: Windows, metadata stored in the
+> engine, more framework integrations, and an independent benchmark submission. The
+> cluster is built and tested in CI on every push; its cloud deployment is on hold.
+> See the [roadmap](#roadmap).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/sift1m-recall-qps-dark.svg">
@@ -120,6 +130,10 @@ project was called Oryx until October 2026.)
   Xeon Gold 6226 and an AMD EPYC 7513 with the same code. Builds are faster too, except on GloVe-100
   and on DEEP10M on the Gold. These are each dataset's best settings, chosen on the queries they are
   measured on; the [scoreboard](docs/scoreboard.md) lists every run and every loss.
+- **Stays accurate after the build** (0.5, on `main`): `index.health()` reports growth since
+  calibration, deleted vectors and whether the principal directions still fit the data, with
+  plain advice (compact, recalibrate or rebuild); `index.recalibrate(queries)` re-measures the
+  search effort without rebuilding.
 - **Recall you can see and keep:** live recall estimates with confidence
   intervals from sampled exact checks, a guard that holds a recall target as
   the workload drifts, and an explanation for any miss
@@ -199,9 +213,10 @@ flowchart LR
 | [`cluster/`](cluster) | The Go router, its HTTP API and CLI, and the three-node failover test |
 | [`proto/`](proto) | The gRPC service between the router and the nodes |
 | [`pipeline/`](pipeline) | Builds the demo dataset from Open Images |
-| [`bench/`](bench) | Library comparison scripts and the measured results the site's charts use |
+| [`bench/`](bench) | Library comparison scripts (`compete.py`), the scoreboard generator and every measured result |
+| [`scripts/`](scripts) | Dataset downloads, the WebAssembly builds, and the PACE (Slurm) job scripts for each benchmark round |
 | [`deploy/`](deploy) | Terraform, systemd units and a rolling deploy script for the cluster |
-| [`docs/`](docs) | The performance log and charts |
+| [`docs/`](docs) | The performance log, the [scoreboard](docs/scoreboard.md), the research plan, design notes and charts |
 
 **Tech stack.**
 
@@ -211,10 +226,32 @@ flowchart LR
 | Cluster | Go 1.27, gRPC, Protocol Buffers, Prometheus text metrics |
 | Web | Svelte 5, TypeScript, Vite, three.js, Emscripten (pthreads, SIMD), transformers.js on ONNX Runtime Web (CLIP ViT-B/32), service worker |
 | Data | PyTorch + CLIP, UMAP, Open Images V7 |
-| Testing and CI | CTest, ThreadSanitizer, AddressSanitizer + UBSan, pytest, Go race detector, govulncheck, Playwright (Chromium, Firefox, WebKit), axe-core, GitHub Actions on x86-64 and ARM64 |
+| Testing and CI | CTest, ThreadSanitizer, AddressSanitizer + UBSan, libFuzzer, pytest, Go race detector, govulncheck, Porcupine, Playwright (Chromium, Firefox, WebKit), axe-core, GitHub Actions on x86-64 and ARM64, cibuildwheel |
+| Benchmarking | Dedicated nodes on Georgia Tech's PACE cluster (Slurm): Intel Xeon Gold 6226, AMD EPYC 7513, AMD Threadripper PRO 9985WX |
 | Hosting | Cloudflare Workers (static assets at the edge, the CLIP models in R2 behind a Worker), deployed from CI; Terraform for Oracle Cloud (Ampere A1) |
 
 ## Results
+
+**Against Glass on three CPUs** (dedicated PACE nodes, `M=16`, `efConstruction=200`, one search
+thread, median of 3 interleaved rounds, 1,000 queries). Queries per second as a multiple of Glass's
+at equal recall, at each dataset's recall targets; builds on every core, Epzero against Glass. The
+Gold 6226 and Threadripper columns are `epzero.build` with no settings given (round 7); the EPYC
+column is each dataset's hand-tuned settings (round 6), which the automatic ones matched to within
+5% on the other two CPUs.
+
+| Dataset | Recall | Gold 6226 (Cascade Lake) | Threadripper PRO 9985WX (Zen 5) | EPYC 7513 (Zen 3) |
+|---|---|---|---|---|
+| GIST1M (960-d) | 0.90 / 0.95 | 2.97× / 4.12× | 2.23× / 3.02× | 3.01× / 4.16× |
+| DBpedia OpenAI (1536-d) | 0.90 / 0.95 / 0.98 | 1.59× / 1.82× / 2.28× | 1.94× / 2.21× / 2.68× | 1.80× / 1.98× / 2.41× |
+| DEEP10M (96-d) | 0.90 / 0.95 / 0.98 | 1.40× / 1.32× / 1.39× | 1.31× / 1.29× / 1.44× | 1.42× / 1.38× / 1.51× |
+| GloVe-100 | 0.80 / 0.90 / 0.93 | 0.97× / 1.08× / 1.16× | 1.29× / 1.43× / 1.52× | 1.08× / 1.25× / 1.34× |
+| Build (GIST, DBpedia, DEEP, GloVe) | | 101/190, 166/245, 444/495, 60/56 s | 28/151, 49/224, 260/517, 28/28 s | 62/363, 225/510, 458/752, 118/85 s |
+
+Glass stops below recall 0.98 on GIST1M (0.967). The automatic configuration held recall 0.949–0.957
+on the real queries against its 0.95 target in all eight runs. Epzero's indexes take less memory than
+Glass's on GIST1M, DBpedia and DEEP10M (4.0 against 5.2 GB, 6.3 against 8.4, 7.0 against 8.7) and
+the same on GloVe-100. Raw results: [`bench/results/pace/`](bench/results/pace/); every run, with
+hnswlib, FAISS, USearch and VSAG too: the [scoreboard](docs/scoreboard.md).
 
 **SIFT1M** (1M × 128-dim, 10k queries, official ground truth), `M=16`,
 `efConstruction=200`, 1 search thread, median of 3 runs.
@@ -233,11 +270,11 @@ and its memory. Runs agree within 0.5%. Job scripts: [`scripts/pace/`](scripts/p
 
 - **Against other libraries:** 1.06–1.08× hnswlib's and 1.12–1.18× FAISS's QPS
   at equal recall, from recall 0.80 to 0.995 (chart below).
-- **Against the field:** on GIST1M, GloVe-100, DBpedia OpenAI embeddings and
-  DEEP10M, Epzero is ahead of VSAG, FAISS, hnswlib and USearch on every one.
-  Epzero SQ8 is the fastest of all on GIST1M (1.08× Glass) and DEEP10M
-  (1.15× Glass); Glass leads on GloVe (1.18×) and DBpedia (1.31×)
-  ([table](docs/performance.md#against-the-field-four-more-datasets)).
+- **Against the field, shipped defaults:** on GIST1M, GloVe-100, DBpedia OpenAI embeddings and
+  DEEP10M, plain 8-bit Epzero (an earlier run, before the walk on principal directions and the
+  second build pass) is ahead of VSAG, FAISS, hnswlib and USearch on every one
+  ([table](docs/performance.md#against-the-field-four-more-datasets)); the table above is the
+  comparison with Glass since.
 - **Build:** 1M vectors in 22.7 s on 24 threads. The index takes 765 MiB.
 - **Threads:** 59,636 QPS on 12 threads of one socket (10.0×) and 83,746 on all
   24 (14.0×), at recall 0.974. Crossing sockets costs about 19%; one index copy
@@ -348,6 +385,31 @@ accumulators.
   beam width, 30% filters got 24–36% faster, and exact scans no longer slow
   down as the beam widens (38.6k queries/s at 0.1%, was 11k at `ef` 320).
 - **Recall monitoring and control.** See [docs/recall-guard.md](docs/recall-guard.md).
+- **Automatic configuration** ([`auto.h`](engine/include/epzero/auto.h)). From the data: 8-bit
+  codes; a walk on principal directions at 256 dimensions or more when 80% of the variance fits in
+  a quarter of them; the build passes; the re-rank; and the beam width that reaches the recall
+  target, calibrated on rows held out of the graph until calibration is done (rows already in the
+  graph are linked to their own neighbours, which made GloVe look like 0.95 when it was 0.87). From
+  the machine: prefetching, timed per CPU. The choices and the reason for each are saved in the
+  index file (format v4, an `IndexProfile`), and `search()` uses them by default.
+- **Walking on principal directions** (`nav_dim`). For long embeddings the graph walk scores 8-bit
+  codes of the top principal directions (96 of GIST1M's 960, 288 of OpenAI's 1,536) instead of every
+  dimension, and the final candidates are re-ranked with the full vectors. The query is projected on
+  the integer kernel. The directions come from a blocked subspace iteration with Cholesky QR: deciding
+  how many to keep takes under a second at 200,000 × 960 on a laptop, and training them 1.5 s.
+- **A second build pass and an early re-rank stop.** After the build every node searches the
+  finished graph and reconnects (`refine_links`), as its first neighbours were chosen from a sparser
+  graph; free link slots then go to two-hop neighbours. The re-rank scores candidates in blocks and
+  stops once the rest, judged by this query's own gap between estimated and exact distances, can't
+  reach the top k.
+- **Prefetching tuned per CPU.** How many neighbours ahead, and how many cache lines of each, is timed
+  on the machine: fetching a whole record was worth 1.6–1.7× on a Cascade Lake Xeon and nothing on a
+  laptop, on identical code. Index memory is zeroed on every core, so on many-socket servers it is
+  spread across NUMA nodes instead of sitting on one.
+- **16-bit full vectors** (`half_vectors`, 0.5 on `main`). The full-precision copy kept for the build
+  and the re-rank can be stored as IEEE half floats: about half the index's memory, with F16C and NEON
+  kernels. It cost up to 17% of the speed on GIST1M and 0.003–0.004 recall on OpenAI embeddings in
+  our measurements, so it is only ever opt-in.
 
 ## Python
 
@@ -365,6 +427,10 @@ index = epzero.build(vectors, metric="cosine", recall=0.95)
 labels, distances = index.search(queries, k=10)
 print(index.plan)                               # every setting and why; pass any to override:
 index = epzero.build(vectors, metric="cosine", nav_dim=0, M=32, queries=sample_queries)
+
+# After the build (0.5, on main): what it needs, and a new calibration on real queries
+print(index.health())                           # growth, deleted share, fit of the directions, advice
+index.recalibrate(sample_queries)
 
 # Or by hand
 index = epzero.Index(dim=128, metric="l2", max_elements=1_000_000, M=16, ef_construction=200)
@@ -544,10 +610,14 @@ python bench/compare_libs.py --data data/sift --cache data/indexes --out bench/r
 
 Sanitizers: `-DEPZERO_SANITIZE=thread` or `-DEPZERO_SANITIZE=address,undefined`.
 Fuzzing (Clang): `-DEPZERO_BUILD_FUZZ=ON` builds libFuzzer targets for snapshot
-loading, graph import and write-ahead-log recovery. CI runs GCC and Clang on
+loading, graph import, write-ahead-log recovery and the text index. CI runs GCC and Clang on
 x86-64, GCC on AArch64 (NEON), both sanitizer configurations, a minute of
 fuzzing per target plus every past finding, the Python tests, and the test
 suite as WebAssembly under Node.
+
+Against other libraries: `bench/compete.py` (Epzero, `epzero-auto`, hnswlib, FAISS, USearch, VSAG
+and Glass on any ann-benchmarks dataset, interleaved in one process) and `bench/scoreboard.py`, which
+turns its results into [`docs/scoreboard.md`](docs/scoreboard.md).
 
 More benchmarks: `bench_filter` (every filtered-search strategy across
 selectivities), `bench_churn` (search latency under concurrent writes; recall
@@ -574,8 +644,10 @@ dedicated-server runs are in [`scripts/pace/`](scripts/pace/).
 16. ✅ The comparison re-run with the integer SQ8 kernel: level with Glass on GIST1M, +34% on DBpedia
 17. ✅ The outlier split gated per query, measured on the server: SQ8 +25% on DEEP10M, +17% on GloVe
 18. ✅ Walking on principal directions, a second build pass, the early re-rank stop and prefetch tuned per CPU: ahead of Glass on all four datasets, on Intel and AMD
-19. ✅ Automatic configuration in the engine (`build_auto`, `epzero.build`), saved with the index; a public scoreboard
-20. Modern and out-of-distribution datasets (CLIP text-to-image, 1536-3072-dimensional text embeddings); held-out queries for the final comparison; ARM servers; an ann-benchmarks and VIBE submission (`ann-benchmarks/`)
+19. ✅ Automatic configuration in the engine (`build_auto`, `epzero.build`), saved with the index; a public scoreboard; released as 0.4.0, measured on three CPUs
+20. ✅ (0.5, on `main`) Recalibration and health checks after the build; 16-bit full vectors as an opt-in memory mode
+21. Windows; metadata stored in the engine; LlamaIndex and Haystack integrations; docs site and example notebooks
+22. Modern and out-of-distribution datasets (CLIP text-to-image, 1536-3072-dimensional text embeddings); held-out queries for the final comparison; ARM servers; an ann-benchmarks and VIBE submission (`ann-benchmarks/`)
 
 ## License
 
