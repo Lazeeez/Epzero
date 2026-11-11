@@ -142,6 +142,7 @@ if(EPZERO_BUILD_TESTS)
   enable_testing()
   add_executable(epzero_tests tests/auto_test.cpp tests/distance_test.cpp tests/half_test.cpp tests/hnsw_test.cpp tests/metadata_test.cpp tests/recall_test.cpp tests/dataset_test.cpp tests/database_test.cpp tests/text_test.cpp)
   target_link_libraries(epzero_tests PRIVATE epzero_engine GTest::gtest_main)
+  target_compile_definitions(epzero_tests PRIVATE EPZERO_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
   if(EMSCRIPTEN)
     # Runs under Node (CMAKE_CROSSCOMPILING_EMULATOR); workers are pre-spawned for the
     # concurrency tests and the real filesystem backs the save/load tests.
