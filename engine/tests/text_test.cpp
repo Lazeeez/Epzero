@@ -104,6 +104,38 @@ TEST(TextIndex, SaveLoadRoundTrip) {
   std::filesystem::remove(path);
 }
 
+TEST(TextIndex, StemsEnglishWords) {
+  const TextIndex stemmed;
+  // Porter's own examples, and words that must stay whole.
+  EXPECT_EQ(stemmed.terms("Connections connected CONNECTING relational hopping caresses ponies sky"),
+            (std::vector<std::string>{"connect", "connect", "connect", "relat", "hop", "caress", "poni", "sky"}));
+  EXPECT_EQ(stemmed.terms("generalizations oscillators e1042 café is"),
+            (std::vector<std::string>{"gener", "oscil", "e1042", "café", "is"}));
+  TextIndex index;
+  index.add(1, "how proteins are connected in cells");
+  index.add(2, "an unrelated document");
+  EXPECT_EQ(labels_of(index.search("protein connections", 10)), (std::vector<std::uint64_t>{1}));
+  const TextIndex plain({.stemmer = TextIndex::Stemmer::None});
+  EXPECT_EQ(plain.terms("Connections"), (std::vector<std::string>{"connections"}));
+}
+
+TEST(TextIndex, FilesKeepTheirStemmer) {
+  const auto path = (std::filesystem::temp_directory_path() / "epzero_text_stem.idx").string();
+  for (const auto stemmer : {TextIndex::Stemmer::None, TextIndex::Stemmer::Porter}) {
+    TextIndex index({.stemmer = stemmer});
+    index.add(1, "connected networks");
+    index.save(path);
+    char magic[8];
+    std::ifstream(path, std::ios::binary).read(magic, 8);
+    // Version 1 without stemming, so releases before 0.5 still read it; version 2 with it.
+    EXPECT_EQ(magic[7], stemmer == TextIndex::Stemmer::None ? '1' : '2');
+    const TextIndex loaded = TextIndex::load(path);
+    EXPECT_EQ(loaded.options().stemmer, stemmer);
+    EXPECT_EQ(loaded.search("connections", 1).size(), stemmer == TextIndex::Stemmer::Porter ? 1u : 0u);
+  }
+  std::filesystem::remove(path);
+}
+
 TEST(Fusion, ReciprocalRankFusion) {
   const std::vector<SearchResult> a = {{1, 0}, {2, 0}, {3, 0}};
   const std::vector<SearchResult> b = {{3, 0}, {4, 0}};
