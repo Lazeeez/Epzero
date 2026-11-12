@@ -11,7 +11,7 @@
     <p class="eyebrow">Engineering notes</p>
     <h1 id="article-title">{article.title}</h1>
     <p class="lede">{article.subtitle}</p>
-    <p class="byline">By Lajat · {minutes} min read</p>
+    <p class="byline">{minutes} min read</p>
   </header>
 
   <div class="prose">
