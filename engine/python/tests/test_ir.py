@@ -69,7 +69,7 @@ def test_run_files_round_trip(tmp_path):
     run = {"1": [("a", 3.0), ("b", 2.5)], "2": [("c", -0.1)]}
     ir.write_run(run, tmp_path / "run.txt", tag="test")
     lines = (tmp_path / "run.txt").read_text().splitlines()
-    assert lines[0] == "1 Q0 a 1 3.000000 test"
+    assert lines[0] == "1 Q0 a 1 3 test"
     assert ir.read_run(tmp_path / "run.txt") == run
     with pytest.raises(ValueError):
         ir.write_run(run, tmp_path / "x.txt", tag="two words")
@@ -80,6 +80,38 @@ def test_qrels_formats(tmp_path):
     (tmp_path / "beir.tsv").write_text("query-id\tcorpus-id\tscore\n1\ta\t2\n1\tb\t0\n2\tc\t1\n")
     expected = {"1": {"a": 2, "b": 0}, "2": {"c": 1}}
     assert ir.read_qrels(tmp_path / "trec.txt") == expected == ir.read_qrels(tmp_path / "beir.tsv")
+
+
+def test_run_precision_does_not_reverse_relevance(tmp_path):
+    run = {"q": [("a", 0.12345644), ("z", 0.12345641)]}
+    qrels = {"q": {"a": 1, "z": 0}}
+    path = tmp_path / "close-scores.run"
+    ir.write_run(run, path)
+    loaded = ir.read_run(path)
+    assert loaded == run
+    assert ir.evaluate(loaded, qrels, ["nDCG@1"])["nDCG@1"] == 1
+
+
+@pytest.mark.parametrize("value", ["0.5", "nan", "inf", "-inf"])
+def test_fractional_and_nonfinite_qrels_rejected(tmp_path, value):
+    path = tmp_path / "qrels"
+    path.write_text(f"q 0 d {value}\n")
+    with pytest.raises(ValueError, match="finite integer"):
+        ir.read_qrels(path)
+
+
+def test_explicit_evaluation_populations():
+    run = {"q": [("a", 1)]}
+    qrels = {"q": {"a": 1}, "zero": {"a": 0}}
+    assert ir.evaluate(run, qrels)["MAP"] == 1
+    assert ir.evaluate(run, qrels, population="judged")["MAP"] == 0.5
+    result = ir.evaluate(run, qrels, population="explicit", query_ids=["q", "zero", "unjudged"])
+    assert result["MAP"] == pytest.approx(1 / 3)
+    assert result["R@100"] == pytest.approx(1 / 3)
+    with pytest.raises(ValueError, match="exactly"):
+        ir.evaluate(run, qrels, query_ids=["q"])
+    with pytest.raises(ValueError, match="unique"):
+        ir.evaluate(run, qrels, population="explicit", query_ids=["q", "q"])
 
 
 def test_measures_by_hand():
