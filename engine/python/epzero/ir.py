@@ -8,9 +8,9 @@ retrieval, TREC run files, relevance judgements and the standard measures.
     ir.write_run(run, "run.txt", tag="epzero-hybrid")          # TREC format, for CLEF, TREC or BEIR
     print(ir.evaluate(run, ir.read_qrels("qrels.txt")))         # nDCG@10, R@100, MAP, MRR@10
 
-Measures follow trec_eval: a run is ranked by score (ties by document id, descending), nDCG uses linear
-gains, every query with at least one relevant document in the judgements is scored, and a query missing
-from the run scores 0.
+Runs are ranked by score (ties by document id, descending) and nDCG uses linear gains. By default,
+every query with at least one relevant judgment is scored; evaluate also supports judged and explicit
+query populations. A query missing from the run scores 0.
 """
 
 from __future__ import annotations
@@ -152,13 +152,13 @@ class Collection:
 # ---- TREC files ----
 
 def write_run(run: Run, path: str, tag: str = "epzero") -> None:
-    """A TREC run file: `query Q0 document rank score tag`, ranks from 1, best first."""
+    """A TREC run file, preserving binary64 scores through a text round trip."""
     if any(c.isspace() for c in tag):
         raise ValueError("the run tag must not contain whitespace")
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         for qid, ranked in run.items():
             for rank, (doc_id, score) in enumerate(ranked, start=1):
-                f.write(f"{qid} Q0 {doc_id} {rank} {score:.6f} {tag}\n")
+                f.write(f"{qid} Q0 {doc_id} {rank} {score:.17g} {tag}\n")
 
 
 def read_run(path: str) -> Run:
@@ -176,7 +176,7 @@ def read_run(path: str) -> Run:
 
 def read_qrels(path: str) -> Qrels:
     """Reads relevance judgements: TREC (`query 0 document relevance`) or BEIR's TSV with a header
-    (`query-id corpus-id score`)."""
+    (`query-id corpus-id score`). Rejects fractional/nonfinite labels and duplicate judgments."""
     qrels: Qrels = {}
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -189,7 +189,12 @@ def read_qrels(path: str) -> Qrels:
                 qid, doc_id, rel = parts
             else:
                 raise ValueError(f"{path}: unexpected line {line.strip()!r}")
-            qrels.setdefault(qid, {})[doc_id] = int(float(rel))
+            value = float(rel)
+            if not math.isfinite(value) or not value.is_integer():
+                raise ValueError(f"{path}: relevance must be a finite integer, got {rel!r}")
+            if doc_id in qrels.get(qid, {}):
+                raise ValueError(f"{path}: duplicate judgment for {qid!r}, {doc_id!r}")
+            qrels.setdefault(qid, {})[doc_id] = int(value)
     return qrels
 
 
@@ -206,7 +211,7 @@ def _measure(name: str, ranked: list[str], judged: dict[str, int]) -> float:
         idcg = sum(r / math.log2(i + 2) for i, r in enumerate(ideal))
         return dcg / idcg if idcg > 0 else 0.0
     if base == "R":
-        return sum(1 for d in top if d in relevant) / len(relevant)
+        return sum(1 for d in top if d in relevant) / len(relevant) if relevant else 0.0
     if base == "P":
         return sum(1 for d in top if d in relevant) / depth
     if base == "MAP":
@@ -215,22 +220,39 @@ def _measure(name: str, ranked: list[str], judged: dict[str, int]) -> float:
             if d in relevant:
                 hits += 1
                 total += hits / (i + 1)
-        return total / len(relevant)
+        return total / len(relevant) if relevant else 0.0
     if base in ("MRR", "RR"):
         return next((1.0 / (i + 1) for i, d in enumerate(top) if d in relevant), 0.0)
     raise ValueError(f"unknown measure {name}: use nDCG@k, R@k, P@k, MAP or MRR@k")
 
 
-def evaluate(run: Run, qrels: Qrels, measures: Sequence[str] = DEFAULT_MEASURES, per_query: bool = False):
-    """Mean of each measure over the queries with at least one relevant document (a query missing from
-    the run counts 0), or with per_query, {measure: {query: value}}."""
-    queries = [q for q, judged in qrels.items() if any(r > 0 for r in judged.values())]
+def evaluate(run: Run, qrels: Qrels, measures: Sequence[str] = DEFAULT_MEASURES, per_query: bool = False,
+             *, population: str = "positive", query_ids: Sequence[str] | None = None):
+    """Mean measures, or {measure: {query: value}} with per_query.
+
+    population='positive' preserves the historical positive-judgment cohort. 'judged' includes
+    every qrels query, and 'explicit' uses query_ids (including unjudged queries). Missing runs and
+    zero-IDCG queries score zero. These policies are explicit choices, not a claim of official
+    benchmark compatibility.
+    """
+    if population not in ("positive", "judged", "explicit"):
+        raise ValueError("population must be positive, judged or explicit")
+    if (query_ids is not None) != (population == "explicit"):
+        raise ValueError("query_ids must be supplied exactly for population='explicit'")
+    if population == "explicit":
+        queries = list(query_ids)
+        if len(queries) != len(set(queries)):
+            raise ValueError("query_ids must be unique")
+    elif population == "judged":
+        queries = list(qrels)
+    else:
+        queries = [q for q, judged in qrels.items() if any(r > 0 for r in judged.values())]
     values = {m: {} for m in measures}
     for qid in queries:
         # trec_eval's order, whatever the run's: by score, ties by document id, both descending.
         ranked = [d for d, _ in sorted(run.get(qid, []), key=lambda p: (p[1], p[0]), reverse=True)]
         for m in measures:
-            values[m][qid] = _measure(m, ranked, qrels[qid])
+            values[m][qid] = _measure(m, ranked, qrels.get(qid, {}))
     if per_query:
         return values
     return {m: (sum(v.values()) / len(v) if v else 0.0) for m, v in values.items()}
