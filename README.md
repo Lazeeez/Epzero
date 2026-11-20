@@ -1,6 +1,8 @@
 # Epzero
 
-**[epzero.dev](https://epzero.dev/)**
+**[epzero.dev](https://epzero.dev/)** · **[Reproduce the benchmarks yourself](BENCHMARKS.md)**: regenerate every
+published table in seconds, or rerun the head-to-head against five libraries in two minutes with
+`pip install`.
 
 A vector database built from scratch in C++20: HNSW (Hierarchical Navigable
 Small World) approximate nearest-neighbor search, with hand-written SIMD kernels,
@@ -706,6 +708,9 @@ units and a rolling-restart deploy script; credentials stay outside the
 repository.
 
 ## Build and test
+
+[BENCHMARKS.md](BENCHMARKS.md) walks through reproducing every benchmark step by step, from a
+two-minute check with PyPI packages to the dedicated-node runs.
 
 Linux, macOS or WSL2, CMake ≥ 3.20, GCC ≥ 13 or Clang ≥ 17; Windows with
 MSVC (Visual Studio 2022) for the engine and the Python package; Go ≥ 1.27 for
