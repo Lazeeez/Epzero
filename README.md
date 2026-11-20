@@ -108,7 +108,7 @@ the 3D view; browsers too old for WebAssembly SIMD get a clear explanation.
 > the engine, LlamaIndex and Haystack integrations, Windows, English stemming, the
 > `epzero.ir` retrieval-evaluation toolkit and 16-bit full vectors (opt-in). Next:
 > 0.5.1 with round 9 (the older Xeon's low-recall gap), an ann-benchmarks and VIBE
-> submission, and research on index drift for the CLEF LongEval lab. The cluster is
+> submission. The cluster is
 > built and tested in CI on every push; its cloud deployment is on hold. See the
 > [roadmap](#roadmap).
 
@@ -264,7 +264,7 @@ flowchart LR
 | [`bench/`](bench) | Library comparison scripts (`compete.py`), the scoreboard generator and every measured result |
 | [`scripts/`](scripts) | Dataset downloads, the WebAssembly builds, and the PACE (Slurm) job scripts for each benchmark round |
 | [`deploy/`](deploy) | Terraform, systemd units and a rolling deploy script for the cluster |
-| [`docs/`](docs) | The performance log, the [scoreboard](docs/scoreboard.md), the research plan, design notes and charts |
+| [`docs/`](docs) | The performance log, the [scoreboard](docs/scoreboard.md), design notes and charts |
 
 **Tech stack.**
 
@@ -768,7 +768,6 @@ dedicated-server runs are in [`scripts/pace/`](scripts/pace/).
 22. ✅ (0.5) Modern and out-of-distribution datasets from VIBE on two CPUs (round 8), and `check_queries` for query shift; `requantize` for drift in the 8-bit codes
 23. ✅ (0.5) Retrieval evaluation (`epzero.ir`): TREC runs, trec_eval-exact measures, BEIR, English stemming; released as 0.5.0 with a download page on the site
 24. 0.5.1: the Gold's low-recall gap (round 9); then an ann-benchmarks and VIBE submission (adapters in `ann-benchmarks/` and `vibe/`); ARM servers
-25. Research: the CLEF LongEval lab, on how much of retrieval quality over time an approximate index costs, and whether in-place upkeep (recalibrate, requantize, growth) holds it at a fraction of a rebuild's cost
 
 ## License
 
