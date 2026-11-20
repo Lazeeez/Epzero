@@ -484,7 +484,7 @@ the same re-rank, about 1.25× the queries per second at recall 0.95. An early e
 graph suits the space it was built in, was tested and is wrong: walked at full precision, the code-built
 GIST1M graph still wins (recall 0.848 against 0.826 at `ef` 100, 5 and 3 seeds, deviations under 0.004),
 while on the DBpedia sample the graph built on full vectors wins under both walks (0.952 against 0.940 at
-`ef` 20). Why is an open question: see [the research plan](research-plan.md). Without `nav_dim`, on plain SQ8 codes, it left recall and speed unchanged on
+`ef` 20). Why is an open question. Without `nav_dim`, on plain SQ8 codes, it left recall and speed unchanged on
 SIFT1M and GloVe-100.
 
 | GIST1M at recall 0.95, laptop | QPS | Build |
