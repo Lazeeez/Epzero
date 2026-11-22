@@ -23,6 +23,8 @@ for method in $VIBE_METHODS; do
 done
 echo "methods: $VIBE_METHODS"
 
-vibe_runtime || echo "Ask PACE support which container runtime to use, then rerun this script."
+# On PACE ICE, Apptainer is installed on the compute nodes (/usr/bin/apptainer) but not on the login
+# nodes, so a miss here is expected; vibe-images.sbatch checks again on its node.
+vibe_runtime || echo "(expected on a login node: the images job checks on a compute node)"
 python3 -c "from ctypes.util import find_library as f; print('libnuma:', f('numa') or 'MISSING (VIBE needs it)')"
 command -v numactl >/dev/null && echo "numactl: yes" || echo "numactl: no (VIBE falls back to taskset)"
