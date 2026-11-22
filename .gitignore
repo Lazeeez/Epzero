@@ -6,6 +6,7 @@ build-pace/
 .pace-tools/
 .pace-bench/
 pace-results/
+.vibe/
 /*.log
 compile_commands.json
 
