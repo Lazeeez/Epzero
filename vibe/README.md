@@ -21,5 +21,22 @@ python3 run.py --dataset laion-clip-512-normalized --algorithm epzero
 ```
 
 To submit, open a pull request adding `vibe/algorithms/epzero/` and a row in VIBE's algorithm table
-with the pinned version. Before that, `scripts/pace/vibe.sbatch` in this repository runs the same
-datasets against Glass with `bench/compete.py`, which is quicker to iterate with.
+with the pinned version.
+
+## On PACE
+
+VIBE itself, with its containers, on dedicated Gold 6226 nodes (Cascade Lake, the CPU family of
+VIBE's published results), against hnswlib, Glass, SymphonyQG and the RaBitQ methods, SVS (Vamana,
+LVQ, LeanVec), NGT, LoRANN and ScaNN:
+
+```bash
+bash scripts/pace/vibe-env.sh                 # once, on a login node: VIBE at a pinned commit + this entry
+sbatch scripts/pace/vibe-images.sbatch        # once: builds the images (fails in minutes if it can't)
+sbatch --export=ALL,DATASET=agnews-mxbai-1024-euclidean scripts/pace/vibe.sbatch
+sbatch --export=ALL,DATASET=imagenet-clip-512-normalized scripts/pace/vibe.sbatch
+sbatch --export=ALL,DATASET=laion-clip-512-normalized scripts/pace/vibe.sbatch
+```
+
+Each dataset job writes VIBE's summary tables to `pace-results/vibe/<dataset>-<job>/`. For quicker
+iteration against Glass alone, `bench/compete.py` (rounds 8 and 9) runs the same datasets without
+containers.
