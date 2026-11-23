@@ -55,11 +55,11 @@ epzero::SyncMode parse_sync(const std::string& name) {
 epzero::HnswParams make_params(std::size_t dim, const std::string& metric, std::size_t max_elements, std::size_t M,
                              std::size_t ef_construction, std::uint64_t seed, const std::string& quantization,
                              bool keep_vectors, std::size_t nav_dim = 0, bool fill_links = false, bool fast_build = false,
-                             bool half_vectors = false, std::size_t min_backlinks = 0) {
+                             bool half_vectors = false, std::size_t extra_backlinks = 0) {
   return {.dim = dim, .metric = parse_metric(metric), .max_elements = max_elements, .M = M,
           .ef_construction = ef_construction, .seed = seed, .quantization = parse_quantization(quantization),
           .keep_vectors = keep_vectors, .nav_dim = nav_dim, .fill_links = fill_links,
-          .fast_build = fast_build, .half_vectors = half_vectors, .min_backlinks = min_backlinks};
+          .fast_build = fast_build, .half_vectors = half_vectors, .extra_backlinks = extra_backlinks};
 }
 
 const float* rows_of(const FloatArray& data, std::size_t dim, std::size_t& n) {
@@ -209,10 +209,10 @@ class Index {
  public:
   Index(std::size_t dim, const std::string& metric, std::size_t max_elements, std::size_t M,
         std::size_t ef_construction, std::uint64_t seed, const std::string& quantization, bool keep_vectors,
-        std::size_t nav_dim, bool fill_links, bool fast_build, bool half_vectors, std::size_t min_backlinks)
+        std::size_t nav_dim, bool fill_links, bool fast_build, bool half_vectors, std::size_t extra_backlinks)
       : index_(std::make_unique<epzero::HnswIndex>(make_params(dim, metric, max_elements, M, ef_construction, seed,
                                                                quantization, keep_vectors, nav_dim, fill_links, fast_build,
-                                                               half_vectors, min_backlinks))) {}
+                                                               half_vectors, extra_backlinks))) {}
 
   explicit Index(std::unique_ptr<epzero::HnswIndex> index) : index_(std::move(index)) {}
 
@@ -898,7 +898,7 @@ PYBIND11_MODULE(_core, m) {
            py::arg("dim"), py::arg("metric") = "l2", py::arg("max_elements") = 1'000'000, py::arg("M") = 16,
            py::arg("ef_construction") = 200, py::arg("seed") = 42, py::arg("quantization") = "none",
            py::arg("keep_vectors") = true, py::arg("nav_dim") = 0, py::arg("fill_links") = false,
-           py::arg("fast_build") = false, py::arg("half_vectors") = false, py::arg("min_backlinks") = 0)
+           py::arg("fast_build") = false, py::arg("half_vectors") = false, py::arg("extra_backlinks") = 0)
       .def("train", &Index::train, py::arg("data"), "SQ8: learn per-dimension ranges before the first add().")
       .def("add", &Index::add, py::arg("data"), py::arg("labels") = py::none(), py::arg("threads") = 0,
            "Insert rows of `data`; labels default to consecutive ids starting at the number of slots used.")
