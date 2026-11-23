@@ -217,6 +217,26 @@ TEST_F(HnswTest, ExtraBacklinksRaiseTheInDegreeOfLateInsertions) {
   EXPECT_GT(late_indegree(4), late_indegree(0) + 1.0);
 }
 
+// refine_links(first): refining only the later half raises its in-degree and keeps recall.
+TEST_F(HnswTest, RefiningRecentInsertionsRaisesTheirInDegree) {
+  HnswIndex index(params_for(Metric::L2));
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  auto late_indegree = [&] {
+    std::vector<std::size_t> indegree(kBase, 0);
+    for (std::size_t i = 0; i < kBase; ++i) {
+      for (std::uint64_t n : index.neighbors_of(i, 0)) ++indegree[n];
+    }
+    double sum = 0;
+    for (std::size_t i = kBase / 2; i < kBase; ++i) sum += static_cast<double>(indegree[i]);
+    return sum / static_cast<double>(kBase / 2);
+  };
+  const double before = late_indegree();
+  index.refine_links(2, 0, false, kBase / 2);
+  EXPECT_GT(late_indegree(), before);
+  EXPECT_GE(measure_recall(index, data_, 100, Metric::L2), 0.95);
+  for (std::size_t i = 0; i < kBase; ++i) EXPECT_LE(index.neighbors_of(i, 0).size(), 32u);
+}
+
 TEST_F(HnswTest, TraceDescendsLayersAndMatchesStats) {
   HnswIndex index(params_for(Metric::L2));
   for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
