@@ -1430,15 +1430,21 @@ void HnswIndex::connect(id_t id, const std::vector<Candidate>& neighbors, int la
     write_links(id, layer, select_neighbors(std::move(merged), capacity));
   }
 
-  // Reverse links, one neighbor lock at a time.
+  // Reverse links, one neighbor lock at a time. Neighbors come closest first.
+  const std::size_t guaranteed = layer == 0 ? params_.min_backlinks : 0;
+  std::size_t linked = 0;  // neighbors that link back to the new node
   for (const Candidate& neighbor : neighbors) {
     std::lock_guard lock(node_locks_[neighbor.id]);
     copy_links(neighbor.id, layer, existing);
-    if (std::find(existing.begin(), existing.end(), id) != existing.end()) continue;  // refine_links revisits
+    if (std::find(existing.begin(), existing.end(), id) != existing.end()) {  // refine_links revisits
+      ++linked;
+      continue;
+    }
     if (existing.size() < capacity) {
       id_t* links = links_of(neighbor.id, layer);
       store_link(links[1 + existing.size()], id);
       store_link(links[0], static_cast<id_t>(existing.size() + 1));
+      ++linked;
       continue;
     }
     // The neighbor is full: re-run the heuristic over its current links plus the new node.
@@ -1446,7 +1452,24 @@ void HnswIndex::connect(id_t id, const std::vector<Candidate>& neighbors, int la
     pool.reserve(existing.size() + 1);
     pool.push_back({neighbor.distance, id});
     for (const id_t e : existing) pool.push_back({pair_distance(neighbor.id, e), e});
-    write_links(neighbor.id, layer, select_neighbors(std::move(pool), capacity));
+    if (linked >= guaranteed) {  // the standard rule (always, when min_backlinks is 0)
+      write_links(neighbor.id, layer, select_neighbors(std::move(pool), capacity));
+      continue;
+    }
+    std::vector<Candidate> kept = select_neighbors(pool, capacity);
+    if (std::any_of(kept.begin(), kept.end(), [id](const Candidate& c) { return c.id == id; })) {
+      ++linked;
+      write_links(neighbor.id, layer, kept);
+      continue;
+    }
+    // Guarantee the new node an incoming link: keep the neighbor's list as it is, but give up its
+    // farthest link for the new node (pool[0] is the new node; the rest are the existing links).
+    auto farthest = std::max_element(pool.begin() + 1, pool.end(),
+                                     [](const Candidate& a, const Candidate& b) { return a.distance < b.distance; });
+    *farthest = pool.front();
+    pool.erase(pool.begin());
+    write_links(neighbor.id, layer, pool);
+    ++linked;
   }
 }
 
