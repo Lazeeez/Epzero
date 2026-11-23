@@ -151,6 +151,7 @@ py::dict params_dict(const epzero::HnswParams& p) {
   d["nav_dim"] = p.nav_dim;
   d["fast_build"] = p.fast_build;
   d["half_vectors"] = p.half_vectors;
+  d["extra_backlinks"] = p.extra_backlinks;
   return d;
 }
 
@@ -193,6 +194,7 @@ epzero::AutoOptions auto_options(const std::string& metric, std::size_t M, std::
     else if (name == "rerank_z") o.fixed.rerank_z = value.cast<float>();
     else if (name == "ef") o.fixed.ef = value.cast<std::size_t>();
     else if (name == "half_vectors") o.fixed.half_vectors = value.cast<bool>();
+    else if (name == "extra_backlinks") o.fixed.extra_backlinks = value.cast<std::size_t>();
     else if (name == "prefetch") {
       const auto pair = value.cast<py::tuple>();
       if (pair.size() != 2) throw std::invalid_argument("prefetch must be (depth, lines)");
