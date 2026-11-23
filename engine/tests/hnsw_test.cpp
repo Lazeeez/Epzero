@@ -172,6 +172,49 @@ TEST_F(HnswTest, GraphInvariantsHold) {
   }
 }
 
+// min_backlinks: each insertion leaves the new node with at least that many incoming base-layer links
+// (from the neighbors it chose), and the graph invariants still hold.
+TEST_F(HnswTest, MinBacklinksGuaranteesIncomingLinksAtInsertion) {
+  HnswParams p = params_for(Metric::L2);
+  p.min_backlinks = 4;
+  HnswIndex index(p);
+  for (std::size_t i = 0; i < kBase; ++i) {
+    index.add(i, data_.base.row(i));
+    if (i < 64) continue;
+    const auto chosen = index.neighbors_of(i, 0);
+    std::size_t back = 0;
+    for (std::uint64_t n : chosen) {
+      const auto theirs = index.neighbors_of(n, 0);
+      back += std::find(theirs.begin(), theirs.end(), i) != theirs.end();
+    }
+    ASSERT_GE(back, std::min<std::size_t>(4, chosen.size())) << "node " << i;
+  }
+  for (std::size_t i = 0; i < kBase; ++i) {
+    const auto links = index.neighbors_of(i, 0);
+    EXPECT_LE(links.size(), 32u);
+    EXPECT_EQ(std::find(links.begin(), links.end(), i), links.end()) << "self loop";
+  }
+  EXPECT_GE(measure_recall(index, data_, 100, Metric::L2), 0.95);
+}
+
+// Late insertions keep more incoming links with min_backlinks than without it.
+TEST_F(HnswTest, MinBacklinksRaisesTheInDegreeOfLateInsertions) {
+  auto late_indegree = [&](std::size_t min_backlinks) {
+    HnswParams p = params_for(Metric::L2);
+    p.min_backlinks = min_backlinks;
+    HnswIndex index(p);
+    for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+    std::vector<std::size_t> indegree(kBase, 0);
+    for (std::size_t i = 0; i < kBase; ++i) {
+      for (std::uint64_t n : index.neighbors_of(i, 0)) ++indegree[n];
+    }
+    double sum = 0;
+    for (std::size_t i = kBase - kBase / 10; i < kBase; ++i) sum += static_cast<double>(indegree[i]);
+    return sum / static_cast<double>(kBase / 10);
+  };
+  EXPECT_GT(late_indegree(4), late_indegree(0));
+}
+
 TEST_F(HnswTest, TraceDescendsLayersAndMatchesStats) {
   HnswIndex index(params_for(Metric::L2));
   for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
