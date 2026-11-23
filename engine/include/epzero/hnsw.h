@@ -56,6 +56,12 @@ struct HnswParams {
   // index. They are read only to build the graph and to re-rank, where three significant digits are
   // enough (recall identical to four decimals on GIST1M and OpenAI embeddings). Saved with the index.
   bool half_vectors = false;
+  // Building: guarantee each inserted node this many incoming links at the base layer. A full
+  // neighbour normally re-runs the diversity heuristic and often drops the newcomer, so late
+  // insertions end up with fewer incoming links and are found less often; with this set, a full
+  // neighbour that would drop the newcomer gives up its farthest link instead, until the newcomer has
+  // this many. 0 keeps the standard behaviour. Not saved with the index.
+  std::size_t min_backlinks = 0;
 };
 
 struct SearchResult {
