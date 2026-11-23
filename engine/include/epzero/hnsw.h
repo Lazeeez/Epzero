@@ -56,12 +56,12 @@ struct HnswParams {
   // index. They are read only to build the graph and to re-rank, where three significant digits are
   // enough (recall identical to four decimals on GIST1M and OpenAI embeddings). Saved with the index.
   bool half_vectors = false;
-  // Building: guarantee each inserted node this many incoming links at the base layer. A full
-  // neighbour normally re-runs the diversity heuristic and often drops the newcomer, so late
-  // insertions end up with fewer incoming links and are found less often; with this set, a full
-  // neighbour that would drop the newcomer gives up its farthest link instead, until the newcomer has
-  // this many. 0 keeps the standard behaviour. Not saved with the index.
-  std::size_t min_backlinks = 0;
+  // Building: old nodes keep receiving incoming links from every later arrival near them, so late
+  // insertions have fewer and are found less often. With this set, each insertion also asks this many
+  // of its closest construction candidates that it did not choose as neighbours to link to it at the
+  // base layer (a full candidate gives up its farthest link), standing in for the later arrivals a
+  // new node has not had yet. 0 keeps the standard behaviour. Not saved with the index.
+  std::size_t extra_backlinks = 0;
 };
 
 struct SearchResult {
@@ -422,6 +422,7 @@ class HnswIndex {
   // diverse directions, which is what makes the graph navigable across clusters.
   std::vector<Candidate> select_neighbors(std::vector<Candidate> candidates, std::size_t max_count) const;
   void connect(id_t id, const std::vector<Candidate>& neighbors, int layer);
+  void add_extra_backlinks(id_t id, const std::vector<Candidate>& candidates, const std::vector<Candidate>& chosen);
 
   HnswParams params_;
   SimdLevel simd_level_;
