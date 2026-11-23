@@ -1748,13 +1748,13 @@ std::unique_ptr<HnswIndex> HnswIndex::compacted(std::size_t threads) const {
   return out;
 }
 
-void HnswIndex::refine_links(std::size_t threads, std::size_t ef, bool exact) {
+void HnswIndex::refine_links(std::size_t threads, std::size_t ef, bool exact, std::size_t first) {
   build_exact_ = exact;
   if (ef == 0) ef = params_.ef_construction;
   const std::uint64_t entry = entry_.load(std::memory_order_acquire);
   if (entry == kEmpty) return;
   const int top_level = static_cast<int>(entry >> 32) - 1;
-  parallel_for(0, size(), threads, [&](std::size_t i) {
+  parallel_for(std::min(first, size()), size(), threads, [&](std::size_t i) {
     const auto id = static_cast<id_t>(i);
     if (is_deleted(id)) return;
     thread_local std::vector<float> vector;
