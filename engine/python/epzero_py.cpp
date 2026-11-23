@@ -376,9 +376,9 @@ class Index {
     return out;
   }
 
-  void refine_links(std::size_t threads, std::size_t ef) {
+  void refine_links(std::size_t threads, std::size_t ef, std::size_t first) {
     py::gil_scoped_release release;
-    index_->refine_links(threads, ef);
+    index_->refine_links(threads, ef, false, first);
   }
 
   std::size_t fill_free_links(std::size_t threads) {
@@ -943,8 +943,10 @@ PYBIND11_MODULE(_core, m) {
            "The stored vector of `label` (normalized for cosine). KeyError if it isn't in the index.")
       .def("set_prefetch", &Index::set_prefetch, py::arg("depth") = py::none(), py::arg("lines") = 1,
            "Prefetch `lines` cache lines of `depth` neighbors ahead (None: every neighbor up front).")
-      .def("refine_links", &Index::refine_links, py::arg("threads") = 0, py::arg("ef") = 0,
-           "Once built: every node searches the finished graph and reconnects (ef 0: ef_construction).")
+      .def("refine_links", &Index::refine_links, py::arg("threads") = 0, py::arg("ef") = 0, py::arg("first") = 0,
+           "Once built: every node searches the finished graph and reconnects (ef 0: ef_construction).\n"
+           "`first`: only the nodes inserted from that position on, counted over every vector ever added\n"
+           "(len(index) before a batch of adds, if nothing was removed).")
       .def("fill_free_links", &Index::fill_free_links, py::arg("threads") = 0,
            "Once built: gives each node's free layer-0 link slots to its closest two-hop neighbours.\n"
            "Returns the number of links added.")
