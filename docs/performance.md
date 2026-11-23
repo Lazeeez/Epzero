@@ -777,6 +777,43 @@ a multiple of Glass's at equal recall, 0.90 / 0.95 / 0.98:
 Nothing changes yet: round 10 (`scripts/pace/round10.sh`) runs the same five settings on AG News, arXiv and
 LAION before AVX2 becomes the default on this CPU, and tries the principal-direction walk on ImageNet-CLIP.
 
+**Round 10: the kernel settings on three more datasets** (`*-kernels-*.json`, same method). Queries per
+second as a multiple of Glass's at equal recall, 0.90 / 0.95 / 0.98 (— where Glass never reached it):
+
+| Kernel setting | AG News, 1024-d | arXiv, 768-d | LAION, CLIP, 512-d |
+|---|---|---|---|
+| default | **1.20× / 1.30× / 1.39×** | **1.10× / 1.19× / 1.22×** | 2.68× / — / — |
+| `EPZERO_SIMD=avx2` | 1.13× / 1.25× / 1.37× | 1.08× / 1.18× / 1.18× | 2.77× / — / — |
+| `EPZERO_SQ8_KERNEL=float` | 0.95× / 1.06× / 1.15× | 1.10× / 1.17× / 1.14× | 2.59× / — / — |
+| `EPZERO_SQ8_KERNEL=avx512` at any dimension | 1.18× / 1.29× / 1.41× | 0.69× / 0.74× / 0.75× | 2.62× / — / — |
+| `EPZERO_SQ8_KERNEL=avx2` at any dimension | 1.13× / 1.26× / 1.40× | 1.08× / 1.19× / 1.21× | — (Glass peaked at 0.895) |
+
+- **AVX2 does not become the default.** Turning AVX-512 off helped only on Yandex (round 9); on AG News
+  and arXiv the default is as fast or faster, and on LAION the difference is within run-to-run noise.
+- **The 8-bit AVX-512 kernel at every dimension stays off:** a third slower on arXiv, as on Yandex.
+- **LAION:** Glass stops at 0.895-0.907 recall even at `ef` 800 (M 16, efConstruction 200), while Epzero
+  reaches 0.957, so above 0.90 Epzero is the only one of the two that gets there.
+- **The principal-direction walk on ImageNet-CLIP** (`imagenet-clip-512-normalized-speed-round10.json`):
+  256 directions with a re-rank of 50 gave 0.95× / 1.01× / 1.12× Glass against the automatic build's
+  0.89× / 0.99× / 1.15×, in 9% less memory (3,179 against 3,489 MB); 128 and 192 directions were slower.
+  A gain at low recall and a loss at high recall: `epzero.build` keeps choosing no walk here.
+
+**VIBE, on the same Gold 6226 nodes** (`scripts/pace/vibe.sbatch`; VIBE's own runner, containers and
+parameter sweeps, released Epzero 0.5.0, single-threaded builds; k = 100). Rank by the best queries per
+second at recall ≥ 0.90 / 0.95 / 0.99, among the 11 methods (Epzero, Glass, hnswlib, SymphonyQG, NGT-QG,
+RaBitQ-HNSW, RaBitQ-IVF, SVS Vamana-LVQ and LeanVec, LoRANN, ScaNN):
+
+| Dataset | ≥ 0.90 | ≥ 0.95 | ≥ 0.99 |
+|---|---|---|---|
+| LAION, CLIP, 512-d | **1st** (2,945 QPS) | **1st** (2,130; Glass 1,509) | **1st** (902) |
+| ImageNet, CLIP, 512-d (text queries, image vectors) | 3rd (0.69× LoRANN) | 2nd (0.80× Glass) | **1st** (4,115) |
+| AG News, mxbai, 1024-d | 3rd (0.87× Glass) | 4th (0.93× SymphonyQG) | not reached (0.988) |
+
+Epzero is first on LAION at every recall and on ImageNet-CLIP at 0.99, and within 13% of the leader on
+AG News. Its builds are 2-3× Glass's (948-1,408 s against 471-563 s single-threaded: the automatic build
+calibrates and refines) and its indexes are larger (2.7-3.4 GB against 1.3-2.5 GB: it keeps full vectors
+for the re-rank). AG News at 0.99 and ImageNet-CLIP at low recall are what to work on.
+
 **16-bit full vectors, opt-in only.** Keeping the re-rank copy as half floats cut GIST1M's 200k index from
 800 to 434 MiB, but in alternating laptop runs search was up to 17% slower there, and on the DBpedia sample
 recall fell 0.003-0.004 (0.983 to 0.980 at `ef` 40): OpenAI embeddings' near neighbours are close enough
