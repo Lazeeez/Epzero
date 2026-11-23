@@ -751,6 +751,32 @@ target. Calibrated on the datasets' sample queries instead (`epzero-auto-ood`, `
 rows of the data do: 2.2-2.3× on these sets, against 0.99-1.09× for queries like the data, which
 `check_queries` measures so a user knows to recalibrate.
 
+**Round 9: the Gold 6226's low-recall losses** (`*-kernels-*.json`, `scripts/pace/kernels.sbatch`). One
+`epzero-auto` index per dataset, searched in one pinned process per kernel setting (the SIMD level is chosen
+once per process), each beside a Glass built and searched under the same conditions. Queries per second as
+a multiple of Glass's at equal recall, 0.90 / 0.95 / 0.98:
+
+| Kernel setting | Yandex, 200-d | ImageNet, CLIP, 512-d |
+|---|---|---|
+| default (what Epzero picks on this CPU) | 1.03× / 1.12× / 1.28× | 0.88× / 0.98× / 1.14× |
+| `EPZERO_SIMD=avx2`: no AVX-512 anywhere | **1.08× / 1.18× / 1.41×** | 0.86× / 0.96× / 1.10× |
+| `EPZERO_SQ8_KERNEL=float` | 0.85× / 0.87× / 1.09× | 0.88× / 0.97× / 1.12× |
+| `EPZERO_SQ8_KERNEL=avx512` at any dimension | 0.67× / 0.74× / 0.89× | 0.88× / 0.98× / 1.10× |
+| `EPZERO_SQ8_KERNEL=avx2` at any dimension | 1.03× / 1.12× / 1.31× | 0.86× / 0.96× / 1.09× |
+
+- **Yandex:** without AVX-512 anywhere (the float kernels and the re-rank included) Epzero was 4-10% faster
+  than its default and ahead of Glass from recall 0.80. The default already uses the AVX2 integer kernel at
+  200 dimensions, rightly: the AVX-512 one is a third slower there. Cascade Lake lowers its clock while
+  AVX-512 runs, which would explain it, but this run doesn't show that.
+- **ImageNet-CLIP:** no kernel setting helped. At equal beam width Epzero finds more neighbours than Glass
+  (0.858 against 0.830 at `ef` 10, 0.944 against 0.925 at 20) but each query costs 17-20% more, and
+  `epzero.build` chose no walk on principal directions for these image embeddings.
+- The default did better against Glass than in round 8 on Yandex (1.03× against 0.99× at 0.90); ImageNet
+  repeated round 8 (0.88× against 0.87×).
+
+Nothing changes yet: round 10 (`scripts/pace/round10.sh`) runs the same five settings on AG News, arXiv and
+LAION before AVX2 becomes the default on this CPU, and tries the principal-direction walk on ImageNet-CLIP.
+
 **16-bit full vectors, opt-in only.** Keeping the re-rank copy as half floats cut GIST1M's 200k index from
 800 to 434 MiB, but in alternating laptop runs search was up to 17% slower there, and on the DBpedia sample
 recall fell 0.003-0.004 (0.983 to 0.980 at `ef` 40): OpenAI embeddings' near neighbours are close enough
