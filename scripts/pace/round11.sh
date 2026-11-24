@@ -14,7 +14,7 @@
 #   AFTER=<last queued job id> bash scripts/pace/round11.sh     (from the checkout, on a login node)
 set -euo pipefail
 last="${AFTER:-}"
-LIBS="epzero-auto,epzero-auto-deep,glass"
+LIBS="glass,epzero-auto,epzero-auto-deep"   # Glass first: speed.sbatch drops "glass," from its build-only step
 chain() {  # dataset k widths [VAR=value ...]
   local dataset=$1 k=$2 widths=$3
   shift 3
