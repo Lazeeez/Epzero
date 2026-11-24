@@ -383,6 +383,8 @@ class Index {
     return index_->refine_links(threads, ef, false, first, around);
   }
 
+  void set_extra_backlinks(std::size_t count) { index_->set_extra_backlinks(count); }
+
   std::size_t fill_free_links(std::size_t threads) {
     py::gil_scoped_release release;
     return index_->fill_free_links(threads);
@@ -951,6 +953,9 @@ PYBIND11_MODULE(_core, m) {
            "`first`: only the nodes inserted from that position on, counted over every vector ever added\n"
            "(len(index) before a batch of adds, if nothing was removed). `around`: also the older nodes\n"
            "those link to, so that they can link to the new ones. Returns the number of nodes refined.")
+      .def("set_extra_backlinks", &Index::set_extra_backlinks, py::arg("count"),
+           "Each later insertion is also linked from this many nearby nodes it did not choose (0: off).\n"
+           "Not saved with the index: set it again after load() if the index keeps growing.")
       .def("fill_free_links", &Index::fill_free_links, py::arg("threads") = 0,
            "Once built: gives each node's free layer-0 link slots to its closest two-hop neighbours.\n"
            "Returns the number of links added.")
