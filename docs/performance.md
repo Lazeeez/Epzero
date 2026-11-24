@@ -828,14 +828,15 @@ build walks on directions. Queries per second as a multiple of Glass's at recall
 | AG News, 1024-d | 1.23× / 0.98× / 1.06× / — | **1.23× / 0.98× / 1.06× / 1.18×** | 1.23× / 1.35× / 1.42× / 1.39× | 1.24× / 1.37× / 1.42× / 1.40× |
 | arXiv, 768-d | 0.90× / 0.74× / — / — | **0.91× / 0.74× / 0.80× / 0.80×** | 1.07× / 1.15× / 1.15× / 1.10× | 1.06× / 1.14× / 1.14× / 1.10× |
 | DBpedia, 1536-d | 1.41× / 1.29× / 0.99× / — | **1.39× / 1.28× / 1.41× / 1.52×** | 1.56× / 1.79× / 2.26× / 3.08× | 1.55× / 1.78× / 2.25× / 3.07× |
-| GIST1M, 960-d | 1.34× / — / — / — | **1.83× / 2.19× / only / only** | | |
+| GIST1M, 960-d | 1.34× / — / — / — | **1.83× / 2.19× / only / only** | 3.07× / 4.18× / only / only | 3.07× / 4.19× / only / only |
 
 Highest recall at k = 100, `ef` 1600: AG News 0.9873 → 0.9994, arXiv 0.9698 → 0.9989, DBpedia 0.9832 →
 0.9969, GIST1M 0.9104 → 0.9951 (Glass: 0.9994, 0.9993, 0.9965, 0.9767). Up to `ef` 300 the two settings
 are the same search. At k = 10 the early stop ends the re-rank long before either cap, and the
-difference is within ±1%. **The cap is now max(`rerank`, `ef`)** whenever the early stop is on, which is
+difference is within ±1% (GIST1M: recall 0.9946 → 0.9966 at `ef` 1200 for 1-2% fewer queries a second
+from `ef` 400 on). **The cap is now max(`rerank`, `ef`)** whenever the early stop is on, which is
 how `epzero.build` searches when it walks on directions. arXiv at k = 100 is the remaining loss
-(0.74-0.91× Glass); the GIST k = 10 run is still to come.
+(0.74-0.91× Glass).
 
 **16-bit full vectors, opt-in only.** Keeping the re-rank copy as half floats cut GIST1M's 200k index from
 800 to 434 MiB, but in alternating laptop runs search was up to 17% slower there, and on the DBpedia sample
