@@ -197,6 +197,8 @@ AutoPlan plan_auto(const float* data, std::size_t n, std::size_t dim, const Auto
                               : params.fast_build ? "built on the codes: faster, and as good a graph in our measurements"
                                                   : "off: only for 8-bit codes");
   profile.built_on_codes = params.fast_build;
+  params.extra_backlinks = fixed.extra_backlinks.value_or(0);
+  note(profile, "extra_backlinks", fixed.extra_backlinks ? yours : "off: the standard insertion");
   profile.refined = fixed.refine.value_or(true);
   note(profile, "refine", fixed.refine ? yours : "a second pass gave higher recall at equal speed on every dataset measured");
   profile.filled = fixed.fill_after.value_or(nav != 0);

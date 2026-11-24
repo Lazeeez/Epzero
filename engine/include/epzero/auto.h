@@ -38,6 +38,7 @@ struct AutoFixed {
   std::optional<std::size_t> ef;   // skips calibration
   std::optional<std::pair<std::size_t, std::size_t>> prefetch;  // (depth, lines); skips timing
   std::optional<bool> half_vectors;  // 16-bit full vectors: half their memory (never chosen automatically)
+  std::optional<std::size_t> extra_backlinks;  // HnswParams::extra_backlinks (0 unless set)
 };
 
 struct AutoOptions {

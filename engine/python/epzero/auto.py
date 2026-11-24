@@ -30,7 +30,7 @@ from ._core import Index, _build_auto, _plan_auto
 
 # Settings the C++ planner decides, which a caller can fix instead.
 _DECIDED = ("quantization", "nav_dim", "fast_build", "refine", "fill_after", "rerank", "rerank_z", "ef", "prefetch",
-            "half_vectors")
+            "half_vectors", "extra_backlinks")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -46,6 +46,7 @@ class Plan:
     refine: bool = True         # a second pass: every node searches the finished graph and reconnects
     fill_after: bool = False    # give free link slots to the closest two-hop neighbours
     half_vectors: bool = False  # keep the full vectors as 16-bit floats: half their memory, a little speed and recall
+    extra_backlinks: int = 0    # each insertion is also linked from this many nearby nodes it did not choose
     rerank: int = 0             # candidates re-scored with full vectors (0: twice k)
     rerank_z: float = 0.0       # stop the re-rank early at this many standard deviations (0: off)
     recall: float = 0.95        # the target the beam width is calibrated for
@@ -93,6 +94,7 @@ def _from_core(params, profile, recall, threads, seed, built):
                 ef_construction=params["ef_construction"], nav_dim=params["nav_dim"],
                 fast_build=profile["fast_build"] if built else params["fast_build"],
                 refine=profile["refine"], fill_after=profile["fill_after"], half_vectors=params["half_vectors"],
+                extra_backlinks=params.get("extra_backlinks", 0),
                 rerank=profile["rerank"],
                 rerank_z=round(float(profile["rerank_z"]), 4), recall=round(float(profile["recall_target"] or recall), 4),
                 k=profile["k"], ef=profile["ef"] or None, prefetch=tuple(profile["prefetch"]) if built else None,

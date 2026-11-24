@@ -56,6 +56,12 @@ struct HnswParams {
   // index. They are read only to build the graph and to re-rank, where three significant digits are
   // enough (recall identical to four decimals on GIST1M and OpenAI embeddings). Saved with the index.
   bool half_vectors = false;
+  // Building: old nodes keep receiving incoming links from every later arrival near them, so late
+  // insertions have fewer and are found less often. With this set, each insertion also asks this many
+  // of its closest construction candidates that it did not choose as neighbours to link to it at the
+  // base layer (a full candidate gives up its farthest link), standing in for the later arrivals a
+  // new node has not had yet. 0 keeps the standard behaviour. Not saved with the index.
+  std::size_t extra_backlinks = 0;
 };
 
 struct SearchResult {
@@ -254,8 +260,12 @@ class HnswIndex {
 
   // Once the index is built: every node searches the finished graph and reconnects, as its first
   // neighbours were chosen from a sparser one. Must not run concurrently with add() or remove().
-  // `exact` searches and prunes on full vectors even on an index built with fast_build.
-  void refine_links(std::size_t threads = 0, std::size_t ef = 0, bool exact = false);  // ef 0: ef_construction
+  // `exact` searches and prunes on full vectors even on an index built with fast_build. `first`: only
+  // the nodes inserted from that position on (0 = all), e.g. those added since the last refine, so
+  // that later insertions are refined like the bulk-built ones. `around`: also the older nodes those
+  // link to on layer 0, so that they can choose the new nodes beside them. Returns the nodes refined.
+  std::size_t refine_links(std::size_t threads = 0, std::size_t ef = 0, bool exact = false,
+                           std::size_t first = 0, bool around = false);  // ef 0: ef_construction
 
   // SQ8: the share of the vectors' variance (in code space, up to `sample` live vectors) that their
   // 8-bit codes miss. Rounding alone loses about 1e-4; a vector added outside the ranges train() saw is
@@ -416,6 +426,7 @@ class HnswIndex {
   // diverse directions, which is what makes the graph navigable across clusters.
   std::vector<Candidate> select_neighbors(std::vector<Candidate> candidates, std::size_t max_count) const;
   void connect(id_t id, const std::vector<Candidate>& neighbors, int layer);
+  void add_extra_backlinks(id_t id, const std::vector<Candidate>& candidates, const std::vector<Candidate>& chosen);
 
   HnswParams params_;
   SimdLevel simd_level_;
