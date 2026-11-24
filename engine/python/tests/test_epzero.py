@@ -182,6 +182,25 @@ def test_save_load_round_trip(tmp_path, data):
     np.testing.assert_array_equal(index.search(queries, k=5)[0], loaded.search(queries, k=5)[0])
 
 
+def test_a_growing_index_repairs_later_insertions_across_save_and_load(tmp_path, data):
+    base, queries = data
+    first, later = len(base) // 2, len(base)
+    index = epzero.Index(dim=24, max_elements=len(base), extra_backlinks=8)
+    index.add(base[:first], threads=4)
+    path = str(tmp_path / "growing.epzero")
+    index.save(path)
+    loaded = epzero.Index.load(path)
+    assert loaded.params["extra_backlinks"] == 0                    # not saved with the index
+    loaded.set_extra_backlinks(8)
+    assert loaded.params["extra_backlinks"] == 8
+    position = len(loaded)
+    loaded.add(base[first:later], labels=np.arange(first, later), threads=1)
+    assert loaded.refine_links(threads=2, ef=100, first=position) == later - first
+    labels, _ = loaded.search(queries, k=10, ef=100)
+    truth = exact_knn(base, queries, 10)
+    assert np.mean([len(set(l) & set(t)) / 10 for l, t in zip(labels, truth)]) >= 0.95
+
+
 def test_sq8_matches_float_recall(data):
     base, queries = data
     index = epzero.Index(dim=24, max_elements=len(base), quantization="sq8")
