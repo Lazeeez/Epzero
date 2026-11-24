@@ -246,6 +246,32 @@ class EpzeroAutoDeep(EpzeroAuto):
         return self.index.search(q, k=k, ef=ef, rerank=max(p.rerank, ef), threads=self.args.search_threads)[0]
 
 
+class EpzeroAutoNav90(EpzeroAuto):
+    """epzero.build with one setting fixed: a walk on enough principal directions for 90% of the variance,
+    at most a third of the dimensions (rounded up to 32), instead of the planner's 80% and a quarter. The
+    candidate rule for k = 100 from round 12b, measured on datasets it was not fitted on (round 13)."""
+
+    name = "epzero-auto-nav90"
+    target, share, step, sample = 0.90, 3, 32, 100_000
+
+    def directions(self, base):
+        rows = np.sort(np.random.default_rng(0).choice(len(base), min(len(base), self.sample), replace=False))
+        x = np.asarray(base[rows], dtype=np.float64)
+        x -= x.mean(axis=0)
+        held = np.cumsum(np.linalg.eigvalsh(x.T @ x)[::-1])
+        held /= held[-1]
+        needed = int(np.searchsorted(held, self.target)) + 1
+        nav = min(-(-needed // self.step) * self.step, max(self.step, self.dim // self.share // self.step * self.step))
+        return nav, float(held[nav - 1])
+
+    def build(self, base):
+        nav, held = self.directions(base)
+        print(f"{self.name:12s} nav_dim {nav}: {held:.3f} of the variance")
+        self.index = self.mod.build(base, "l2", M=self.args.M, ef_construction=self.args.efc, threads=self.args.threads,
+                                    queries=self.calibration_queries(), nav_dim=nav)
+        self._describe()
+
+
 class Hnswlib(Library):
     name = "hnswlib"
 
@@ -446,7 +472,7 @@ class EpzeroSq8Avx512(EpzeroSq8):
             del os.environ["EPZERO_SQ8_KERNEL"]
 
 
-LIBRARIES = {cls.name: cls for cls in (*COMPARED, EpzeroAuto, EpzeroAutoOod, EpzeroAutoDeep, EpzeroSq8Default, EpzeroSq8Adaptive, EpzeroSq8Avx512)}
+LIBRARIES = {cls.name: cls for cls in (*COMPARED, EpzeroAuto, EpzeroAutoOod, EpzeroAutoDeep, EpzeroAutoNav90, EpzeroSq8Default, EpzeroSq8Adaptive, EpzeroSq8Avx512)}
 
 
 def experiment(name):
