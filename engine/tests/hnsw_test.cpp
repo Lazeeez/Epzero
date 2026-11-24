@@ -622,6 +622,22 @@ TEST_F(HnswTest, RerankStopScoresFewerAndKeepsTheResults) {
   EXPECT_GE(static_cast<double>(same) / static_cast<double>(kQueries * kK), 0.97);
 }
 
+// With the early stop on, the re-rank's cap is max(rerank, ef), not rerank: a z so large that it never
+// stops re-scores the whole beam, and without it the re-rank stays at `rerank`.
+TEST_F(HnswTest, RerankStopCapsAtTheBeamWidth) {
+  HnswIndex index(sq8_params(Metric::L2, true));
+  index.train(data_.base.data.data(), kBase);
+  for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
+  for (std::size_t q = 0; q < 5; ++q) {
+    SearchStats fixed;
+    SearchStats stopping;
+    index.search(data_.queries.row(q), kK, {.ef = 200, .rerank = 15, .stats = &fixed});
+    index.search(data_.queries.row(q), kK, {.ef = 200, .rerank = 15, .rerank_z = 1e5f, .stats = &stopping});
+    // The same walk in both searches; only the re-rank differs: 200 candidates against 15.
+    EXPECT_EQ(stopping.full_distance_computations - fixed.full_distance_computations, 200u - 15u);
+  }
+}
+
 TEST_F(HnswTest, FastBuildKeepsRecall) {
   HnswParams p = sq8_params(Metric::L2, true);
   p.fast_build = true;
