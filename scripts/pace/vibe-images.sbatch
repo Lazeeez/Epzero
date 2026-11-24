@@ -50,4 +50,5 @@ singularity build -F plot.sif plot.def
 echo "== images"
 ls -la images plot.sif
 singularity exec images/epzero.sif python3 -c "import epzero; print('epzero', epzero.__version__)"
+singularity exec images/epzero.sif cat /opt/epzero-commit 2>/dev/null || echo "epzero: the PyPI release"
 echo "PASS: VIBE images built for: $VIBE_METHODS"
