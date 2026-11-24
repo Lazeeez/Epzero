@@ -1667,6 +1667,7 @@ std::vector<SearchResult> HnswIndex::search(const float* query, std::size_t k, c
   const bool beam_exact = scorer.bounded_mode() && options.filter == nullptr;
   if (quantized() && (full_ || half_) && !candidates.empty() && !beam_exact) {
     std::size_t rerank = options.rerank == 0 ? 2 * k : std::max(options.rerank, k);
+    if (options.rerank_z > 0.0f) rerank = std::max(rerank, options.ef);   // the early stop ends it sooner
     rerank = std::min(rerank, candidates.size());
     if (options.rerank_z > 0.0f && rerank > k + kRerankBlock) {
       // In blocks, stopping when the rest can't reach the top k: the gap between estimated and exact
