@@ -22,6 +22,7 @@
 # LOCAL=1 puts the indexes on the node's local $TMPDIR (rebuilt every job, scratch untouched).
 # VIBE=1 (with LOCAL=1) fetches DATASET from VIBE's HuggingFace repository instead of data/ann/.
 # LIBS=a,b,c overrides the sweep; TAG=name keeps a run apart (<dataset>-speed-name.json).
+# K=100 measures recall at k = 100 (default 10); WIDTHS=a,b,c replaces the default beam widths.
 # Each index holds a full copy of the vectors, so a sweep needs tens of GB of scratch while it runs
 # (about 30 GB on GIST1M, 50 GB on DBpedia, 35 GB on DEEP10M). The job deletes its experiment indexes
 # when it ends, even after a failure; KEEP=1 keeps them. The shipped SQ8 index stays either way.
@@ -90,7 +91,7 @@ flock -u 9
 OUT="pace-results/$HW"
 lscpu > "$OUT.lscpu.txt" 2>/dev/null || true
 mkdir -p "$OUT"
-COMMON=(--data "$DATA" --cache "$CACHE" --M 16 --efc 200 --threads "$(nproc)" --libs "$LIBS")
+COMMON=(--data "$DATA" --cache "$CACHE" --M 16 --efc 200 --threads "$(nproc)" --libs "$LIBS" --k "${K:-10}" ${WIDTHS:+--widths "$WIDTHS"})
 cleanup() {
   [ -n "${KEEP:-}" ] || rm -f "${CACHE:?}/${DATASET:?}-epzero-sq8-"{avx2,nav,fast,fill,after,refine}*
 }
