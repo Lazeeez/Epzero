@@ -10,8 +10,7 @@ later arrivals, so the newest vectors of a grown index are found less often than
   candidates that it did not choose to link to it. Off by default; not saved with the index, so
   `index.set_extra_backlinks(n)` sets it again after `load()`.
 - `index.refine_links(ef=..., first=n)`: reconnects only the vectors inserted from position `n` on, for
-  a checkpoint after a batch of additions. `around=True` also reconnects the older vectors they link
-  to. It returns the number of vectors refined.
+  a checkpoint after a batch of additions. It returns the number of vectors refined.
 - Both are opt-in. A one-off build doesn't change.
 
 ## 0.5.0
