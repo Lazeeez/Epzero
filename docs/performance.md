@@ -838,6 +838,35 @@ from `ef` 400 on). **The cap is now max(`rerank`, `ef`)** whenever the early sto
 how `epzero.build` searches when it walks on directions. arXiv at k = 100 is the remaining loss
 (0.74-0.91× Glass).
 
+**Rounds 12 and 12b: how many principal directions to walk on** (`*-speed-round12-k*.json`,
+`*-speed-round12b-k*.json`, [`round12.sh`](../scripts/pace/round12.sh), [`round12b.sh`](../scripts/pace/round12b.sh)).
+`epzero.build` walks on enough directions for 80% of the variance, at most a quarter of the dimensions
+(160 of arXiv's 768, 192 of AG News's 1,024, 288 of DBpedia's 1,536, 96 of GIST1M's 960). Round 12b
+built walks on more, through the same path as a control at the planner's own count. The control matched
+the automatic build within 1% at k = 100 and within 7% at k = 10, so the differences below are the
+directions. Queries per
+second against the automatic build at recall 0.90 / 0.95 / 0.98 / 0.99, and the variance each count holds:
+
+| Dataset | Count (variance) | k = 100 | k = 10 |
+|---|---|---|---|
+| arXiv, 768-d | 192 (0.84) | +17 / +27 / +30 / +39% | +11 / +5 / +10 / +15% |
+| | **256 (0.90)** | **+29 / +53 / +71 / +75%** | +9 / +14 / +30 / +37% |
+| AG News, 1024-d | **256 (0.88)** | **+10 / +21 / +33 / +30%** | +2 / +15 / +12 / +4% |
+| | 512 (0.98) | −4 / +20 / +31 / +30% | −23 / −17 / −15 / −13% |
+| DBpedia, 1536-d | 384 (0.88) | +2 / +14 / +18 / +18% | +1 / −1 / +5 / +1% |
+| | **512 (0.92)** | 0 / +14 / +22 / +28% | −11 / −10 / −4 / 0% |
+| | 768 (0.97) | −17 / −6 / +6 / +9% | −35 / −30 / −26 / −23% |
+| GIST1M, 960-d | **160 (0.89)** | **+24 / +24 / +10 / +5%** | −3 / −7 / −5 / −13% |
+| | 240 (0.93) | +31 / +21 / +7 / −2% | −7 / −9 / −13 / −18% |
+
+At k = 100 more directions were faster on every dataset, the best holding 0.88-0.92 of the variance,
+and against Glass that turns arXiv's 0.75-0.91× into 1.16-1.46× and lifts AG News to 1.18-1.54×. At
+k = 10 the planner's count is best or close on DBpedia and GIST1M, and more directions cost GIST1M 3-13%
+at 160 and more beyond. A rule recorded before DBpedia's and GIST1M's results were read (88% of the variance, at most a third
+of the dimensions) **failed its own test**: DBpedia's best was 512, not 384, and GIST1M at k = 10 lost
+3-13%. The planner keeps its rule until a k = 100 rule (90%, at most a third) is measured on datasets it
+was not fitted on: round 13 ([`round13.sh`](../scripts/pace/round13.sh)).
+
 **16-bit full vectors, opt-in only.** Keeping the re-rank copy as half floats cut GIST1M's 200k index from
 800 to 434 MiB, but in alternating laptop runs search was up to 17% slower there, and on the DBpedia sample
 recall fell 0.003-0.004 (0.983 to 0.980 at `ef` 40): OpenAI embeddings' near neighbours are close enough
