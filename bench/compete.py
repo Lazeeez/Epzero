@@ -234,6 +234,18 @@ class EpzeroAutoOod(EpzeroAuto):
         return LEARN
 
 
+class EpzeroAutoDeep(EpzeroAuto):
+    """epzero-auto's index, searched re-ranking at least ef candidates (the plan's early stop kept): whether the
+    plan's fixed re-rank depth caps recall at wide beams, as on AG News at k = 100 (screen D12)."""
+
+    name = "epzero-auto-deep"
+    cache_name = "epzero-auto"
+
+    def search(self, q, k, ef):
+        p = self.index.plan
+        return self.index.search(q, k=k, ef=ef, rerank=max(p.rerank, ef), threads=self.args.search_threads)[0]
+
+
 class Hnswlib(Library):
     name = "hnswlib"
 
@@ -434,7 +446,7 @@ class EpzeroSq8Avx512(EpzeroSq8):
             del os.environ["EPZERO_SQ8_KERNEL"]
 
 
-LIBRARIES = {cls.name: cls for cls in (*COMPARED, EpzeroAuto, EpzeroAutoOod, EpzeroSq8Default, EpzeroSq8Adaptive, EpzeroSq8Avx512)}
+LIBRARIES = {cls.name: cls for cls in (*COMPARED, EpzeroAuto, EpzeroAutoOod, EpzeroAutoDeep, EpzeroSq8Default, EpzeroSq8Adaptive, EpzeroSq8Avx512)}
 
 
 def experiment(name):
@@ -494,12 +506,15 @@ def main():
     parser.add_argument("--M", type=int, default=16)
     parser.add_argument("--efc", type=int, default=200)
     parser.add_argument("--k", type=int, default=10)
+    parser.add_argument("--widths", help="comma-separated beam widths replacing the default sweep (libraries with their own keep it)")
     parser.add_argument("--queries", type=int, default=10_000)
     parser.add_argument("--threads", type=int, default=os.cpu_count())
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--search-threads", type=int, default=1, help="threads per search call (the query set repeats to match)")
     parser.add_argument("--build-only", action="store_true", help="build and cache the indexes, then stop")
     args = parser.parse_args()
+    if args.widths:
+        Library.params = sorted({int(w) for w in args.widths.split(",")})
     dataset = os.path.splitext(os.path.basename(args.data))[0]
     base, queries, truth, metric = load_dataset(args.data, args.queries)
     n, dim = base.shape
