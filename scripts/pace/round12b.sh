@@ -10,6 +10,15 @@
 #    chosen) and GIST1M (960-d, 96 chosen) test whether more directions pay beyond arXiv and AG News.
 #  - Every variant: re-rank up to max(300, ef) with the early stop at 3, built on the codes, refined, free
 #    slots filled, as the automatic build walks. Three timed rounds, k = 100 and k = 10.
+#  - Prediction, recorded on 25 November 2026 after the arXiv and AG News k = 100 results and before any
+#    DBpedia or GIST result was read. Variance held (100,000-row samples; DBpedia's 37,462-row sample):
+#    arXiv 160/192/256/384 directions 0.80/0.84/0.90/0.96, AG News 192/256/384/512 0.81/0.88/0.95/0.98,
+#    DBpedia 288/384/512/768 0.83/0.88/0.92/0.97, GIST1M 96/160/240/320 0.83/0.89/0.93/0.95. The winners
+#    so far (256 on both) hold 0.88-0.90. Rule to test: enough directions for 88% of the variance, at most
+#    dim / 3 (instead of 80% and dim / 4), which picks 160 on GIST1M and 384 on DBpedia. Predicted: at k = 100
+#    those are faster than the automatic build at recall 0.98 and 0.99 and within 3% of the best arm
+#    tested there; at k = 10 the counts the rule picks are at most 5% slower than the automatic build's at
+#    any target on all four. If either fails, the rule is not adopted as it stands.
 # Queued as ONE chain after whatever is already queued:
 #
 #   AFTER=<last queued job id> bash scripts/pace/round12b.sh     (from the checkout, on a login node)
