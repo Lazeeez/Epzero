@@ -43,6 +43,7 @@ mkdir -p "$OUT"
   singularity --version
   git -C "$VIBE_DIR" rev-parse HEAD
   singularity exec "$VIBE_DIR/images/epzero.sif" python3 -c "import epzero; print('epzero', epzero.__version__)"
+  singularity exec "$VIBE_DIR/images/epzero.sif" cat /opt/epzero-commit 2>/dev/null || echo "epzero: the PyPI release"
   echo "methods: $VIBE_METHODS; count $COUNT; parallelism $PARALLELISM"
 } > "$OUT/node.txt" 2>&1
 
