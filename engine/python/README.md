@@ -96,6 +96,26 @@ the graph links chosen for them suffer: in a synthetic test with a 4 sd drift, t
 for recall 0.95 went from 12 to 200. `requantize()` refits the codes and reconnects the graph in about half a rebuild's
 time, back to 12.
 
+**An index that keeps growing.** In a graph index, a vector inserted early keeps gaining incoming links
+from everything added near it later, and one inserted late has had no time to. So the newest vectors are
+found less often than in a fresh build of the same data. Two options make an index grown in batches
+behave like a rebuild:
+
+```python
+index = epzero.build(vectors, extra_backlinks=8)     # each insertion is also linked from 8 nearby nodes
+...
+first = len(index)                                   # before a batch (nothing removed since)
+index.add(batch, labels=batch_labels)
+index.refine_links(ef=100, first=first)              # at a checkpoint: reconnect the batch, all cores
+
+index = epzero.Index.load(path)
+index.set_extra_backlinks(8)                         # not saved with the index: set it again after load
+```
+
+Both are off by default. A one-off build gains nothing from them; they are for indexes that keep
+growing. The checkpoint refine visits only the vectors added since `first`, so it takes a small
+fraction of a rebuild's time.
+
 ## Configured by hand
 
 ```python
