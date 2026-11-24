@@ -138,7 +138,9 @@ struct SearchOptions {
   std::size_t rerank = 0;
   // Stops the re-rank early (0 = off): candidates are scored in blocks, and scoring ends once the
   // next one, placed by this query's gap between estimated and exact distances, is more than this
-  // many standard deviations past the k-th best. `rerank` is then only a cap. 3 is a safe value.
+  // many standard deviations past the k-th best. The cap is then max(`rerank`, `ef`): a wider beam
+  // holds more true neighbours past a fixed cap, and the early stop ends the re-rank well before it
+  // when they are found (at k = 100 a fixed 300 held recall at 0.988 from ef 400 on). 3 is a safe value.
   float rerank_z = 0.0f;
   SearchStats* stats = nullptr;     // optional
   SearchTrace* trace = nullptr;     // optional; costs nothing when null
