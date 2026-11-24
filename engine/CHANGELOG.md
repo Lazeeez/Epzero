@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+**Indexes that keep growing.** A vector inserted late has had no time to gain incoming links from
+later arrivals, so the newest vectors of a grown index are found less often than in a rebuild.
+
+- `extra_backlinks` (Python: `Index(..., extra_backlinks=8)`, `epzero.build(..., extra_backlinks=8)`;
+  C++: `HnswParams::extra_backlinks`): each insertion also asks that many of its closest construction
+  candidates that it did not choose to link to it. Off by default; not saved with the index, so
+  `index.set_extra_backlinks(n)` sets it again after `load()`.
+- `index.refine_links(ef=..., first=n)`: reconnects only the vectors inserted from position `n` on, for
+  a checkpoint after a batch of additions. `around=True` also reconnects the older vectors they link
+  to. It returns the number of vectors refined.
+- Both are opt-in. A one-off build doesn't change.
+
 ## 0.5.0
 
 An index that stays accurate as its data changes, fixed in place; metadata and keyword search in the
