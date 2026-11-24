@@ -267,6 +267,10 @@ class HnswIndex {
   std::size_t refine_links(std::size_t threads = 0, std::size_t ef = 0, bool exact = false,
                            std::size_t first = 0, bool around = false);  // ef 0: ef_construction
 
+  // HnswParams::extra_backlinks for the insertions from now on. It is not saved with the index, so an
+  // index that keeps growing sets it again after load(). Must not run concurrently with add().
+  void set_extra_backlinks(std::size_t count) { params_.extra_backlinks = count; }
+
   // SQ8: the share of the vectors' variance (in code space, up to `sample` live vectors) that their
   // 8-bit codes miss. Rounding alone loses about 1e-4; a vector added outside the ranges train() saw is
   // clipped to them and loses far more. 0 for other quantizations, or without the full vectors.
