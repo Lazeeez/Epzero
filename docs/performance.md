@@ -814,6 +814,29 @@ AG News. Its builds are 2-3× Glass's (948-1,408 s against 471-563 s single-thre
 calibrates and refines) and its indexes are larger (2.7-3.4 GB against 1.3-2.5 GB: it keeps full vectors
 for the re-rank). AG News at 0.99 and ImageNet-CLIP at low recall are what to work on.
 
+**Round 11: the walk's re-rank depth** (`*-speed-round11-k*.json`, [`scripts/pace/round11.sh`](../scripts/pace/round11.sh)).
+On AG News at k = 100, recall stopped at 0.988 from `ef` 400 to 1000. With the walk on principal
+directions, `epzero.build` re-ranks up to 300 candidates with full vectors, stopping early once the rest
+are 3 standard deviations past the k-th best. At k = 100 a wider beam holds more true neighbours than
+the first 300, and the cap left them unscored. `epzero-auto-deep` searches the same index with the cap at
+max(300, `ef`), beside the automatic build's own setting and Glass, on the four datasets where the
+build walks on directions. Queries per second as a multiple of Glass's at recall 0.90 / 0.95 / 0.98 /
+0.99 (— where it never gets there; "only" where Glass never does):
+
+| Dataset | k = 100, cap 300 | **k = 100, cap max(300, ef)** | k = 10, cap 300 | k = 10, cap max(300, ef) |
+|---|---|---|---|---|
+| AG News, 1024-d | 1.23× / 0.98× / 1.06× / — | **1.23× / 0.98× / 1.06× / 1.18×** | 1.23× / 1.35× / 1.42× / 1.39× | 1.24× / 1.37× / 1.42× / 1.40× |
+| arXiv, 768-d | 0.90× / 0.74× / — / — | **0.91× / 0.74× / 0.80× / 0.80×** | 1.07× / 1.15× / 1.15× / 1.10× | 1.06× / 1.14× / 1.14× / 1.10× |
+| DBpedia, 1536-d | 1.41× / 1.29× / 0.99× / — | **1.39× / 1.28× / 1.41× / 1.52×** | 1.56× / 1.79× / 2.26× / 3.08× | 1.55× / 1.78× / 2.25× / 3.07× |
+| GIST1M, 960-d | 1.34× / — / — / — | **1.83× / 2.19× / only / only** | | |
+
+Highest recall at k = 100, `ef` 1600: AG News 0.9873 → 0.9994, arXiv 0.9698 → 0.9989, DBpedia 0.9832 →
+0.9969, GIST1M 0.9104 → 0.9951 (Glass: 0.9994, 0.9993, 0.9965, 0.9767). Up to `ef` 300 the two settings
+are the same search. At k = 10 the early stop ends the re-rank long before either cap, and the
+difference is within ±1%. **The cap is now max(`rerank`, `ef`)** whenever the early stop is on, which is
+how `epzero.build` searches when it walks on directions. arXiv at k = 100 is the remaining loss
+(0.74-0.91× Glass); the GIST k = 10 run is still to come.
+
 **16-bit full vectors, opt-in only.** Keeping the re-rank copy as half floats cut GIST1M's 200k index from
 800 to 434 MiB, but in alternating laptop runs search was up to 17% slower there, and on the DBpedia sample
 recall fell 0.003-0.004 (0.983 to 0.980 at `ef` 40): OpenAI embeddings' near neighbours are close enough
