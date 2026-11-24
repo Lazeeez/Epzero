@@ -237,6 +237,35 @@ TEST_F(HnswTest, RefiningRecentInsertionsRaisesTheirInDegree) {
   for (std::size_t i = 0; i < kBase; ++i) EXPECT_LE(index.neighbors_of(i, 0).size(), 32u);
 }
 
+// refine_links(first, around): the older nodes the new ones link to are refined too, and can then
+// link to the new nodes, which raises the new nodes' in-degree beyond refining them alone.
+TEST_F(HnswTest, RefiningAroundRecentInsertionsAlsoRefinesTheirOlderNeighbours) {
+  HnswIndex plain(params_for(Metric::L2));
+  HnswIndex around(params_for(Metric::L2));
+  for (std::size_t i = 0; i < kBase; ++i) {
+    plain.add(i, data_.base.row(i));
+    around.add(i, data_.base.row(i));
+  }
+  auto late_indegree = [&](const HnswIndex& index) {
+    std::vector<std::size_t> indegree(kBase, 0);
+    for (std::size_t i = 0; i < kBase; ++i) {
+      for (std::uint64_t n : index.neighbors_of(i, 0)) ++indegree[n];
+    }
+    double sum = 0;
+    for (std::size_t i = kBase / 2; i < kBase; ++i) sum += static_cast<double>(indegree[i]);
+    return sum / static_cast<double>(kBase / 2);
+  };
+  EXPECT_EQ(plain.refine_links(1, 0, false, kBase / 2), kBase / 2);
+  const std::size_t refined = around.refine_links(1, 0, false, kBase / 2, /*around=*/true);
+  EXPECT_GT(refined, kBase / 2);
+  EXPECT_LE(refined, kBase);
+  EXPECT_GT(late_indegree(around), late_indegree(plain));
+  EXPECT_GE(measure_recall(around, data_, 100, Metric::L2), 0.95);
+  for (std::size_t i = 0; i < kBase; ++i) EXPECT_LE(around.neighbors_of(i, 0).size(), 32u);
+  // first 0 refines every node either way.
+  EXPECT_EQ(around.refine_links(1, 0, false, 0, true), kBase);
+}
+
 TEST_F(HnswTest, TraceDescendsLayersAndMatchesStats) {
   HnswIndex index(params_for(Metric::L2));
   for (std::size_t i = 0; i < kBase; ++i) index.add(i, data_.base.row(i));
