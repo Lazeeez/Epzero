@@ -207,7 +207,7 @@ AutoPlan plan_auto(const float* data, std::size_t n, std::size_t dim, const Auto
                                          : "off: not measured to help without principal directions");
   profile.rerank = fixed.rerank.value_or(nav != 0 ? kNavRerank : 0);
   note(profile, "rerank", fixed.rerank ? yours
-                          : nav != 0 ? "up to " + std::to_string(kNavRerank) + ": the walk on directions is approximate"
+                          : nav != 0 ? "up to " + std::to_string(kNavRerank) + " or ef, whichever is larger: the walk on directions is approximate"
                                      : "twice k: enough when the walk uses every dimension");
   profile.rerank_z = fixed.rerank_z.value_or(nav != 0 ? kNavRerankZ : 0.0f);
   note(profile, "rerank_z", fixed.rerank_z ? yours
