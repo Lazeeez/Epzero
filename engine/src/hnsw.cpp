@@ -1748,15 +1748,37 @@ std::unique_ptr<HnswIndex> HnswIndex::compacted(std::size_t threads) const {
   return out;
 }
 
-void HnswIndex::refine_links(std::size_t threads, std::size_t ef, bool exact, std::size_t first) {
-  build_exact_ = exact;
+std::size_t HnswIndex::refine_links(std::size_t threads, std::size_t ef, bool exact, std::size_t first,
+                                     bool around) {
   if (ef == 0) ef = params_.ef_construction;
   const std::uint64_t entry = entry_.load(std::memory_order_acquire);
-  if (entry == kEmpty) return;
+  if (entry == kEmpty) return 0;
+  const std::size_t n = size();
+  first = std::min(first, n);
+  // The nodes to refine: those from `first` on, then (around) the older nodes they link to, marked
+  // from the links as they stand before the pass.
+  std::vector<id_t> ids;
+  ids.reserve(n - first);
+  for (std::size_t i = first; i < n; ++i) {
+    if (!is_deleted(static_cast<id_t>(i))) ids.push_back(static_cast<id_t>(i));
+  }
+  if (around && first > 0) {
+    std::vector<char> marked(first, 0);
+    std::vector<id_t> links;
+    for (std::size_t i = first; i < n; ++i) {
+      copy_links(static_cast<id_t>(i), 0, links);
+      for (const id_t l : links) {
+        if (l < first) marked[l] = 1;
+      }
+    }
+    for (std::size_t i = 0; i < first; ++i) {
+      if (marked[i] && !is_deleted(static_cast<id_t>(i))) ids.push_back(static_cast<id_t>(i));
+    }
+  }
+  build_exact_ = exact;
   const int top_level = static_cast<int>(entry >> 32) - 1;
-  parallel_for(std::min(first, size()), size(), threads, [&](std::size_t i) {
-    const auto id = static_cast<id_t>(i);
-    if (is_deleted(id)) return;
+  parallel_for(0, ids.size(), threads, [&](std::size_t i) {
+    const id_t id = ids[i];
     thread_local std::vector<float> vector;
     const float* v = nullptr;
     if (has_full_vectors()) {
@@ -1775,6 +1797,7 @@ void HnswIndex::refine_links(std::size_t threads, std::size_t ef, bool exact, st
     if (!candidates.empty()) connect(id, select_neighbors(std::move(candidates), max_links0_), 0);
   });
   build_exact_ = false;
+  return ids.size();
 }
 
 std::size_t HnswIndex::fill_free_links(std::size_t threads) {
