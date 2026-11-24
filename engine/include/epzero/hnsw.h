@@ -262,9 +262,10 @@ class HnswIndex {
   // neighbours were chosen from a sparser one. Must not run concurrently with add() or remove().
   // `exact` searches and prunes on full vectors even on an index built with fast_build. `first`: only
   // the nodes inserted from that position on (0 = all), e.g. those added since the last refine, so
-  // that later insertions are refined like the bulk-built ones.
-  void refine_links(std::size_t threads = 0, std::size_t ef = 0, bool exact = false,
-                    std::size_t first = 0);  // ef 0: ef_construction
+  // that later insertions are refined like the bulk-built ones. `around`: also the older nodes those
+  // link to on layer 0, so that they can choose the new nodes beside them. Returns the nodes refined.
+  std::size_t refine_links(std::size_t threads = 0, std::size_t ef = 0, bool exact = false,
+                           std::size_t first = 0, bool around = false);  // ef 0: ef_construction
 
   // SQ8: the share of the vectors' variance (in code space, up to `sample` live vectors) that their
   // 8-bit codes miss. Rounding alone loses about 1e-4; a vector added outside the ranges train() saw is
