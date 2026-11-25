@@ -417,6 +417,9 @@ class Glass(Library):
     # Its saved graph loses recall when loaded back (measured: never reaches 0.95), so it is rebuilt
     # for the search run; the build time reported is the all-core one from the build run.
     saves = False
+    # The graph built on full vectors (Glass's default); SQ8U codes for the walk, refined with the full
+    # vectors (as VSAG and epzero-sq8 do). Kept as it was for rounds 2-13.
+    build_quant, search_quant, refine_quant = "FP32", "SQ8U", "FP32"
 
     def __init__(self, dim, args):
         super().__init__(dim, args)
@@ -426,16 +429,13 @@ class Glass(Library):
 
     def build(self, base):
         self.mod.set_num_threads(self.args.threads)
-        index = self.mod.Index("HNSW", "L2", R=2 * self.args.M, L=self.args.efc)
+        index = self.mod.Index("HNSW", "L2", quant=self.build_quant, R=2 * self.args.M, L=self.args.efc)
         self.graph = index.build(base)
         self._searcher(base)
 
     def _searcher(self, base):
-        # SQ8U codes for the walk, refined with the full vectors (as VSAG and epzero-sq8 do).
-        self.searcher = self.mod.Searcher(self.graph, base, "L2", "SQ8U", "FP32")
+        self.searcher = self.mod.Searcher(self.graph, base, "L2", self.search_quant, self.refine_quant)
         self.searcher.optimize(1)
-
-
 
     def search(self, q, k, ef):
         self.searcher.set_ef(max(ef, k))
@@ -444,7 +444,17 @@ class Glass(Library):
         return np.asarray(ids).reshape(len(q), k)
 
 
-COMPARED = (Epzero, EpzeroSq8, Hnswlib, FaissHnsw, FaissIvfPq, USearch, Vsag, Glass)
+class GlassSq4(Glass):
+    """Glass as its README recommends and as its best VIBE results ran: the graph built on SQ8U codes,
+    walked on 4-bit codes (SQ4U), refined with 16-bit floats. In VIBE (k = 100) this was 1.4-1.6x Glass's
+    8-bit walk on AG News and 1.2-1.3x on ImageNet-CLIP up to recall 0.98 (0.73x at 0.99), and never
+    reached recall 0.90 on LAION."""
+
+    name = "glass-sq4"
+    build_quant, search_quant, refine_quant = "SQ8U", "SQ4U", "FP16"
+
+
+COMPARED = (Epzero, EpzeroSq8, Hnswlib, FaissHnsw, FaissIvfPq, USearch, Vsag, Glass, GlassSq4)
 class EpzeroSq8Adaptive(EpzeroSq8):
     """SQ8 with per-query effort: a search stops once its best k have held for ef / 3 expansions
     (patience), so ef only caps the hard queries. Not in the default comparison."""
