@@ -1,0 +1,55 @@
+{
+  "dataset": "agnews-mxbai-1024-euclidean",
+  "n": 769382,
+  "dim": 1024,
+  "metric": "euclidean",
+  "k": 10,
+  "sample": 100000,
+  "held_out": 1000,
+  "trials": [
+    {
+      "nav_dim": 192,
+      "ef": 26,
+      "recall_at_calibration": 0.9518,
+      "rerank": 300,
+      "rerank_z": 3.0,
+      "build_seconds": 13.7,
+      "us_per_query": 56.8
+    },
+    {
+      "nav_dim": 256,
+      "ef": 20,
+      "recall_at_calibration": 0.9558,
+      "rerank": 300,
+      "rerank_z": 3.0,
+      "build_seconds": 15.9,
+      "us_per_query": 53.1
+    },
+    {
+      "nav_dim": 512,
+      "ef": 16,
+      "recall_at_calibration": 0.9508,
+      "rerank": 300,
+      "rerank_z": 3.0,
+      "build_seconds": 24.6,
+      "us_per_query": 68.8
+    }
+  ],
+  "choice": 256,
+  "environment": {
+    "commit": "66526e6fad6983646088b55d0e9b243aef897b01",
+    "versions": {
+      "epzero": "0.5.0",
+      "hnswlib": "0.8.0",
+      "faiss-cpu": "1.15.1",
+      "usearch": "2.26.5",
+      "pyvsag": "0.18.5",
+      "glass": "2.1.0",
+      "numpy": "2.5.4"
+    },
+    "cpu": "Intel(R) Xeon(R) Gold 6226 CPU @ 2.70GHz",
+    "kernel": "5.14.0-687.64.1.el9_8.x86_64",
+    "cores": 24,
+    "transparent_hugepage": "[always] madvise never"
+  }
+}
