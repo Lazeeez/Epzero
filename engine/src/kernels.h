@@ -47,6 +47,7 @@ float ip_neon(const float* a, const float* b, std::size_t dim) noexcept;
 float sq8_dot_neon(const float* w, const std::uint8_t* codes, std::size_t dim) noexcept;
 float l2_half_neon(const float* a, const std::uint16_t* b, std::size_t dim) noexcept;
 float ip_half_neon(const float* a, const std::uint16_t* b, std::size_t dim) noexcept;
+std::int32_t sq4_int_dot_neon(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept;
 #endif
 
 #if defined(__wasm_simd128__)
