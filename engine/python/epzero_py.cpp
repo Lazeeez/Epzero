@@ -55,11 +55,11 @@ epzero::SyncMode parse_sync(const std::string& name) {
 epzero::HnswParams make_params(std::size_t dim, const std::string& metric, std::size_t max_elements, std::size_t M,
                              std::size_t ef_construction, std::uint64_t seed, const std::string& quantization,
                              bool keep_vectors, std::size_t nav_dim = 0, bool fill_links = false, bool fast_build = false,
-                             bool half_vectors = false, std::size_t extra_backlinks = 0) {
+                             bool half_vectors = false, std::size_t extra_backlinks = 0, std::size_t code_bits = 8) {
   return {.dim = dim, .metric = parse_metric(metric), .max_elements = max_elements, .M = M,
           .ef_construction = ef_construction, .seed = seed, .quantization = parse_quantization(quantization),
           .keep_vectors = keep_vectors, .nav_dim = nav_dim, .fill_links = fill_links,
-          .fast_build = fast_build, .half_vectors = half_vectors, .extra_backlinks = extra_backlinks};
+          .fast_build = fast_build, .half_vectors = half_vectors, .code_bits = code_bits, .extra_backlinks = extra_backlinks};
 }
 
 const float* rows_of(const FloatArray& data, std::size_t dim, std::size_t& n) {
@@ -151,6 +151,7 @@ py::dict params_dict(const epzero::HnswParams& p) {
   d["nav_dim"] = p.nav_dim;
   d["fast_build"] = p.fast_build;
   d["half_vectors"] = p.half_vectors;
+  d["code_bits"] = p.code_bits;
   d["extra_backlinks"] = p.extra_backlinks;
   return d;
 }
@@ -195,6 +196,7 @@ epzero::AutoOptions auto_options(const std::string& metric, std::size_t M, std::
     else if (name == "ef") o.fixed.ef = value.cast<std::size_t>();
     else if (name == "half_vectors") o.fixed.half_vectors = value.cast<bool>();
     else if (name == "extra_backlinks") o.fixed.extra_backlinks = value.cast<std::size_t>();
+    else if (name == "code_bits") o.fixed.code_bits = value.cast<std::size_t>();
     else if (name == "prefetch") {
       const auto pair = value.cast<py::tuple>();
       if (pair.size() != 2) throw std::invalid_argument("prefetch must be (depth, lines)");
@@ -211,10 +213,11 @@ class Index {
  public:
   Index(std::size_t dim, const std::string& metric, std::size_t max_elements, std::size_t M,
         std::size_t ef_construction, std::uint64_t seed, const std::string& quantization, bool keep_vectors,
-        std::size_t nav_dim, bool fill_links, bool fast_build, bool half_vectors, std::size_t extra_backlinks)
+        std::size_t nav_dim, bool fill_links, bool fast_build, bool half_vectors, std::size_t extra_backlinks,
+        std::size_t code_bits)
       : index_(std::make_unique<epzero::HnswIndex>(make_params(dim, metric, max_elements, M, ef_construction, seed,
                                                                quantization, keep_vectors, nav_dim, fill_links, fast_build,
-                                                               half_vectors, extra_backlinks))) {}
+                                                               half_vectors, extra_backlinks, code_bits))) {}
 
   explicit Index(std::unique_ptr<epzero::HnswIndex> index) : index_(std::move(index)) {}
 
@@ -376,6 +379,12 @@ class Index {
     out["code_error_before"] = before;
     out["code_error_after"] = after;
     return out;
+  }
+
+  void set_code_bits(std::size_t bits, std::size_t threads) {
+    py::gil_scoped_release release;  // before locking, as a searching thread holds the lock while it waits for the GIL
+    std::unique_lock exclusive(sync_->lock);
+    index_->set_code_bits(bits, threads);
   }
 
   std::size_t refine_links(std::size_t threads, std::size_t ef, std::size_t first, bool around) {
@@ -898,11 +907,12 @@ PYBIND11_MODULE(_core, m) {
 
   py::class_<Index>(m, "Index")
       .def(py::init<std::size_t, const std::string&, std::size_t, std::size_t, std::size_t, std::uint64_t,
-                    const std::string&, bool, std::size_t, bool, bool, bool, std::size_t>(),
+                    const std::string&, bool, std::size_t, bool, bool, bool, std::size_t, std::size_t>(),
            py::arg("dim"), py::arg("metric") = "l2", py::arg("max_elements") = 1'000'000, py::arg("M") = 16,
            py::arg("ef_construction") = 200, py::arg("seed") = 42, py::arg("quantization") = "none",
            py::arg("keep_vectors") = true, py::arg("nav_dim") = 0, py::arg("fill_links") = false,
-           py::arg("fast_build") = false, py::arg("half_vectors") = false, py::arg("extra_backlinks") = 0)
+           py::arg("fast_build") = false, py::arg("half_vectors") = false, py::arg("extra_backlinks") = 0,
+           py::arg("code_bits") = 8)
       .def("train", &Index::train, py::arg("data"), "SQ8: learn per-dimension ranges before the first add().")
       .def("add", &Index::add, py::arg("data"), py::arg("labels") = py::none(), py::arg("threads") = 0,
            "Insert rows of `data`; labels default to consecutive ids starting at the number of slots used.")
@@ -934,6 +944,10 @@ PYBIND11_MODULE(_core, m) {
            "What the index needs since it was built: its size and tombstones, growth since calibration,\n"
            "how much of the data its principal directions still capture, and 'advice' in plain words\n"
            "(empty when nothing needs doing).")
+      .def("set_code_bits", &Index::set_code_bits, py::arg("bits"), py::arg("threads") = 0,
+           "SQ8 with full vectors: re-encodes every node's codes at `bits` (8 or 4), keeping the graph, so an index\n"
+           "built on 8-bit codes can be walked on 4-bit ones (half the bytes per scored node; the re-rank with\n"
+           "full vectors then does more of the work, so search with rerank_z, as epzero.build does).")
       .def("requantize", &Index::requantize, py::arg("refine") = true, py::arg("threads") = 0,
            "Refits the 8-bit code ranges on the vectors in the index and re-encodes them, for when vectors\n"
            "added since the build lie outside the ranges (health() says so). `refine` then reconnects every\n"
@@ -987,6 +1001,7 @@ PYBIND11_MODULE(_core, m) {
         std::string out = "<epzero.Index: " + grouped(index.live_count()) + " vectors of " + std::to_string(p.dim) + " dimensions, " +
                           std::string(epzero::to_string(p.metric)) + ", " + quantization_name(p.quantization);
         if (p.nav_dim != 0) out += ", walk on " + std::to_string(p.nav_dim) + " directions";
+        if (p.code_bits == 4) out += ", 4-bit codes";
         if (p.half_vectors) out += ", 16-bit vectors";
         out += ", ef " + std::to_string(profile.ef);
         if (profile.recall_target > 0.0f) out += " (calibrated for recall " + std::to_string(profile.recall_target).substr(0, 4) + ")";
