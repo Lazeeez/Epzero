@@ -561,6 +561,7 @@ HnswIndex::HnswIndex(const HnswParams& params)
   if (params_.half_vectors) {
     half_.reset(static_cast<std::uint16_t*>(allocate_block(params_.max_elements * params_.dim * sizeof(std::uint16_t))));
     dist_half_ = get_half_distance_fn(params_.metric, simd_level_);
+    half_to_float_ = get_half_to_float_fn(simd_level_);
   } else if (quantized() && params_.keep_vectors) {
     full_.reset(static_cast<float*>(allocate_block(params_.max_elements * params_.dim * sizeof(float))));
   }
@@ -588,8 +589,9 @@ std::size_t HnswIndex::rabitq_record_bytes() const noexcept {
 const float* HnswIndex::full_floats(id_t id, std::vector<float>& scratch) const {
   if (!half_) return full_vector(id);
   scratch.resize(params_.dim);
-  const std::uint16_t* h = half_vector(id);
-  for (std::size_t d = 0; d < params_.dim; ++d) scratch[d] = half::to_float(h[d]);
+  // Vectorized: building with 16-bit vectors and no walk on directions prunes on full vectors, widening one
+  // for every pair it compares, and a scalar loop here made that build 1.7x slower (GooAQ, 768-d).
+  half_to_float_(half_vector(id), scratch.data(), params_.dim);
   return scratch.data();
 }
 
