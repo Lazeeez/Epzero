@@ -65,6 +65,14 @@ Sq8IntDotFn get_sq8_int_dot_fn(SimdLevel level, std::size_t dim = 0) noexcept;
 // Every integer kernel this CPU can run, by name (for tests and benchmarks).
 std::vector<std::pair<std::string_view, Sq8IntDotFn>> sq8_int_dot_variants();
 
+// 4-bit codes (HnswParams::code_bits = 4): the same integer dot product against codes packed two to a byte
+// (src/sq4.h), with `dim` padded to a multiple of 32. Codes are at most 15, so weights may use the
+// whole int8 range (2 x 15 x 127 stays inside the AVX2 kernel's 16-bit pair sums). Always available: a
+// scalar kernel where the CPU has no faster one, as 4-bit codes have no float path.
+inline constexpr int kSq4IntWeightMax = 127;
+Sq8IntDotFn get_sq4_int_dot_fn(SimdLevel level, std::size_t dim = 0) noexcept;
+std::vector<std::pair<std::string_view, Sq8IntDotFn>> sq4_int_dot_variants();
+
 // RaBitQ kernel: sum over j < 4 of 2^j * popcount(bits & planes[j]), with `planes` the four bit
 // planes of a 4-bit query (`words` 64-bit words each). See src/rabitq.h.
 using RabitqIpFn = std::uint32_t (*)(const std::uint64_t* bits, const std::uint64_t* planes, std::size_t words) noexcept;
