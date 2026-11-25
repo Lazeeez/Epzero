@@ -198,6 +198,7 @@ epzero::AutoOptions auto_options(const std::string& metric, std::size_t M, std::
     else if (name == "extra_backlinks") o.fixed.extra_backlinks = value.cast<std::size_t>();
     else if (name == "code_bits") o.fixed.code_bits = value.cast<std::size_t>();
     else if (name == "measure_nav") o.measure_nav = value.cast<bool>();
+    else if (name == "check_walk") o.check_walk = value.cast<bool>();
     else if (name == "prefetch") {
       const auto pair = value.cast<py::tuple>();
       if (pair.size() != 2) throw std::invalid_argument("prefetch must be (depth, lines)");
