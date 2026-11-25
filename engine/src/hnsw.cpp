@@ -1484,6 +1484,10 @@ void HnswIndex::add_extra_backlinks(id_t id, const std::vector<Candidate>& candi
 
 void HnswIndex::add(std::uint64_t label, const float* vector) {
   if (!trained()) throw std::logic_error("a quantized index must be trained before add()");
+  // A NaN or an infinity has no distance order to anything: refused before it can join the graph.
+  for (std::size_t d = 0; d < params_.dim; ++d) {
+    if (!std::isfinite(vector[d])) throw std::invalid_argument("vector for label " + std::to_string(label) + " is not finite");
+  }
   id_t id;
   {
     std::lock_guard lock(label_lock_);
