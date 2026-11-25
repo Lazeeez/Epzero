@@ -105,6 +105,36 @@ TEST(Auto, FixedSettingsWin) {
   EXPECT_THROW(plan_auto(base.data(), 2000, 512, options), std::invalid_argument);
 }
 
+// 4-bit codes: fixed, they are what the index walks, with the early-stopping re-rank; otherwise the build
+// times both and says which it kept and why; below 128 codes it doesn't try.
+TEST(Auto, CodeBitsFixedOrMeasured) {
+  constexpr std::size_t n = 4000;
+  constexpr std::size_t dim = 160;
+  const auto data = make_clustered(n, 50, dim, 20, 31);
+  AutoOptions fixed;
+  fixed.fixed.code_bits = 4;
+  const auto four = build_auto(data.base.data.data(), nullptr, n, dim, fixed);
+  EXPECT_EQ(four->params().code_bits, 4u);
+  EXPECT_GT(four->profile().rerank_z, 0.0f);
+  EXPECT_EQ(why(four->profile(), "code_bits"), "set by you");
+
+  const auto measured = build_auto(data.base.data.data(), nullptr, n, dim, AutoOptions{});
+  const std::string reason = why(measured->profile(), "code_bits");
+  ASSERT_FALSE(reason.empty());
+  EXPECT_EQ(reason[0] == '4', measured->params().code_bits == 4u) << reason;
+  EXPECT_TRUE(reason[0] == '4' || reason[0] == '8') << reason;
+  EXPECT_GE(measured->profile().recall_measured, 0.95f);
+
+  const auto short_data = make_clustered(2000, 10, 64, 10, 32);
+  const auto short_index = build_auto(short_data.base.data.data(), nullptr, 2000, 64, AutoOptions{});
+  EXPECT_EQ(short_index->params().code_bits, 8u);
+  EXPECT_EQ(why(short_index->profile(), "code_bits").rfind("8: below 128", 0), 0u);
+
+  AutoOptions bad;
+  bad.fixed.code_bits = 3;
+  EXPECT_THROW(plan_auto(data.base.data.data(), n, dim, bad), std::invalid_argument);
+}
+
 TEST(Auto, RejectsBadInput) {
   const std::vector<float> one(8, 1.0f);
   EXPECT_THROW(plan_auto(nullptr, 0, 8), std::invalid_argument);
