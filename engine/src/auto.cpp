@@ -91,15 +91,26 @@ std::vector<std::size_t> sample_rows(std::size_t n, std::size_t count, std::uint
 // The smallest beam width reaching the recall target on `queries`, which must not be in the graph:
 // a row already in it is linked to its own nearest neighbours, which makes its search far easier
 // than a real query's (GloVe: 0.95 that way, 0.87 on rows held out). Returns (ef, recall reached).
-std::pair<std::size_t, float> calibrate(const HnswIndex& index, const float* queries, std::size_t count,
-                                        const IndexProfile& profile, float target, std::size_t threads) {
+using Truth = std::vector<std::vector<std::uint64_t>>;
+
+// Each query's exact top k (sorted labels): a scan of every vector, so a build that calibrates twice on the
+// same queries (8-bit and 4-bit codes) computes it once.
+Truth exact_truth(const HnswIndex& index, const float* queries, std::size_t count, std::size_t k, std::size_t threads) {
   const std::size_t dim = index.params().dim;
-  const std::size_t k = profile.k;
-  std::vector<std::vector<std::uint64_t>> truth(count);
+  Truth truth(count);
   parallel_for(0, count, threads, [&](std::size_t q) {
     for (const auto& r : index.exact_search(queries + q * dim, k)) truth[q].push_back(r.label);
     std::sort(truth[q].begin(), truth[q].end());
   });
+  return truth;
+}
+
+std::pair<std::size_t, float> calibrate(const HnswIndex& index, const float* queries, std::size_t count,
+                                        const IndexProfile& profile, float target, std::size_t threads,
+                                        const Truth* known = nullptr) {
+  const std::size_t dim = index.params().dim;
+  const std::size_t k = profile.k;
+  const Truth truth = known != nullptr ? *known : exact_truth(index, queries, count, k, threads);
   const auto recall = [&](std::size_t ef) {
     std::atomic<std::size_t> hits{0};
     std::size_t expected = 0;
@@ -324,8 +335,10 @@ std::unique_ptr<HnswIndex> build_auto(const float* data, const std::uint64_t* la
     const std::vector<float> rows = gather(data, dim, held);
     const float* queries = own_queries ? options.queries : rows.data();
     const std::size_t count = own_queries ? options.query_count : held.size();
+    Truth truth;
     if (count > 0) {
-      const auto [ef, reached] = calibrate(*index, queries, count, profile, options.recall, threads);
+      truth = exact_truth(*index, queries, count, profile.k, threads);
+      const auto [ef, reached] = calibrate(*index, queries, count, profile, options.recall, threads, &truth);
       profile.ef = ef;
       profile.recall_measured = reached;
     } else {
@@ -339,7 +352,7 @@ std::unique_ptr<HnswIndex> build_auto(const float* data, const std::uint64_t* la
       IndexProfile four = profile;
       four_bit_rerank(four);
       index->set_code_bits(4, threads);
-      const auto [ef4, reached4] = calibrate(*index, queries, count, four, options.recall, threads);
+      const auto [ef4, reached4] = calibrate(*index, queries, count, four, options.recall, threads, &truth);
       const bool reaches = reached4 >= options.recall;
       const double seconds4 =
           reaches ? time_search(*index, queries, count, four.k, {.ef = ef4, .rerank = four.rerank, .rerank_z = four.rerank_z}) : 0.0;
