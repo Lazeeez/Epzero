@@ -45,6 +45,13 @@ constexpr std::size_t kCodeBitsMinCodes = 128;
 // (smaller differences are within the timing's noise, as for prefetch settings).
 constexpr double kCodeBitsMinGain = 0.03;
 constexpr double kTimingSeconds = 0.25;  // each timed setting runs at least this long, and three passes
+// The direction-count trial (AutoOptions::measure_nav): the counts tried besides none and the variance
+// rule's, at most half the dimensions; the sample each is built on, and the rows held out of it to calibrate
+// and time on when no queries are given. Below kTrialMinRows the trial's builds would be the whole build.
+constexpr std::size_t kTrialCounts[] = {128, 192, 256, 384, 512};
+constexpr std::size_t kTrialRows = 100'000;
+constexpr std::size_t kTrialHeld = 1000;
+constexpr std::size_t kTrialMinRows = 20'000;
 // Advice thresholds: tombstones still cost search time; growth makes a calibrated beam stale; a fall in
 // the variance the directions hold means the data moved away from what the walk was built for.
 constexpr double kCompactShare = 0.2;
@@ -165,6 +172,70 @@ double time_search(const HnswIndex& index, const float* queries, std::size_t cou
     total += seconds;
   }
   return best / static_cast<double>(std::max<std::size_t>(count, 1));
+}
+
+struct NavTrial {
+  std::size_t nav = 0;
+  std::string why;
+};
+
+// The direction count whose trial index on a sample searches fastest at the recall target (see
+// AutoOptions::measure_nav). Each trial is build_auto on the sample with that count fixed, 8-bit codes and
+// the default prefetch, calibrated on the timing queries' first half (or all of them, if they are the
+// caller's), then timed on all of them on one thread.
+NavTrial nav_by_trial(const float* data, std::size_t n, std::size_t dim, const AutoOptions& options, std::size_t rule) {
+  std::vector<std::size_t> counts = {0};
+  for (const std::size_t c : kTrialCounts) {
+    if (c <= dim / 2) counts.push_back(c);
+  }
+  if (rule != 0 && std::find(counts.begin(), counts.end(), rule) == counts.end()) counts.push_back(rule);
+  std::sort(counts.begin(), counts.end());
+
+  const bool own = options.queries != nullptr && options.query_count > 0;
+  const std::size_t held_count = own ? 0 : std::min(kTrialHeld, n / 5);
+  const std::size_t rows = std::min(kTrialRows, n - held_count);
+  std::vector<std::size_t> picked = sample_rows(n, rows + held_count, options.seed + 3);
+  std::shuffle(picked.begin(), picked.end(), std::mt19937_64(options.seed + 4));
+  std::vector<std::size_t> held(picked.begin(), picked.begin() + static_cast<std::ptrdiff_t>(held_count));
+  std::vector<std::size_t> kept(picked.begin() + static_cast<std::ptrdiff_t>(held_count), picked.end());
+  std::sort(kept.begin(), kept.end());
+  const std::vector<float> sample = gather(data, dim, kept);
+  const std::vector<float> held_rows = gather(data, dim, held);
+  const float* timing = own ? options.queries : held_rows.data();
+  const std::size_t timing_count = own ? std::min<std::size_t>(options.query_count, kTrialHeld) : held.size();
+  const std::size_t calibration_count = own ? timing_count : std::max<std::size_t>(1, timing_count / 2);
+
+  NavTrial best{rule, ""};
+  double best_seconds = std::numeric_limits<double>::max();
+  std::string tried;
+  for (const std::size_t c : counts) {
+    AutoOptions o = options;
+    o.measure_nav = false;
+    o.capacity = 0;
+    o.fixed.nav_dim = c;
+    o.fixed.code_bits = 8;
+    o.fixed.prefetch = std::make_pair(std::numeric_limits<std::size_t>::max(), std::size_t{1});
+    o.queries = timing;
+    o.query_count = calibration_count;
+    const auto index = build_auto(sample.data(), nullptr, kept.size(), dim, o);
+    const IndexProfile& p = index->profile();
+    if (!tried.empty()) tried += ", ";
+    if (p.recall_measured < options.recall) {
+      tried += std::to_string(c) + ": recall " + std::to_string(p.recall_measured).substr(0, 5);
+      continue;
+    }
+    const double seconds = time_search(*index, timing, timing_count, p.k, {.ef = p.ef, .rerank = p.rerank, .rerank_z = p.rerank_z});
+    tried += std::to_string(c) + ": " + std::to_string(static_cast<int>(seconds * 1e6 + 0.5)) + " us";
+    if (seconds < best_seconds) {
+      best_seconds = seconds;
+      best.nav = c;
+    }
+  }
+  best.why = (best_seconds == std::numeric_limits<double>::max() ? std::string("no count reached the target on the trial; the rule's ")
+                                                                  : std::string("the fastest at the recall target on ")) +
+             std::to_string(kept.size()) + " rows, timed on " + (own ? "your queries" : "rows held out") + " (" + tried +
+             "; 0 is no walk)";
+  return best;
 }
 
 }  // namespace
@@ -291,6 +362,20 @@ AutoPlan plan_auto(const float* data, std::size_t n, std::size_t dim, const Auto
 
 std::unique_ptr<HnswIndex> build_auto(const float* data, const std::uint64_t* labels, std::size_t n, std::size_t dim,
                                       const AutoOptions& options) {
+  if (options.measure_nav && !options.fixed.nav_dim && dim >= kNavMinDim && n >= kTrialMinRows &&
+      options.fixed.quantization.value_or(Quantization::SQ8) == Quantization::SQ8) {
+    const NavTrial trial = nav_by_trial(data, n, dim, options, plan_auto(data, n, dim, options).params.nav_dim);
+    AutoOptions o = options;
+    o.measure_nav = false;
+    o.fixed.nav_dim = trial.nav;
+    auto index = build_auto(data, labels, n, dim, o);
+    IndexProfile profile = index->profile();
+    for (auto& [setting, text] : profile.notes) {
+      if (setting == "nav_dim") text = trial.why;
+    }
+    index->set_profile(std::move(profile));
+    return index;
+  }
   AutoPlan plan = plan_auto(data, n, dim, options);
   IndexProfile& profile = plan.profile;
   const std::size_t threads = options.threads;
