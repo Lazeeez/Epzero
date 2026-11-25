@@ -131,6 +131,18 @@ HalfDistanceFn get_half_distance_fn(Metric metric, SimdLevel level) noexcept {
   return l2 ? kernels::l2_half_scalar : kernels::ip_half_scalar;
 }
 
+HalfToFloatFn get_half_to_float_fn(SimdLevel level) noexcept {
+#if defined(__x86_64__) || defined(_M_X64)
+  if ((level == SimdLevel::AVX2 || level == SimdLevel::AVX512) && simd_level_supported(level) && platform::cpu().f16c) {
+    return kernels::half_to_float_f16c;
+  }
+#elif defined(__aarch64__)
+  if (level == SimdLevel::NEON) return kernels::half_to_float_neon;
+#endif
+  (void)level;
+  return kernels::half_to_float_scalar;
+}
+
 DistanceFn get_distance_fn(Metric metric, SimdLevel level) noexcept {
   if (!simd_level_supported(level)) return nullptr;
   // Cosine vectors are stored normalized, so cosine distance is the inner-product kernel.
