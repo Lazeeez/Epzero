@@ -30,7 +30,7 @@ from ._core import Index, _build_auto, _plan_auto
 
 # Settings the C++ planner decides, which a caller can fix instead.
 _DECIDED = ("quantization", "nav_dim", "fast_build", "refine", "fill_after", "rerank", "rerank_z", "ef", "prefetch",
-            "half_vectors", "extra_backlinks", "code_bits", "measure_nav", "check_walk")
+            "half_vectors", "extra_backlinks", "code_bits", "measure_nav", "check_walk", "refine_ef")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -44,6 +44,7 @@ class Plan:
     nav_dim: int = 0            # walk on 8-bit codes of this many principal directions (0: off)
     fast_build: bool = True     # build on the 8-bit codes
     refine: bool = True         # a second pass: every node searches the finished graph and reconnects
+    refine_ef: int | None = None  # that pass's beam width; None: efConstruction with directions, half without
     fill_after: bool = False    # give free link slots to the closest two-hop neighbours
     half_vectors: bool = False  # keep the full vectors as 16-bit floats: half their memory, a little speed and recall
     extra_backlinks: int = 0    # each insertion is also linked from this many nearby nodes it did not choose
@@ -120,7 +121,7 @@ def plan(data, metric="l2", queries=None, **settings):
                       queries is not None, p.fixed())
     out = _from_core(core["params"], core["profile"], p.recall, p.threads, p.seed, built=False)
     # The planner records your settings as "set by you"; keep the measured ones you fixed too.
-    return dataclasses.replace(out, **{name: getattr(p, name) for name in ("ef", "prefetch", "code_bits") if name in p.fixed()})
+    return dataclasses.replace(out, **{name: getattr(p, name) for name in ("ef", "prefetch", "code_bits", "refine_ef", "measure_nav", "check_walk") if name in p.fixed()})
 
 
 def build(data, metric="l2", labels=None, plan=None, capacity=None, queries=None, **settings):
