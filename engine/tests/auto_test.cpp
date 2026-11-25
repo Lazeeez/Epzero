@@ -190,6 +190,16 @@ TEST(Auto, CheckWalkOnYourQueries) {
   EXPECT_NE(reason.find("0: "), std::string::npos) << reason;
   EXPECT_GE(index->profile().recall_measured, 0.95f);
 
+  // Queries like the data (rows of it, slightly moved) aren't shifted: no trial, the rule's walk.
+  std::vector<float> alike(300 * dim);
+  for (std::size_t i = 0; i < 300; ++i) {
+    for (std::size_t d = 0; d < dim; ++d) alike[i * dim + d] = data[(i * 37 + 5) % n * dim + d] + 0.01f * normal(rng);
+  }
+  options.queries = alike.data();
+  const auto same = build_auto(data.data(), nullptr, n, dim, options);
+  EXPECT_EQ(why(same->profile(), "nav_dim").find("timed on"), std::string::npos) << why(same->profile(), "nav_dim");
+  EXPECT_NE(same->params().nav_dim, 0u);
+
   AutoOptions without;
   without.check_walk = true;  // no queries of your own: the rule decides
   const auto plain = build_auto(data.data(), nullptr, n, dim, without);
