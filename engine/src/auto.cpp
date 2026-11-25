@@ -54,6 +54,9 @@ constexpr std::size_t kTrialHeld = 1000;
 constexpr std::size_t kTrialMinRows = 20'000;
 // check_walk decides between a walk and none, a far coarser choice (3-28x apart on COCO), so a smaller sample.
 constexpr std::size_t kWalkTrialRows = 50'000;
+// check_walk's trial runs only for queries unlike the data, judged as check_queries judges them, on this many
+// rows sampled before the build (a brute-force pass of well under a second).
+constexpr std::size_t kShiftSampleRows = 20'000;
 // Advice thresholds: tombstones still cost search time; growth makes a calibrated beam stale; a fall in
 // the variance the directions hold means the data moved away from what the walk was built for.
 constexpr double kCompactShare = 0.2;
@@ -174,6 +177,39 @@ double time_search(const HnswIndex& index, const float* queries, std::size_t cou
     total += seconds;
   }
   return best / static_cast<double>(std::max<std::size_t>(count, 1));
+}
+
+// check_queries's ratio before any index exists: the median distance from a query to its nearest row of a sample,
+// over the median distance from a sampled row to its nearest other row of it, by brute force.
+double query_shift(const float* data, std::size_t n, std::size_t dim, Metric metric, const float* queries, std::size_t count,
+                   std::uint64_t seed, std::size_t threads) {
+  const std::vector<std::size_t> picked = sample_rows(n, std::min(n, kShiftSampleRows), seed + 5);
+  std::vector<float> sample = gather(data, dim, picked);
+  const std::size_t q = std::min(count, kQueryCheckSample);
+  std::vector<float> probes(queries, queries + q * dim);
+  if (metric == Metric::Cosine) {
+    for (std::size_t i = 0; i < picked.size(); ++i) normalize(sample.data() + i * dim, dim);
+    for (std::size_t i = 0; i < q; ++i) normalize(probes.data() + i * dim, dim);
+  }
+  const DistanceFn distance = get_distance_fn(metric, active_simd_level());
+  const auto nearest = [&](const float* v, std::size_t skip) {
+    double best = std::numeric_limits<double>::max();
+    for (std::size_t r = 0; r < picked.size(); ++r) {
+      if (r != skip) best = std::min(best, static_cast<double>(distance(v, sample.data() + r * dim, dim)));
+    }
+    return best;
+  };
+  const std::size_t rows = std::min(picked.size(), kQueryCheckSample);
+  std::vector<double> query_distance(q), row_distance(rows);
+  parallel_for(0, q, threads, [&](std::size_t i) { query_distance[i] = nearest(probes.data() + i * dim, picked.size()); });
+  const std::size_t stride = std::max<std::size_t>(1, picked.size() / rows);
+  parallel_for(0, rows, threads, [&](std::size_t i) { row_distance[i] = nearest(sample.data() + i * stride * dim, i * stride); });
+  const auto median = [](std::vector<double>& v) {
+    std::nth_element(v.begin(), v.begin() + static_cast<std::ptrdiff_t>(v.size() / 2), v.end());
+    return v[v.size() / 2];
+  };
+  const double rd = median(row_distance), qd = median(query_distance);
+  return rd > 0.0 ? qd / rd : (qd > 0.0 ? 1e9 : 1.0);
 }
 
 struct NavTrial {
@@ -367,7 +403,14 @@ std::unique_ptr<HnswIndex> build_auto(const float* data, const std::uint64_t* la
                              options.fixed.quantization.value_or(Quantization::SQ8) == Quantization::SQ8;
   const std::size_t rule = trial_allowed && (options.measure_nav || (options.check_walk && own_queries_given))
                                ? plan_auto(data, n, dim, options).params.nav_dim : 0;
-  if (trial_allowed && (options.measure_nav || (options.check_walk && own_queries_given && rule != 0))) {
+  // check_walk pays for its trial only when the queries look unlike the data (text against images): queries
+  // like it walk well on its directions (AG News: 37 us walking, 54 us without), and the trial cost them 41%
+  // of the build for nothing.
+  const double shift = !options.measure_nav && options.check_walk && own_queries_given && rule != 0 && trial_allowed
+                           ? query_shift(data, n, dim, options.metric, options.queries, options.query_count, options.seed,
+                                         options.threads)
+                           : 0.0;
+  if (trial_allowed && (options.measure_nav || (options.check_walk && own_queries_given && rule != 0 && shift > kShiftRatio))) {
     std::vector<std::size_t> counts = {0, rule};
     if (options.measure_nav) {
       for (const std::size_t c : kTrialCounts) {
