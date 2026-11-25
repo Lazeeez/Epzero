@@ -190,6 +190,7 @@ epzero::AutoOptions auto_options(const std::string& metric, std::size_t M, std::
     else if (name == "nav_dim") o.fixed.nav_dim = value.cast<std::size_t>();
     else if (name == "fast_build") o.fixed.fast_build = value.cast<bool>();
     else if (name == "refine") o.fixed.refine = value.cast<bool>();
+    else if (name == "refine_ef") o.fixed.refine_ef = value.cast<std::size_t>();
     else if (name == "fill_after") o.fixed.fill_after = value.cast<bool>();
     else if (name == "rerank") o.fixed.rerank = value.cast<std::size_t>();
     else if (name == "rerank_z") o.fixed.rerank_z = value.cast<float>();
