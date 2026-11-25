@@ -13,6 +13,19 @@ later arrivals, so the newest vectors of a grown index are found less often than
   a checkpoint after a batch of additions. It returns the number of vectors refined.
 - Both are opt-in. A one-off build doesn't change.
 
+**Friendlier for a first-time user** (found by installing from PyPI and trying the usual mistakes):
+
+- Vectors or queries holding a NaN or an infinity are refused with the row and column (`ValueError: row 42
+  contains NaN (column 5)`). Before, such data built an index that calibrated to its widest beam and returned
+  noise. C++: `HnswIndex::add` throws `std::invalid_argument`, and `Database` refuses them before they reach
+  its log. A log written by an older version that holds such a vector still opens: the vector is skipped
+  and counted in `recovery()["skipped"]`, on a replica too.
+- Metric names other libraries use are accepted, in any case: `"euclidean"` and `"l2sq"` for `"l2"`, `"dot"`,
+  `"inner_product"` and `"mips"` for `"ip"`, `"angular"` and `"cos"` for `"cosine"`.
+- `save`, `load` and `Database.open` take any path-like object (`pathlib.Path`), not only strings.
+- A negative `k`, `ef` or `rerank` gets `ValueError: k must be 0 or more` instead of a pybind11 cast error.
+- `search` documents what fills a short result: label -1 and distance inf.
+
 ## 0.5.0
 
 An index that stays accurate as its data changes, fixed in place; metadata and keyword search in the
