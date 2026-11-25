@@ -22,6 +22,8 @@ std::uint32_t rabitq_ip_scalar(const std::uint64_t* bits, const std::uint64_t* p
 // A float query against a vector stored as IEEE half floats: L2 squared, or 1 - dot.
 float l2_half_scalar(const float* a, const std::uint16_t* b, std::size_t dim) noexcept;
 float ip_half_scalar(const float* a, const std::uint16_t* b, std::size_t dim) noexcept;
+// Widens `n` IEEE half floats to floats.
+void half_to_float_scalar(const std::uint16_t* in, float* out, std::size_t n) noexcept;
 
 #if defined(__x86_64__) || defined(_M_X64)
 float l2_avx2(const float* a, const float* b, std::size_t dim) noexcept;
@@ -39,6 +41,7 @@ std::int32_t sq4_int_dot_avxvnni(const std::int8_t* w, const std::uint8_t* codes
 std::int32_t sq4_int_dot_avx512vnni(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept;
 float l2_half_f16c(const float* a, const std::uint16_t* b, std::size_t dim) noexcept;
 float ip_half_f16c(const float* a, const std::uint16_t* b, std::size_t dim) noexcept;
+void half_to_float_f16c(const std::uint16_t* in, float* out, std::size_t n) noexcept;
 #endif
 
 #if defined(__aarch64__)
@@ -47,6 +50,7 @@ float ip_neon(const float* a, const float* b, std::size_t dim) noexcept;
 float sq8_dot_neon(const float* w, const std::uint8_t* codes, std::size_t dim) noexcept;
 float l2_half_neon(const float* a, const std::uint16_t* b, std::size_t dim) noexcept;
 float ip_half_neon(const float* a, const std::uint16_t* b, std::size_t dim) noexcept;
+void half_to_float_neon(const std::uint16_t* in, float* out, std::size_t n) noexcept;
 std::int32_t sq4_int_dot_neon(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept;
 #endif
 
