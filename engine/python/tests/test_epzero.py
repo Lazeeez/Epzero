@@ -342,5 +342,34 @@ def test_reprs_and_error_messages(data, tmp_path):
     assert repr(epzero.TextIndex()) == "<epzero.TextIndex: 0 documents>"
     with pytest.raises(ValueError, match=r"got \(2, 7\)"):
         index.search(np.zeros((2, 7), dtype=np.float32))
-    with pytest.raises(ValueError, match="not 'dot'"):
-        epzero.Index(dim=4, metric="dot")
+    with pytest.raises(ValueError, match="not 'manhattan'"):
+        epzero.Index(dim=4, metric="manhattan")
+    assert epzero.Index(dim=4, metric="dot").params["metric"] == "ip"   # other libraries' name, accepted
+
+
+def test_common_mistakes_get_clear_errors_and_common_conventions_work(tmp_path):
+    """What a first-time user tries: NaN data, other libraries' metric names, path objects, a negative k."""
+    import pathlib
+
+    rng = np.random.default_rng(3)
+    data = rng.standard_normal((600, 16)).astype(np.float32)
+    bad = data.copy()
+    bad[42, 5] = np.nan
+    with pytest.raises(ValueError, match="row 42 contains NaN"):
+        epzero.build(bad)
+    index = epzero.build(data)
+    bad_query = data[:2].copy()
+    bad_query[1, 0] = np.inf
+    with pytest.raises(ValueError, match="row 1 contains an infinity"):
+        index.search(bad_query, k=3)
+    with pytest.raises(ValueError, match="k must be 0 or more"):
+        index.search(data[:2], k=-1)
+    labels, distances = index.search(data[:1], k=700)        # more than the index holds: padded
+    assert (labels[0, 600:] == -1).all() and np.isinf(distances[0, 600:]).all()
+    for name, same in (("euclidean", "l2"), ("Dot", "ip"), ("inner_product", "ip"), ("angular", "cosine")):
+        a = epzero.build(data, metric=name, ef=32, prefetch=(4, 2), threads=1).search(data[:5], k=5)[0]
+        b = epzero.build(data, metric=same, ef=32, prefetch=(4, 2), threads=1).search(data[:5], k=5)[0]
+        assert (a == b).all(), name
+    path = pathlib.Path(tmp_path) / "index.epz"
+    index.save(path)
+    assert epzero.Index.load(path).dim == 16
