@@ -135,6 +135,37 @@ TEST(Auto, CodeBitsFixedOrMeasured) {
   EXPECT_THROW(plan_auto(data.base.data.data(), n, dim, bad), std::invalid_argument);
 }
 
+// The direction-count trial: a count among its candidates (none, 128 = dim / 2, the rule's), chosen with
+// every candidate's timing in the reason, and the target reached; skipped when nav_dim is fixed or the
+// data is too small for a sample worth building.
+TEST(Auto, MeasuredDirectionCount) {
+  constexpr std::size_t n = 24000;
+  constexpr std::size_t dim = 256;
+  const auto data = low_rank(n, dim, 24, 41);
+  AutoOptions options;
+  options.measure_nav = true;
+  const auto index = build_auto(data.data(), nullptr, n, dim, options);
+  const std::size_t nav = index->params().nav_dim;
+  const std::size_t rule = plan_auto(data.data(), n, dim, AutoOptions{}).params.nav_dim;
+  EXPECT_TRUE(nav == 0 || nav == 128 || nav == rule) << nav;
+  const std::string reason = why(index->profile(), "nav_dim");
+  EXPECT_EQ(reason.rfind("the fastest at the recall target on", 0), 0u) << reason;
+  EXPECT_NE(reason.find("0: "), std::string::npos) << reason;
+  EXPECT_NE(reason.find("128: "), std::string::npos) << reason;
+  EXPECT_GE(index->profile().recall_measured, 0.95f);
+
+  options.fixed.nav_dim = 64;
+  const auto fixed = build_auto(data.data(), nullptr, n, dim, options);
+  EXPECT_EQ(fixed->params().nav_dim, 64u);
+  EXPECT_EQ(why(fixed->profile(), "nav_dim"), "set by you");
+
+  AutoOptions small;
+  small.measure_nav = true;
+  const auto few = build_auto(data.data(), nullptr, 5000, dim, small);
+  EXPECT_EQ(few->params().nav_dim, plan_auto(data.data(), 5000, dim, AutoOptions{}).params.nav_dim);
+  EXPECT_EQ(why(few->profile(), "nav_dim").rfind("the fastest", 0), std::string::npos);
+}
+
 TEST(Auto, RejectsBadInput) {
   const std::vector<float> one(8, 1.0f);
   EXPECT_THROW(plan_auto(nullptr, 0, 8), std::invalid_argument);
