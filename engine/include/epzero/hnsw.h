@@ -487,6 +487,7 @@ class HnswIndex {
   std::unique_ptr<float[], AlignedFree> full_;
   std::unique_ptr<std::uint16_t[], AlignedFree> half_;  // instead of full_, with half_vectors
   HalfDistanceFn dist_half_ = nullptr;
+  HalfToFloatFn half_to_float_ = nullptr;  // widens a whole 16-bit vector (full_floats)
 
   // RaBitQ: the centroid, the rotation's random signs, and the padded (power of two) dimension.
   std::vector<float> rbq_center_;
