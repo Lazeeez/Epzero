@@ -867,6 +867,25 @@ of the dimensions) **failed its own test**: DBpedia's best was 512, not 384, and
 3-13%. The planner keeps its rule until a k = 100 rule (90%, at most a third) is measured on datasets it
 was not fitted on: round 13 ([`round13.sh`](../scripts/pace/round13.sh)).
 
+**Round 13: that rule on four datasets it was not fitted on** (`*-speed-round13-k*.json`). `epzero-auto-nav90`
+is `epzero.build` with only the direction count fixed by the rule (90% of the variance, at most a third of
+the dimensions). Queries per second against the automatic build at recall 0.90 / 0.95 / 0.98 / 0.99:
+
+| Dataset | Automatic build | Rule | k = 100 | k = 10 |
+|---|---|---|---|---|
+| CC-News, Nomic, 768-d | 192 | 256 | +11 / +21 / +29 / +23% | −5 / +2 / +4 / 0% |
+| GooAQ, DistilRoBERTa, 768-d | no walk | 256 | +40 / +15 / +22 / +35% | +15 / +13 / +28 / +35% |
+| Simple Wikipedia, OpenAI, 3072-d | 448 | 864 | −20 / −19 / −5 / −5% | −38 / −37 / −32 / −24% |
+| Yahoo, MiniLM, 384-d | no walk | 128 | −50 / −62 / −64 / −66% | −24 / −34 / −39 / −46% |
+
+The prediction recorded in the script (faster at 0.95-0.99 on at least three of the four, never more than 3%
+slower) **failed**: two of four, and Yahoo lost two thirds of its speed. **The planner keeps its rule.**
+What the eight datasets of rounds 12b and 13 show, after the fact: on text embeddings of 768 dimensions and
+more, the best counts lay between 256 and 512 (arXiv 256, AG News 256, CC-News 256, GooAQ 256 where the
+planner turned the walk off, DBpedia 512, Simple Wikipedia 448), and a variance threshold over-shoots at
+3,072 dimensions; on 384-dimensional vectors the walk does not pay. A rule built from that has to be
+measured on fresh data before it changes `epzero.build`.
+
 **16-bit full vectors, opt-in only.** Keeping the re-rank copy as half floats cut GIST1M's 200k index from
 800 to 434 MiB, but in alternating laptop runs search was up to 17% slower there, and on the DBpedia sample
 recall fell 0.003-0.004 (0.983 to 0.980 at `ef` 40): OpenAI embeddings' near neighbours are close enough
