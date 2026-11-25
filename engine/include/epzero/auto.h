@@ -56,6 +56,12 @@ struct AutoOptions {
   const float* queries = nullptr;
   std::size_t query_count = 0;
   AutoFixed fixed;
+  // Choose the number of principal directions to walk on by measurement instead of the variance rule
+  // (unless nav_dim is fixed): a trial index on a sample of the data for each candidate count (none,
+  // 128-512, and the rule's), calibrated to the recall target and timed on one thread, on `queries` when
+  // given and on rows held out of the sample otherwise; the fastest that reaches the target is built.
+  // Opt-in until measured on every dataset (docs/performance.md).
+  bool measure_nav = false;
 };
 
 struct AutoPlan {
