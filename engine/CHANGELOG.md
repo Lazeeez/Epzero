@@ -13,6 +13,19 @@ later arrivals, so the newest vectors of a grown index are found less often than
   a checkpoint after a batch of additions. It returns the number of vectors refined.
 - Both are opt-in. A one-off build doesn't change.
 
+**4-bit codes.** The graph walk can score 4-bit codes instead of 8-bit ones: half the bytes per scored
+node, on the same per-dimension ranges at 16 levels, with the full vectors re-ranking more of the beam.
+
+- `epzero.build` builds the graph on 8-bit codes as before, then calibrates and times the walk at 4 bits
+  on the same graph and keeps 4 bits only where they reach the recall target at least 3% faster
+  (`index.plan.reasons["code_bits"]` gives both timings). Below 128 codes per vector it keeps 8 bits
+  without trying. `code_bits=8` or `4` fixes the choice.
+- `index.set_code_bits(4)` (C++: `HnswIndex::set_code_bits`) converts a built index in place, keeping
+  the graph, and back with `set_code_bits(8)`. 4-bit codes need the full vectors (the default).
+- Integer kernels for AVX2, AVX-VNNI and AVX-512 VNNI; other CPUs use a scalar kernel for 4-bit codes,
+  so there the planner's timing keeps 8 bits.
+- Saved with the index as a storage flag; builds before this one refuse such a file instead of misreading it.
+
 ## 0.5.0
 
 An index that stays accurate as its data changes, fixed in place; metadata and keyword search in the
