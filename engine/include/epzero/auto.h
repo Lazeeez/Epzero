@@ -62,6 +62,10 @@ struct AutoOptions {
   // given and on rows held out of the sample otherwise; the fastest that reaches the target is built.
   // Opt-in until measured on every dataset (docs/performance.md).
   bool measure_nav = false;
+  // With your own `queries`, whether to walk on principal directions at all: the variance rule's walk and
+  // none, each built on a sample and timed on them, so that queries unlike the data (text against images)
+  // don't walk on the data's directions when that is slower. Cheaper than measure_nav: two small trials.
+  bool check_walk = false;
 };
 
 struct AutoPlan {
