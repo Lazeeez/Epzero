@@ -1,0 +1,64 @@
+{
+  "dataset": "dbpedia-openai-1000k-angular",
+  "n": 990000,
+  "dim": 1536,
+  "metric": "angular",
+  "k": 100,
+  "sample": 100000,
+  "held_out": 1000,
+  "trials": [
+    {
+      "nav_dim": 288,
+      "ef": 181,
+      "recall_at_calibration": 0.9533,
+      "rerank": 300,
+      "rerank_z": 3.0,
+      "build_seconds": 25.9,
+      "us_per_query": 364.4
+    },
+    {
+      "nav_dim": 384,
+      "ef": 143,
+      "recall_at_calibration": 0.9513,
+      "rerank": 300,
+      "rerank_z": 3.0,
+      "build_seconds": 29.9,
+      "us_per_query": 329.4
+    },
+    {
+      "nav_dim": 512,
+      "ef": 125,
+      "recall_at_calibration": 0.9556,
+      "rerank": 300,
+      "rerank_z": 3.0,
+      "build_seconds": 35.8,
+      "us_per_query": 337.3
+    },
+    {
+      "nav_dim": 768,
+      "ef": 112,
+      "recall_at_calibration": 0.9587,
+      "rerank": 300,
+      "rerank_z": 3.0,
+      "build_seconds": 49.7,
+      "us_per_query": 392.4
+    }
+  ],
+  "choice": 384,
+  "environment": {
+    "commit": "66526e6fad6983646088b55d0e9b243aef897b01",
+    "versions": {
+      "epzero": "0.5.0",
+      "hnswlib": "0.8.0",
+      "faiss-cpu": "1.15.1",
+      "usearch": "2.26.5",
+      "pyvsag": "0.18.5",
+      "glass": "2.1.0",
+      "numpy": "2.5.4"
+    },
+    "cpu": "Intel(R) Xeon(R) Gold 6226 CPU @ 2.70GHz",
+    "kernel": "5.14.0-687.64.1.el9_8.x86_64",
+    "cores": 24,
+    "transparent_hugepage": "[always] madvise never"
+  }
+}
