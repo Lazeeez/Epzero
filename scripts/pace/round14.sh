@@ -43,6 +43,10 @@
 #    epzero-auto-8bit is within 5% of round 12b/13's epzero-auto at recall 0.95 wherever both ran (no loss in the
 #    8-bit path). The direction-count trial goes into epzero.build, to be measured on every dataset in a later
 #    round, only if P8 holds. P1 decides nothing in the engine; it says which Glass the comparisons quote.
+# Decision addendum (25 November 2026, after the jobs were submitted and before any round 14 result existed):
+# Epzero is built for other developers, so a speed gain alone does not decide. The 4-bit merge and a planner
+# choice of half_vectors also require, wherever both ran, a build time within 10% of epzero-auto-8bit's and no
+# more memory than it; the 4-bit trial's choice is also recorded in the plan's reasons, as it depends on the CPU.
 # Before the first job, on a login node: `bash scripts/pace/compete-env.sh` (pyglass pinned to VIBE's commit).
 # Queued as ONE chain after whatever is already queued (the jobs share one Python environment): the kernel check,
 # the trials, then the speed jobs, the datasets where Epzero lost first.
