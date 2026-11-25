@@ -68,6 +68,10 @@ std::uint32_t rabitq_ip_scalar(const std::uint64_t* bits, const std::uint64_t* p
   return sum;
 }
 
+void half_to_float_scalar(const std::uint16_t* in, float* out, std::size_t n) noexcept {
+  for (std::size_t i = 0; i < n; ++i) out[i] = half::to_float(in[i]);
+}
+
 float l2_half_scalar(const float* a, const std::uint16_t* b, std::size_t dim) noexcept {
   float sum = 0.0f;
   for (std::size_t i = 0; i < dim; ++i) {
