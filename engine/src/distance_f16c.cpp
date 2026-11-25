@@ -27,6 +27,13 @@ inline __m256 load_half(const std::uint16_t* p) noexcept {
 
 }  // namespace
 
+// 8 halves per instruction; the building and refining passes widen a whole vector for each pair they compare.
+void half_to_float_f16c(const std::uint16_t* in, float* out, std::size_t n) noexcept {
+  std::size_t i = 0;
+  for (; i + 8 <= n; i += 8) _mm256_storeu_ps(out + i, load_half(in + i));
+  for (; i < n; ++i) out[i] = half_to_float(in[i]);
+}
+
 float l2_half_f16c(const float* a, const std::uint16_t* b, std::size_t dim) noexcept {
   __m256 acc0 = _mm256_setzero_ps();
   __m256 acc1 = _mm256_setzero_ps();
