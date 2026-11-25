@@ -232,6 +232,50 @@ Sq8IntDotFn get_sq8_int_dot_fn(SimdLevel level, [[maybe_unused]] std::size_t dim
   }
 }
 
+std::vector<std::pair<std::string_view, Sq8IntDotFn>> sq4_int_dot_variants() {
+  std::vector<std::pair<std::string_view, Sq8IntDotFn>> out = {{"scalar", kernels::sq4_int_dot_scalar}};
+#if defined(__x86_64__) || defined(_M_X64)
+  if (simd_level_supported(SimdLevel::AVX2)) out.emplace_back("avx2", kernels::sq4_int_dot_avx2);
+#if defined(EPZERO_HAVE_AVXVNNI)
+  if (simd_level_supported(SimdLevel::AVX2) && cpu_has_avx_vnni()) out.emplace_back("avx-vnni", kernels::sq4_int_dot_avxvnni);
+#endif
+#if defined(EPZERO_HAVE_AVX512VNNI)
+  if (simd_level_supported(SimdLevel::AVX512) && cpu_has_avx512_vnni()) {
+    out.emplace_back("avx512-vnni", kernels::sq4_int_dot_avx512vnni);
+  }
+#endif
+#endif
+  return out;
+}
+
+// As for 8-bit codes: on the first AVX-512 Xeons, which lower their clock under 512-bit work, the AVX-512
+// kernel only where it runs whole 128-code iterations; EPZERO_SQ8_KERNEL=avx2 / avx512 decides for both.
+Sq8IntDotFn get_sq4_int_dot_fn(SimdLevel level, [[maybe_unused]] std::size_t dim) noexcept {
+  if (!simd_level_supported(level)) return kernels::sq4_int_dot_scalar;
+  switch (level) {
+#if defined(__x86_64__) || defined(_M_X64)
+    case SimdLevel::AVX512:
+#if defined(EPZERO_HAVE_AVX512VNNI)
+      if (cpu_has_avx512_vnni()) {
+        const char* forced = std::getenv("EPZERO_SQ8_KERNEL");
+        const std::string_view choice = forced != nullptr ? forced : "";
+        const bool whole_blocks = dim > 0 && dim % 128 == 0;
+        if (choice != "avx2" && (avx512_runs_at_full_clock() || whole_blocks || choice == "avx512")) {
+          return kernels::sq4_int_dot_avx512vnni;
+        }
+      }
+#endif
+      [[fallthrough]];
+    case SimdLevel::AVX2:
+#if defined(EPZERO_HAVE_AVXVNNI)
+      if (cpu_has_avx_vnni()) return kernels::sq4_int_dot_avxvnni;
+#endif
+      return kernels::sq4_int_dot_avx2;
+#endif
+    default: return kernels::sq4_int_dot_scalar;
+  }
+}
+
 RabitqIpFn get_rabitq_ip_fn(SimdLevel level) noexcept {
   if (!simd_level_supported(level)) return nullptr;
 #if defined(__x86_64__) || defined(_M_X64)
