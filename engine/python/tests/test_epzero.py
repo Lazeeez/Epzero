@@ -344,3 +344,11 @@ def test_reprs_and_error_messages(data, tmp_path):
         index.search(np.zeros((2, 7), dtype=np.float32))
     with pytest.raises(ValueError, match="not 'dot'"):
         epzero.Index(dim=4, metric="dot")
+
+
+def test_the_refine_pass_beam_can_be_set():
+    data = np.random.default_rng(5).standard_normal((2000, 32)).astype(np.float32)
+    index = epzero.build(data, refine_ef=40)
+    assert index.plan.refine and len(index) == 2000
+    assert index.search(data[:3], k=1)[0][:, 0].tolist() == [0, 1, 2]
+    assert epzero.plan(data, refine_ef=40).refine_ef == 40
