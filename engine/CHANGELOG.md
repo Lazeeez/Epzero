@@ -26,6 +26,18 @@ node, on the same per-dimension ranges at 16 levels, with the full vectors re-ra
   WebAssembly uses a scalar kernel for 4-bit codes, so there the planner's timing keeps 8 bits.
 - Saved with the index as a storage flag; builds before this one refuse such a file instead of misreading it.
 
+**Walking on the right directions, chosen by measurement (opt-in).**
+
+- `check_walk=True`: with your own `queries=`, if they look unlike the data (as `check_queries` judges, on a
+  sample before the build), the build times the variance rule's walk on principal directions against no walk,
+  on 50,000 rows, and keeps the faster. On COCO (text queries against image vectors) the rule's 128-direction
+  walk never reached recall 0.95 (beam width 4096); with the check, no walk reached it at 128, for 26% more build
+  time. Queries like the data skip the trial (AG News: build time unchanged).
+- `measure_nav=True`: the number of directions itself by trial indexes on 100,000 rows (none, 128-512 and the
+  rule's), timed on your queries or on held-out rows. On eight datasets it chose the count that was fastest on
+  the full data, or within 5% of it, 15 times out of 16 (Xeon Gold 6226, round 14), but it costs 2-3.5x the build
+  time, so it stays opt-in.
+
 **Faster builds.**
 
 - Building with 16-bit full vectors (`half_vectors=True`) and no walk on principal directions widened each
