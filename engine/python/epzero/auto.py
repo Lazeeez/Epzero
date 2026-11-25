@@ -30,7 +30,7 @@ from ._core import Index, _build_auto, _plan_auto
 
 # Settings the C++ planner decides, which a caller can fix instead.
 _DECIDED = ("quantization", "nav_dim", "fast_build", "refine", "fill_after", "rerank", "rerank_z", "ef", "prefetch",
-            "half_vectors", "extra_backlinks", "code_bits")
+            "half_vectors", "extra_backlinks", "code_bits", "measure_nav")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -48,6 +48,7 @@ class Plan:
     half_vectors: bool = False  # keep the full vectors as 16-bit floats: half their memory, a little speed and recall
     extra_backlinks: int = 0    # each insertion is also linked from this many nearby nodes it did not choose
     code_bits: int | None = None  # 8 or 4 bits per code; None: the faster of the two at the recall target, timed
+    measure_nav: bool = False   # choose nav_dim by trial indexes on a sample, timed on your queries (opt-in)
     rerank: int = 0             # candidates re-scored with full vectors (0: twice k)
     rerank_z: float = 0.0       # stop the re-rank early at this many standard deviations (0: off)
     recall: float = 0.95        # the target the beam width is calibrated for
