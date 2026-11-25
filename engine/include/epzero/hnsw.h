@@ -56,6 +56,11 @@ struct HnswParams {
   // index. They are read only to build the graph and to re-rank, where three significant digits are
   // enough (recall identical to four decimals on GIST1M and OpenAI embeddings). Saved with the index.
   bool half_vectors = false;
+  // SQ8 with keep_vectors: bits per code, 8 or 4. Four halves the codes each scored node reads (two to a
+  // byte, on the same per-dimension ranges at 16 levels instead of 256), so the walk ranks less exactly
+  // and the re-rank with full vectors does more of the work. Saved with the index; set_code_bits()
+  // changes it on a built index, keeping the graph.
+  std::size_t code_bits = 8;
   // Building: old nodes keep receiving incoming links from every later arrival near them, so late
   // insertions have fewer and are found less often. With this set, each insertion also asks this many
   // of its closest construction candidates that it did not choose as neighbours to link to it at the
@@ -283,6 +288,11 @@ class HnswIndex {
   // Not thread-safe: nothing else may use the index meanwhile.
   void requantize(std::size_t threads = 0);
 
+  // SQ8 with full vectors: re-encodes every node's codes at `bits` (8 or 4) from its full vector, keeping
+  // the graph and the code ranges, so a graph built on 8-bit codes can be walked on 4-bit ones (or back).
+  // Not thread-safe: nothing else may use the index meanwhile, as its memory moves.
+  void set_code_bits(std::size_t bits, std::size_t threads = 0);
+
   void save(const std::string& path) const;
   // Loads a snapshot; corrupt or truncated files throw. With max_bytes, a snapshot whose index
   // would allocate more than that is refused before allocating (for untrusted files).
@@ -378,8 +388,13 @@ class HnswIndex {
   // Node `id`'s full vector as floats: in place, or decoded from halves into `scratch`.
   const float* full_floats(id_t id, std::vector<float>& scratch) const;
   bool has_full_vectors() const noexcept { return !quantized() || params_.keep_vectors; }
-  // Bytes of SQ8 code per node, and the projection onto the walk's directions (nav_dim only).
+  // Codes per node, and the projection onto the walk's directions (nav_dim only).
   std::size_t code_dim() const noexcept { return params_.nav_dim != 0 ? params_.nav_dim : params_.dim; }
+  bool four_bit() const noexcept { return params_.code_bits == 4; }
+  // Bytes of code per node: one per code, or two codes to a byte padded to 32 codes (src/sq4.h).
+  std::size_t code_bytes() const noexcept { return four_bit() ? (code_dim() + 31) / 32 * 16 : code_dim(); }
+  float max_code() const noexcept { return four_bit() ? 15.0f : 255.0f; }
+  std::uint8_t code_at(const std::uint8_t* codes, std::size_t i) const noexcept;
   void project(const float* v, float* out) const noexcept;
   void project_query(const float* query, float* out) const;
   void prepare_query_projection();
@@ -440,6 +455,7 @@ class HnswIndex {
   Sq8DotFn sq8_dot_;
   // SQ8 in integers (int8 per-query weights), where the CPU has a kernel faster than the float one.
   Sq8IntDotFn sq8_int_dot_;
+  Sq8IntDotFn sq4_int_dot_;  // 4-bit codes: always set (a scalar kernel at worst)
   RabitqIpFn rabitq_ip_;
   std::size_t max_links0_;
   double level_mult_;
@@ -455,7 +471,8 @@ class HnswIndex {
   std::unique_ptr<std::byte[], AlignedFree> allocate_level0() const;
   std::unique_ptr<std::byte[], AlignedFree> level0_;
 
-  // SQ8: per-dimension x = min + code * scale, and the kept full-precision vectors.
+  // SQ8: per-dimension x = min + code * scale (scale = range / 255, or / 15 with 4-bit codes), and the
+  // kept full-precision vectors.
   std::vector<float> sq8_min_;
   std::vector<float> sq8_scale_;
   bool walk_full_ = false;
