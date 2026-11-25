@@ -39,6 +39,23 @@ std::int32_t sq8_int_dot_scalar(const std::int8_t* w, const std::uint8_t* codes,
   return dot;
 }
 
+// The packed layout of src/sq4.h, block by block; `dim` is a multiple of 32.
+std::int32_t sq4_int_dot_scalar(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept {
+  std::int32_t dot = 0;
+  std::size_t i = 0;
+  for (; i + 64 <= dim; i += 64, codes += 32) {
+    for (std::size_t b = 0; b < 32; ++b) {
+      dot += static_cast<std::int32_t>(w[i + b]) * (codes[b] & 0x0F) + static_cast<std::int32_t>(w[i + 32 + b]) * (codes[b] >> 4);
+    }
+  }
+  if (i < dim) {
+    for (std::size_t b = 0; b < 16; ++b) {
+      dot += static_cast<std::int32_t>(w[i + b]) * (codes[b] & 0x0F) + static_cast<std::int32_t>(w[i + 16 + b]) * (codes[b] >> 4);
+    }
+  }
+  return dot;
+}
+
 // Portable popcount: one instruction on ARM64 (CNT) and WebAssembly (i64.popcnt); on baseline
 // x86-64 a short bit-twiddling sequence (the AVX2 build uses POPCNT, see distance_avx2.cpp).
 std::uint32_t rabitq_ip_scalar(const std::uint64_t* bits, const std::uint64_t* planes, std::size_t words) noexcept {
