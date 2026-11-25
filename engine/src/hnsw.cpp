@@ -858,7 +858,14 @@ void HnswIndex::encode(const float* v, std::uint8_t* codes, float* norm) const n
 
 void HnswIndex::decode(id_t id, float* out) const noexcept {
   const std::uint8_t* codes = codes_of(id);
-  for (std::size_t i = 0; i < code_dim(); ++i) out[i] = sq8_min_[i] + code_at(codes, i) * sq8_scale_[i];
+  // One loop per width, so the 8-bit one stays vectorized: building on codes decodes two nodes for every
+  // candidate pair it prunes.
+  const std::size_t dim = code_dim();
+  if (four_bit()) {
+    for (std::size_t i = 0; i < dim; ++i) out[i] = sq8_min_[i] + sq4::get(codes, i, dim) * sq8_scale_[i];
+  } else {
+    for (std::size_t i = 0; i < dim; ++i) out[i] = sq8_min_[i] + codes[i] * sq8_scale_[i];
+  }
 }
 
 std::uint8_t HnswIndex::code_at(const std::uint8_t* codes, std::size_t i) const noexcept {
