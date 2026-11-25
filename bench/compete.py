@@ -236,6 +236,18 @@ class EpzeroAutoOod(EpzeroAuto):
         return LEARN
 
 
+class EpzeroAutoOodCheckWalk(EpzeroAutoOod):
+    """epzero-auto-ood with check_walk: queries unlike the data (VIBE's sample queries on COCO, text against
+    images) walk on the data's principal directions only if a trial on them says it is faster (round 15)."""
+
+    name = "epzero-auto-ood-checkwalk"
+
+    def build(self, base):
+        self.index = self.mod.build(base, "l2", M=self.args.M, ef_construction=self.args.efc, threads=self.args.threads,
+                                    queries=self.calibration_queries(), check_walk=True)
+        self._describe()
+
+
 class EpzeroAutoDeep(EpzeroAuto):
     """epzero-auto's index, searched re-ranking at least ef candidates (the plan's early stop kept): whether the
     plan's fixed re-rank depth caps recall at wide beams, as on AG News at k = 100 (screen D12)."""
@@ -292,6 +304,19 @@ class EpzeroAutoBits4(EpzeroAutoBits8):
 
     name = "epzero-auto-4bit"
     code_bits = 4
+
+
+class EpzeroAutoRefine100(EpzeroAuto):
+    """epzero.build with 8-bit codes and the refine pass at width 100 instead of efConstruction (200) on walks
+    over principal directions: 27% less build time with recall unchanged on the AG News pilot, against the
+    GIST1M measurement that set the full width (round 15)."""
+
+    name = "epzero-auto-refine100"
+
+    def build(self, base):
+        self.index = self.mod.build(base, "l2", M=self.args.M, ef_construction=self.args.efc, threads=self.args.threads,
+                                    queries=self.calibration_queries(), code_bits=8, refine_ef=100)
+        self._describe()
 
 
 class EpzeroAutoHalf(EpzeroAuto):
@@ -518,7 +543,7 @@ class EpzeroSq8Avx512(EpzeroSq8):
             del os.environ["EPZERO_SQ8_KERNEL"]
 
 
-LIBRARIES = {cls.name: cls for cls in (*COMPARED, EpzeroAuto, EpzeroAutoOod, EpzeroAutoDeep, EpzeroAutoNav90, EpzeroAutoHalf, EpzeroAutoBits8, EpzeroAutoBits4, EpzeroSq8Default, EpzeroSq8Adaptive, EpzeroSq8Avx512)}
+LIBRARIES = {cls.name: cls for cls in (*COMPARED, EpzeroAuto, EpzeroAutoOod, EpzeroAutoDeep, EpzeroAutoNav90, EpzeroAutoHalf, EpzeroAutoBits8, EpzeroAutoBits4, EpzeroAutoRefine100, EpzeroAutoOodCheckWalk, EpzeroSq8Default, EpzeroSq8Adaptive, EpzeroSq8Avx512)}
 
 
 def experiment(name):
