@@ -1028,6 +1028,79 @@ TEST(Hnsw, RequantizeRefitsCodesForVectorsOutsideTheirRanges) {
   EXPECT_THROW(plain.requantize(), std::logic_error);
 }
 
+// 4-bit codes on the same graph: 16 levels on the 8-bit ranges, a walk on them that with the early-stopping
+// re-rank finds what the 8-bit walk finds, the setting kept by save and load (with identical results), and
+// back at 8 bits the index as it was. 200 codes are padded to 224 (whole 64-code blocks and a 32-code
+// tail); 96 directions to 96.
+TEST(Hnsw, FourBitCodesKeepTheGraphAndItsResults) {
+  constexpr std::size_t dim = 200;
+  constexpr std::size_t n = 3000;
+  const auto data = make_clustered(n, 100, dim, 30, 23);
+  const auto path = (std::filesystem::temp_directory_path() / "epzero_four_bit.idx").string();
+  for (const Metric metric : {Metric::L2, Metric::Cosine}) {
+    const auto truth = compute_ground_truth(data.base.data.data(), n, dim, data.queries.data.data(), data.queries.n, kK, metric);
+    for (const std::size_t nav : {std::size_t{0}, std::size_t{96}}) {
+      SCOPED_TRACE(std::string(to_string(metric)) + " nav_dim " + std::to_string(nav));
+      HnswParams p;
+      p.dim = dim;
+      p.metric = metric;
+      p.max_elements = n;
+      p.M = 16;
+      p.ef_construction = 100;
+      p.quantization = Quantization::SQ8;
+      p.nav_dim = nav;
+      HnswIndex index(p);
+      index.train(data.base.data.data(), n);
+      for (std::size_t i = 0; i < n; ++i) index.add(i, data.base.row(i));
+      const SearchOptions deep{.ef = 200, .rerank_z = 3.0f};
+      const auto recall = [&](const HnswIndex& idx) {
+        std::vector<std::vector<SearchResult>> results;
+        for (std::size_t q = 0; q < data.queries.n; ++q) results.push_back(idx.search(data.queries.row(q), kK, deep));
+        return recall_at_k(results, truth, kK);
+      };
+      const double error8 = index.code_error();
+      const double recall8 = recall(index);
+
+      index.set_code_bits(4);
+      EXPECT_EQ(index.params().code_bits, 4u);
+      const double error4 = index.code_error();
+      EXPECT_GT(error4, 10.0 * error8);  // 16 levels against 256
+      EXPECT_LT(error4, 0.05);
+      EXPECT_GE(recall(index), recall8 - 0.02);
+      std::size_t found = 0;
+      for (std::size_t i = 0; i < n; i += 15) found += index.search(data.base.row(i), 1, deep)[0].label == i ? 1 : 0;
+      EXPECT_GE(found, 195u);
+
+      index.save(path);
+      const auto loaded = HnswIndex::load(path);
+      EXPECT_EQ(loaded->params().code_bits, 4u);
+      for (std::size_t q = 0; q < data.queries.n; ++q) {
+        const auto a = index.search(data.queries.row(q), kK, deep);
+        const auto b = loaded->search(data.queries.row(q), kK, deep);
+        ASSERT_EQ(a.size(), b.size());
+        for (std::size_t r = 0; r < a.size(); ++r) EXPECT_EQ(a[r].label, b[r].label);
+      }
+
+      index.set_code_bits(8);
+      EXPECT_EQ(index.params().code_bits, 8u);
+      EXPECT_NEAR(index.code_error(), error8, 0.01 * error8 + 1e-9);
+      EXPECT_NEAR(recall(index), recall8, 0.005);
+    }
+  }
+  std::filesystem::remove(path);
+
+  HnswParams bad = params_for(Metric::L2, 10);
+  bad.code_bits = 5;
+  EXPECT_THROW(HnswIndex{bad}, std::invalid_argument);
+  bad.code_bits = 4;  // without quantization
+  EXPECT_THROW(HnswIndex{bad}, std::invalid_argument);
+  bad.quantization = Quantization::SQ8;
+  bad.keep_vectors = false;  // nothing to re-rank with
+  EXPECT_THROW(HnswIndex{bad}, std::invalid_argument);
+  HnswIndex plain(params_for(Metric::L2, 10));
+  EXPECT_THROW(plain.set_code_bits(4), std::logic_error);
+}
+
 TEST(Hnsw, LoadRejectsGarbage) {
   const auto path = (std::filesystem::temp_directory_path() / "epzero_garbage.idx").string();
   {
