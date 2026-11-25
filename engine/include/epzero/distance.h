@@ -43,6 +43,9 @@ DistanceFn get_distance_fn(Metric metric) noexcept;
 // the CPU has them.
 using HalfDistanceFn = float (*)(const float* query, const std::uint16_t* v, std::size_t dim) noexcept;
 HalfDistanceFn get_half_distance_fn(Metric metric, SimdLevel level) noexcept;
+// Widens `n` half floats to floats (F16C or NEON where present, exact scalar code otherwise).
+using HalfToFloatFn = void (*)(const std::uint16_t* in, float* out, std::size_t n) noexcept;
+HalfToFloatFn get_half_to_float_fn(SimdLevel level) noexcept;
 
 // Asymmetric-distance kernel for 8-bit scalar quantization: returns sum_i w[i] * codes[i].
 // The quantizer folds its per-dimension scales and offsets into `w` once per query, so scoring a
