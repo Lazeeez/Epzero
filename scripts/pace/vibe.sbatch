@@ -7,6 +7,9 @@
 #   sbatch --export=ALL,DATASET=laion-clip-512-normalized scripts/pace/vibe.sbatch
 # Options: COUNT=10 for k = 10; PARALLELISM=n indexes benchmarked at once (default 12 of the node's 24
 # cores, which leaves memory bandwidth spare); METHODS="a b" to run fewer of the built methods.
+# EXPORT_FROM=<folder> skips the run and exports a results folder saved from an earlier job instead (one that
+# would have timed out: VIBE keeps its results on the node's disk until the export, so copy them off first):
+#   sbatch --time=02:00:00 --export=ALL,DATASET=glove-200-cosine,EXPORT_FROM=$PWD/<saved results> scripts/pace/vibe.sbatch
 #
 # The dataset (2-5 GB) is downloaded to the node's own disk and VIBE runs there. Result:
 # pace-results/vibe/<dataset>-<job>/ (untracked; copy it back with scp): VIBE's summary.parquet and
@@ -61,9 +64,15 @@ mv "$WORK/data/$DATASET.hdf5.part" "$WORK/data/$DATASET.hdf5"
 ls -la "$WORK/data"
 
 cd "$WORK"
-echo "== run"
-python3 run.py --dataset "$DATASET" --count "$COUNT" --parallelism "$PARALLELISM" --image-dir images \
-  2>&1 | tee "$OUT/run.log"
+if [ -n "${EXPORT_FROM:-}" ]; then
+  echo "== export only, from $EXPORT_FROM"
+  mkdir -p results && cp -r "$EXPORT_FROM/." results/
+  echo "exported from $EXPORT_FROM (no run)" > "$OUT/run.log"
+else
+  echo "== run"
+  python3 run.py --dataset "$DATASET" --count "$COUNT" --parallelism "$PARALLELISM" --image-dir images \
+    2>&1 | tee "$OUT/run.log"
+fi
 echo "== export"
 ./export_results.sh --parallelism 8 --output export --skip-pca-mahalanobis 2>&1 | tail -20 | tee "$OUT/export.log"
 cp export/summary.parquet export/*__detail.parquet "$OUT/"
