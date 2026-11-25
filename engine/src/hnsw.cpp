@@ -21,6 +21,7 @@
 #include "half.h"
 #include "platform.h"
 #include "pca.h"
+#include "sq4.h"
 #include "rabitq.h"
 #include "visited_pool.h"
 
@@ -356,7 +357,8 @@ class HnswIndex::Scorer {
       qq += query[i] * query[i];
     }
     base_ = l2_ ? qq - 2.0f * c : 1.0f - c;
-    if (index.sq8_int_dot_ == nullptr) return;
+    four_bit_ = index.four_bit();
+    if (index.sq8_int_dot_ == nullptr && !four_bit_) return;  // 4-bit codes have only integer kernels
     // Integer kernel: the weights rounded to int8 on one scale per query, against distances the
     // beam only needs to rank (the final candidates are re-scored exactly). The scale follows the
     // largest weight, so a few outlier dimensions would leave every other weight with one or two
@@ -396,9 +398,10 @@ class HnswIndex::Scorer {
       outlier_dims_[j] = top[j];
       outlier_weights_[j] = kept[j];
     }
-    w_scale_ = largest > 0.0f ? largest / static_cast<float>(kSq8IntWeightMax) : 1.0f;
+    w_scale_ = largest > 0.0f ? largest / static_cast<float>(four_bit_ ? kSq4IntWeightMax : kSq8IntWeightMax) : 1.0f;
     const float inv = 1.0f / w_scale_;
-    iweights_.resize(dim);
+    // 4-bit kernels run whole 32-code blocks: the padding codes are 0 and so are their weights.
+    iweights_.assign(four_bit_ ? sq4::padded(dim) : dim, 0);
     for (std::size_t i = 0; i < dim; ++i) iweights_[i] = static_cast<std::int8_t>(std::lrint(weights_[i] * inv));  // outliers: 0
     for (std::size_t j = 0; j < outliers_; ++j) weights_[top[j]] = kept[j];
   }
@@ -419,11 +422,18 @@ class HnswIndex::Scorer {
       if (iweights_.empty()) {
         dot = index_.sq8_dot_(weights_.data(), codes, weights_.size());
       } else {
-        dot = w_scale_ * static_cast<float>(index_.sq8_int_dot_(iweights_.data(), codes, iweights_.size()));
+        const Sq8IntDotFn kernel = four_bit_ ? index_.sq4_int_dot_ : index_.sq8_int_dot_;
+        dot = w_scale_ * static_cast<float>(kernel(iweights_.data(), codes, iweights_.size()));
         if (outliers_ != 0) {
           // A fixed count with independent sums: unrolled, without a chain of dependent adds.
           float part[4] = {};
-          for (std::size_t j = 0; j < kMaxOutliers; ++j) part[j % 4] += outlier_weights_[j] * static_cast<float>(codes[outlier_dims_[j]]);
+          if (four_bit_) {
+            for (std::size_t j = 0; j < kMaxOutliers; ++j) {
+              part[j % 4] += outlier_weights_[j] * static_cast<float>(sq4::get(codes, outlier_dims_[j], weights_.size()));
+            }
+          } else {
+            for (std::size_t j = 0; j < kMaxOutliers; ++j) part[j % 4] += outlier_weights_[j] * static_cast<float>(codes[outlier_dims_[j]]);
+          }
           dot += (part[0] + part[1]) + (part[2] + part[3]);
         }
       }
@@ -473,6 +483,7 @@ class HnswIndex::Scorer {
   std::size_t full_stride_ = 0;
   std::size_t dim_ = 0;
   bool half_full_ = false;
+  bool four_bit_ = false;
   bool l2_ = false;
   float base_ = 0.0f;
   std::vector<float> projected_;  // nav_dim: the query in the walk's directions
@@ -512,6 +523,7 @@ HnswIndex::HnswIndex(const HnswParams& params)
       dist_(get_distance_fn(params.metric, simd_level_)),
       sq8_dot_(get_sq8_dot_fn(simd_level_)),
       sq8_int_dot_(choose_sq8_int_dot(simd_level_, params.nav_dim != 0 ? params.nav_dim : params.dim)),
+      sq4_int_dot_(get_sq4_int_dot_fn(simd_level_, sq4::padded(params.nav_dim != 0 ? params.nav_dim : params.dim))),
       rabitq_ip_(get_rabitq_ip_fn(simd_level_)),
       max_links0_(2 * params.M),
       level_mult_(params.M > 1 ? 1.0 / std::log(static_cast<double>(params.M)) : 1.0),
@@ -529,16 +541,20 @@ HnswIndex::HnswIndex(const HnswParams& params)
   if (params_.half_vectors && !(sq8() && params_.keep_vectors)) {
     throw std::invalid_argument("half_vectors needs SQ8 with keep_vectors");
   }
+  if (params_.code_bits != 8 && params_.code_bits != 4) throw std::invalid_argument("code_bits must be 8 or 4");
+  if (four_bit() && !(sq8() && params_.keep_vectors)) {
+    throw std::invalid_argument("4-bit codes need SQ8 with keep_vectors (the re-rank needs the full vectors)");
+  }
   if (params_.nav_dim != 0) {
     if (!sq8() || !params_.keep_vectors) throw std::invalid_argument("nav_dim needs SQ8 with keep_vectors");
     if (params_.nav_dim >= params_.dim) throw std::invalid_argument("nav_dim must be less than dim");
     dot_ = get_distance_fn(Metric::InnerProduct, simd_level_);
   }
 
-  // Record layout. None: [float x dim][links]. SQ8: [float norm][uint8 x dim][links].
+  // Record layout. None: [float x dim][links]. SQ8: [float norm][codes: a byte each, or two to a byte][links].
   // RaBitQ: [factors][bits, one per padded dimension][links].
   links0_offset_ = rabitq() ? rabitq_record_bytes()
-                   : sq8()  ? round_up(sizeof(float) + code_dim(), sizeof(id_t))
+                   : sq8()  ? round_up(sizeof(float) + code_bytes(), sizeof(id_t))
                             : params_.dim * sizeof(float);
   node_stride_ = round_up(links0_offset_ + (1 + max_links0_) * sizeof(id_t), 64);
   level0_ = allocate_level0();
@@ -662,7 +678,7 @@ void HnswIndex::fit_code_ranges(std::size_t n, const std::function<bool(std::siz
   sq8_scale_.resize(codes);
   for (std::size_t i = 0; i < codes; ++i) {
     const float range = hi[i] - lo[i];
-    sq8_scale_[i] = range > 0.0f ? range / 255.0f : 1.0f;
+    sq8_scale_[i] = range > 0.0f ? range / max_code() : 1.0f;
   }
 }
 
@@ -693,7 +709,7 @@ double HnswIndex::code_error(std::size_t sample, std::size_t threads) const {
       const std::uint8_t* c = codes_of(id);
       for (std::size_t i = 0; i < codes; ++i) {
         const double x = v[i];
-        const double e = x - (sq8_min_[i] + c[i] * sq8_scale_[i]);
+        const double e = x - (sq8_min_[i] + code_at(c, i) * sq8_scale_[i]);
         block_error += e * e;
         block_sum[i] += x;
         block_squares[i] += x * x;
@@ -734,6 +750,34 @@ void HnswIndex::requantize(std::size_t threads) {
     encode(full_floats(id, scratch), reinterpret_cast<std::uint8_t*>(record(id) + sizeof(float)),
            reinterpret_cast<float*>(record(id)));
   });
+}
+
+void HnswIndex::set_code_bits(std::size_t bits, std::size_t threads) {
+  if (bits != 8 && bits != 4) throw std::invalid_argument("code_bits must be 8 or 4");
+  if (!sq8() || !has_full_vectors()) throw std::logic_error("set_code_bits() needs an SQ8 index with its full vectors");
+  if (!trained()) throw std::logic_error("set_code_bits() needs a trained index");
+  if (bits == params_.code_bits) return;
+  // The records change size, so layer 0 moves to a new block: each node's links are copied over and its
+  // codes encoded afresh from its full vector. The ranges stay; only their levels change.
+  const std::size_t old_stride = node_stride_;
+  const std::size_t old_offset = links0_offset_;
+  const float old_top = max_code();
+  params_.code_bits = bits;
+  for (float& scale : sq8_scale_) scale *= old_top / max_code();
+  links0_offset_ = round_up(sizeof(float) + code_bytes(), sizeof(id_t));
+  node_stride_ = round_up(links0_offset_ + (1 + max_links0_) * sizeof(id_t), 64);
+  std::unique_ptr<std::byte[], AlignedFree> level0(static_cast<std::byte*>(allocate_block(node_stride_ * params_.max_elements)));
+  const std::byte* old = level0_.get();
+  const std::size_t link_bytes = (1 + max_links0_) * sizeof(id_t);
+  // Deleted nodes too: searches still walk through them.
+  parallel_for(0, size(), threads, [&](std::size_t i) {
+    std::byte* rec = level0.get() + i * node_stride_;
+    std::memcpy(rec + links0_offset_, old + i * old_stride + old_offset, link_bytes);
+    thread_local std::vector<float> scratch;
+    encode(full_floats(static_cast<id_t>(i), scratch), reinterpret_cast<std::uint8_t*>(rec + sizeof(float)),
+           reinterpret_cast<float*>(rec));
+  });
+  level0_ = std::move(level0);
 }
 
 void HnswIndex::project(const float* v, float* out) const noexcept {
@@ -793,20 +837,32 @@ void HnswIndex::encode(const float* v, std::uint8_t* codes, float* norm) const n
     project(v, walked.data());
     v = walked.data();
   }
+  thread_local std::vector<std::uint8_t> values;
+  std::uint8_t* out = codes;
+  if (four_bit()) {
+    values.resize(code_dim());
+    out = values.data();
+  }
   float sum = 0.0f;
+  const float top = max_code();
   for (std::size_t i = 0; i < code_dim(); ++i) {
     const float q = std::nearbyint((v[i] - sq8_min_[i]) / sq8_scale_[i]);
-    const auto code = static_cast<std::uint8_t>(std::clamp(q, 0.0f, 255.0f));
-    codes[i] = code;
+    const auto code = static_cast<std::uint8_t>(std::clamp(q, 0.0f, top));
+    out[i] = code;
     const float decoded = sq8_min_[i] + code * sq8_scale_[i];
     sum += decoded * decoded;
   }
+  if (four_bit()) sq4::pack(values.data(), code_dim(), codes);
   *norm = sum;  // |x^|^2 of the dequantized vector, so ADC distances are self-consistent
 }
 
 void HnswIndex::decode(id_t id, float* out) const noexcept {
   const std::uint8_t* codes = codes_of(id);
-  for (std::size_t i = 0; i < code_dim(); ++i) out[i] = sq8_min_[i] + codes[i] * sq8_scale_[i];
+  for (std::size_t i = 0; i < code_dim(); ++i) out[i] = sq8_min_[i] + code_at(codes, i) * sq8_scale_[i];
+}
+
+std::uint8_t HnswIndex::code_at(const std::uint8_t* codes, std::size_t i) const noexcept {
+  return four_bit() ? sq4::get(codes, i, code_dim()) : codes[i];
 }
 
 float HnswIndex::pair_distance(id_t a, id_t b) const noexcept {
@@ -907,7 +963,7 @@ std::pair<std::size_t, std::size_t> HnswIndex::tune_prefetch(const float* querie
   constexpr std::size_t kAll = std::numeric_limits<std::size_t>::max();
   if (n == 0 || size() == 0) return prefetch_settings();
   // What one scored node reads: its codes (quantized) or its full vector.
-  const std::size_t bytes = sq8() ? code_dim() + sizeof(float) : rabitq() ? rabitq_record_bytes() : params_.dim * sizeof(float);
+  const std::size_t bytes = sq8() ? code_bytes() + sizeof(float) : rabitq() ? rabitq_record_bytes() : params_.dim * sizeof(float);
   const std::size_t max_lines = std::max<std::size_t>(1, (bytes + 63) / 64);
   std::vector<std::pair<std::size_t, std::size_t>> grid = {{kAll, 1}};  // the default first
   for (const std::size_t depth : {kAll, std::size_t{16}, std::size_t{8}, std::size_t{4}, std::size_t{2}}) {
@@ -1894,8 +1950,9 @@ std::vector<std::uint64_t> HnswIndex::neighbors_of(std::uint64_t label, int laye
 std::size_t HnswIndex::estimated_bytes(const HnswParams& params) noexcept {
   const bool sq8 = params.quantization == Quantization::SQ8;
   const bool rbq = params.quantization == Quantization::RaBitQ;
+  const std::size_t codes = params.nav_dim != 0 ? params.nav_dim : params.dim;
   const std::size_t links0 = rbq ? sizeof(rabitq::Factors) + rabitq::padded_dim(params.dim) / 8
-                             : sq8 ? round_up(sizeof(float) + (params.nav_dim != 0 ? params.nav_dim : params.dim), sizeof(id_t))
+                             : sq8 ? round_up(sizeof(float) + (params.code_bits == 4 ? sq4::bytes(codes) : codes), sizeof(id_t))
                                    : params.dim * sizeof(float);
   const std::size_t stride = round_up(links0 + (1 + 2 * params.M) * sizeof(id_t), 64);
   std::size_t bytes = stride * params.max_elements;
@@ -1933,7 +1990,7 @@ std::size_t HnswIndex::memory_bytes() const noexcept {
 void HnswIndex::save(const std::string& path) const {
   ChunkedWriter out(path);
   out.write(kMagic, sizeof(kMagic));
-  const bool with_profile = !is_default(profile_) || params_.half_vectors;
+  const bool with_profile = !is_default(profile_) || params_.half_vectors || four_bit();
   out.pod(with_profile ? kFormatVersionFlags : params_.nav_dim != 0 ? kFormatVersionNav : kFormatVersion);
   out.pod<std::uint64_t>(params_.dim);
   out.pod<std::uint32_t>(static_cast<std::uint32_t>(params_.metric));
@@ -1951,7 +2008,8 @@ void HnswIndex::save(const std::string& path) const {
       out.write(text.data(), length);
     };
     const IndexProfile& p = profile_;
-    out.pod<std::uint8_t>(params_.half_vectors ? 1 : 0);  // storage flags
+    // Storage flags: 16-bit full vectors, 4-bit codes. Builds that don't know a flag refuse the file.
+    out.pod<std::uint8_t>(static_cast<std::uint8_t>((params_.half_vectors ? 1u : 0u) | (four_bit() ? 2u : 0u)));
     out.pod<std::uint64_t>(p.k);
     out.pod<std::uint64_t>(p.ef);
     out.pod<std::uint64_t>(p.rerank);
@@ -1998,7 +2056,7 @@ void HnswIndex::save(const std::string& path) const {
       out.array(reinterpret_cast<const std::uint8_t*>(record(id)), rabitq_record_bytes());
     } else if (sq8()) {
       out.pod(code_norm(id));
-      out.array(codes_of(id), code_dim());
+      out.array(codes_of(id), code_bytes());
     } else {
       out.array(full_vector(id), params_.dim);
     }
@@ -2064,8 +2122,9 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
     };
     if (version >= kFormatVersionFlags) {
       const auto flags = in.pod<std::uint8_t>();
-      if ((flags & ~1u) != 0) throw std::runtime_error(path + ": unsupported storage flags");
+      if ((flags & ~3u) != 0) throw std::runtime_error(path + ": unsupported storage flags");
       params.half_vectors = (flags & 1u) != 0;
+      params.code_bits = (flags & 2u) != 0 ? 4 : 8;
     }
     profile.k = in.pod<std::uint64_t>();
     profile.ef = in.pod<std::uint64_t>();
@@ -2149,7 +2208,7 @@ std::unique_ptr<HnswIndex> HnswIndex::load(const std::string& path, std::size_t 
     if (index->rabitq()) {
       in.read(index->record(id), index->rabitq_record_bytes());
     } else if (index->sq8()) {
-      in.read(index->record(id), sizeof(float) + index->code_dim());
+      in.read(index->record(id), sizeof(float) + index->code_bytes());
     } else {
       in.array(reinterpret_cast<float*>(index->record(id)), params.dim);
     }
