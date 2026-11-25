@@ -142,6 +142,40 @@ std::int32_t sq8_int_dot_avx2(const std::int8_t* w, const std::uint8_t* codes, s
   return dot;
 }
 
+// 4-bit codes in src/sq4.h's layout (`dim` a multiple of 32): each 32-byte load holds 64 codes, the
+// first 32 in the low nibbles and the last 32 in the high ones, already in weight order. Products are
+// at most 2 x 15 x 127, so maddubs never saturates.
+std::int32_t sq4_int_dot_avx2(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept {
+  const __m256i ones = _mm256_set1_epi16(1);
+  const __m256i mask = _mm256_set1_epi8(0x0F);
+  __m256i acc0 = _mm256_setzero_si256();
+  __m256i acc1 = _mm256_setzero_si256();
+  const auto load = [](const void* p) { return _mm256_loadu_si256(static_cast<const __m256i*>(p)); };
+  std::size_t i = 0;
+  for (; i + 64 <= dim; i += 64, codes += 32) {
+    const __m256i v = load(codes);
+    const __m256i lo = _mm256_and_si256(v, mask);
+    const __m256i hi = _mm256_and_si256(_mm256_srli_epi16(v, 4), mask);
+    acc0 = _mm256_add_epi32(acc0, _mm256_madd_epi16(_mm256_maddubs_epi16(lo, load(w + i)), ones));
+    acc1 = _mm256_add_epi32(acc1, _mm256_madd_epi16(_mm256_maddubs_epi16(hi, load(w + i + 32)), ones));
+  }
+  __m128i tail = _mm_setzero_si128();
+  if (i < dim) {  // a final block of 32 codes in 16 bytes
+    const __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i*>(codes));
+    const __m128i m = _mm_set1_epi8(0x0F);
+    const __m128i one = _mm_set1_epi16(1);
+    const auto wl = _mm_loadu_si128(reinterpret_cast<const __m128i*>(w + i));
+    const auto wh = _mm_loadu_si128(reinterpret_cast<const __m128i*>(w + i + 16));
+    tail = _mm_add_epi32(_mm_madd_epi16(_mm_maddubs_epi16(_mm_and_si128(v, m), wl), one),
+                         _mm_madd_epi16(_mm_maddubs_epi16(_mm_and_si128(_mm_srli_epi16(v, 4), m), wh), one));
+  }
+  const __m256i sum = _mm256_add_epi32(acc0, acc1);
+  __m128i s = _mm_add_epi32(_mm_add_epi32(_mm256_castsi256_si128(sum), _mm256_extracti128_si256(sum, 1)), tail);
+  s = _mm_add_epi32(s, _mm_shuffle_epi32(s, _MM_SHUFFLE(1, 0, 3, 2)));
+  s = _mm_add_epi32(s, _mm_shuffle_epi32(s, _MM_SHUFFLE(2, 3, 0, 1)));
+  return _mm_cvtsi128_si32(s);
+}
+
 }  // namespace epzero::kernels
 
 #endif
