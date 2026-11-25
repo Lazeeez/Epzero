@@ -32,6 +32,7 @@ struct AutoFixed {
   std::optional<std::size_t> nav_dim;
   std::optional<bool> fast_build;
   std::optional<bool> refine;      // refine_links() after the build
+  std::optional<std::size_t> refine_ef;  // that pass's beam (default: efConstruction with directions, half without)
   std::optional<bool> fill_after;  // fill_free_links() after the build
   std::optional<std::size_t> rerank;
   std::optional<float> rerank_z;
