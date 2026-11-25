@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <bit>
 #include <cmath>
 #include <filesystem>
 #include <limits>
@@ -14,6 +15,30 @@
 
 namespace epzero {
 namespace {
+
+
+// Every half value, widened by each level's whole-vector kernel, equals the exact scalar conversion (NaN stays
+// NaN), at lengths that leave every tail size.
+TEST(Half, WholeVectorConversionMatchesTheExactOneForEveryValue) {
+  std::vector<std::uint16_t> all(65536);
+  for (std::size_t i = 0; i < all.size(); ++i) all[i] = static_cast<std::uint16_t>(i);
+  for (SimdLevel level : {SimdLevel::Scalar, SimdLevel::AVX2, SimdLevel::AVX512, SimdLevel::NEON}) {
+    const HalfToFloatFn convert = get_half_to_float_fn(level);
+    ASSERT_NE(convert, nullptr);
+    for (const std::size_t n : {std::size_t{65536}, std::size_t{65531}, std::size_t{7}, std::size_t{1}}) {
+      std::vector<float> out(n, -1.0f);
+      convert(all.data(), out.data(), n);
+      for (std::size_t i = 0; i < n; ++i) {
+        const float expected = half::to_float(all[i]);
+        if (std::isnan(expected)) {
+          EXPECT_TRUE(std::isnan(out[i])) << to_string(level) << " " << i;
+        } else {
+          EXPECT_EQ(std::bit_cast<std::uint32_t>(out[i]), std::bit_cast<std::uint32_t>(expected)) << to_string(level) << " " << i;
+        }
+      }
+    }
+  }
+}
 
 TEST(Half, EveryHalfRoundTrips) {
   for (std::uint32_t h = 0; h <= 0xffffu; ++h) {
