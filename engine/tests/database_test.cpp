@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <limits>
 #include <fstream>
 #include <random>
 #include <set>
@@ -73,6 +74,37 @@ TEST_F(DatabaseTest, RejectedWritesAreNeverLogged) {
   EXPECT_EQ(db->size(), 10u);
   EXPECT_FALSE(db->index().contains(10));
   EXPECT_EQ(db->last_lsn(), 13u);
+}
+
+// A vector holding a NaN or an infinity is refused before it reaches the log. One that an older version logged
+// (as a replica receives it from an older primary) is logged, skipped and counted, here and on every recovery.
+TEST_F(DatabaseTest, NonFiniteVectorsAreRefusedOrSkipped) {
+  std::vector<float> bad(row(7), row(7) + kDim);
+  bad[3] = std::numeric_limits<float>::quiet_NaN();
+  {
+    auto db = open();
+    db->upsert(1, row(1));
+    EXPECT_THROW(db->upsert(2, bad.data()), std::invalid_argument);
+    const std::uint64_t pair[] = {3, 4};
+    std::vector<float> two(row(3), row(3) + 2 * kDim);
+    two[kDim + 5] = std::numeric_limits<float>::infinity();
+    EXPECT_THROW(db->upsert_batch(pair, two.data(), 2), std::invalid_argument);
+    EXPECT_EQ(db->last_lsn(), 1u);
+  }
+  auto replica = Database::open((dir_ / "replica").string(), params());
+  LogRecord good{LogRecord::Type::Upsert, 1, 1, std::vector<float>(row(1), row(1) + kDim)};
+  LogRecord old{LogRecord::Type::Upsert, 2, 2, bad};
+  replica->apply({good, old});
+  EXPECT_EQ(replica->last_lsn(), 2u);
+  EXPECT_EQ(replica->size(), 1u);
+  EXPECT_EQ(replica->recovery().skipped, 1u);
+  replica.reset();
+  replica = Database::open((dir_ / "replica").string(), params());
+  EXPECT_EQ(replica->last_lsn(), 2u);
+  EXPECT_EQ(replica->recovery().replayed, 1u);
+  EXPECT_EQ(replica->recovery().skipped, 1u);
+  auto db = open();  // the primary opens: its refused writes were never logged
+  EXPECT_EQ(db->size(), 1u);
 }
 
 TEST_F(DatabaseTest, UntrainedQuantizedWritesAreRejected) {
