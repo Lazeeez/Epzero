@@ -886,6 +886,72 @@ planner turned the walk off, DBpedia 512, Simple Wikipedia 448), and a variance 
 3,072 dimensions; on 384-dimensional vectors the walk does not pay. A rule built from that has to be
 measured on fresh data before it changes `epzero.build`.
 
+**Where Epzero still lagged, and why (25 November).** Across rounds 2-13 and VIBE, three causes
+explained the losses. (1) The harness ran Glass in one mode, built on full vectors and walked on 8-bit
+codes; Glass's best results in VIBE come from building on 8-bit codes, walking on 4-bit ones (SQ4U) and
+re-ranking in 16 bits, 1.3-1.6x its 8-bit walk on text embeddings. `glass-sq4` now runs beside `glass`
+(round 14), so every ratio above quotes the weaker Glass. Against that one, in VIBE, Epzero matched or beat
+Glass on AG News, ImageNet-CLIP, Yahoo, LAION and CelebA, and on CC-News at 0.90 and 0.99 but not 0.95
+(0.78x); Glass's 4-bit walk never reaches 0.90 on LAION, CelebA or COCO.
+(2) The planner's direction count was too low at k = 100 (rounds 12b and 13). (3) On COCO (text queries
+against image vectors) the walk on the data's directions fails outright: recall@100 0.06 at `ef` 100
+under L2 and 0.42 under inner product, against 0.86 without the walk (laptop, 282,360 vectors), and in
+VIBE Epzero was slower than plain hnswlib there and never reached 0.99.
+
+**Laptop pilots (AG News, 300,000 vectors, k = 100, one search thread).** The deep re-rank takes 10-22% of
+a search, the walk the rest; without it recall stays at 0.79. At equal recall, 192 directions gave 5,491 /
+3,912 / 3,163 QPS at 0.95 / 0.98 / 0.99, 256 directions 6,772 / 5,455 / 4,202, and Glass's 4-bit mode 6,304 /
+4,220 / 3,070. Glass's walk is far more exact per beam width (recall 0.948 at `ef` 100, against Epzero's
+0.788 on 192 directions).
+
+**4-bit codes** (`code_bits`, branch sq4-codes): the same per-dimension ranges at 16 levels, two codes to a
+byte, scored by integer kernels (AVX2, AVX-VNNI, AVX-512 VNNI, NEON; exact, checked against the scalar sum
+and on the Gold against each other). On the AG News pilot they were 3-6% slower than 8-bit codes on the
+192-direction walk at k = 100 and 18% slower at k = 10, and 2-9% faster on a walk over every dimension. On
+GooAQ (round 14, the Gold, k = 100, every dimension) 4-bit codes were 25-40% faster than 8-bit. So
+`epzero.build` builds the graph on 8-bit codes, then calibrates and times the walk at 4 bits on the same
+graph, and keeps 4 bits only where they are at least 3% faster.
+
+**16-bit full vectors.** On the AG News pilot at k = 100: 1-7% faster at equal recall (within 0.0003),
+45% less memory. On GooAQ (round 14): 37% less memory, 3% faster, but the build took 1.72x as long. The
+cause was a scalar half-to-float conversion of one vector for every pair the build compared (when it
+prunes on full vectors, without a walk on directions); with F16C or NEON a 16-bit build takes 1.01x an
+8-bit one (2.57x before, laptop). Round 14 ran the code before that fix.
+
+**What the build passes buy** (AG News 300,000, 192 directions; phases on 12 threads). Insertion 13.6 s,
+refine at width 200 12.0 s, free-link fill 4.4 s. Refining at width 100 instead took 5.5 s, with recall
+-0.0007 to +0.0027 at equal `ef` and search speed within noise; no refine lost 0.002-0.006 recall, no fill
+0.001-0.004. This contradicts the GIST1M measurement that set the full width for walks on directions, so
+a Gold round must include GIST before the planner changes. Single-threaded on 100,000 vectors, Epzero's
+first pass took as long as Glass's whole build at the same width (35.6 s against 34.9 s); the refine pass
+(41% of the build), the fill (14%) and calibration (11%) are the difference.
+
+**The direction count by measurement** (`measure_nav`, branch nav-trial). A trial index on a sample for
+each candidate count, calibrated and timed. Round 14's offline version (`bench/nav_trial.py`, 100,000 rows,
+the counts rounds 12b and 13 measured in full) chose the full-scale best, or a count within 5% of it, on
+15 of 16 datasets and k (P8 held; the miss: GIST1M at k = 100, 0.88x). On the laptop the same trial took
+2.3-3.5x the build time, so it stays opt-in.
+
+**Whether to walk at all, for queries unlike the data** (`check_walk`, branch nav-trial). When your queries
+look unlike the data (their nearest-row distance over the rows' own, as `check_queries` measures it, above
+1.5 on a 20,000-row sample), the build times the rule's walk against none on 50,000 rows. COCO: no walk,
+67-72 us against 169-173 us a query on the trial; the built index reached recall 0.95 at `ef` 128, where the
+rule's walk never did (`ef` 4096). AG News with its own test queries: not shifted, no trial, the same index
+and build time.
+
+**Tried and rejected: the full norm in an L2 walk on directions.** The walk scores |Pq - Px|^2 on the
+projection, which ignores |Rx|^2, the energy outside the directions; storing each node's full norm instead
+lifted COCO from 0.06 to 0.37 recall at `ef` 100, but on AG News it dropped recall at k = 10 from 0.938 to
+0.715 (`ef` 24). For neighbours from the data's own distribution the residuals are correlated, and the
+projected distance ranks them better. Not kept.
+
+**For developers, not only benchmarks.** Round 14's merge rules require, besides speed, a build time within
+10% of the 8-bit build and no more memory (decided before any result). A first-time-user audit (PyPI 0.5.0,
+the README as written, common mistakes; branch dev-ux) found NaN or infinite vectors accepted silently (the
+index calibrated to `ef` 4096 and returned noise), `pathlib.Path` refused, `"euclidean"` and `"dot"` refused,
+and a negative `k` answered with a pybind11 cast error; all fixed. The LangChain, LlamaIndex and Haystack
+examples run as documented.
+
 **16-bit full vectors, opt-in only.** Keeping the re-rank copy as half floats cut GIST1M's 200k index from
 800 to 434 MiB, but in alternating laptop runs search was up to 17% slower there, and on the DBpedia sample
 recall fell 0.003-0.004 (0.983 to 0.980 at `ef` 40): OpenAI embeddings' near neighbours are close enough
