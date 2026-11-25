@@ -71,7 +71,7 @@ case "$DATASET" in
   glove-*)   SWEEP=fast,fast-refine,fast-refine-p3 ;;
   *)         SWEEP=fast,fill ;;
 esac
-DEFAULT=epzero-sq8,glass
+DEFAULT=epzero-sq8,glass,glass-sq4
 for variant in ${SWEEP//,/ }; do DEFAULT+=",epzero-sq8-$variant"; done
 LIBS="${LIBS:-$DEFAULT}"
 echo "libraries: $LIBS"
