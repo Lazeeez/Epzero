@@ -82,6 +82,12 @@ namespace {
 inline float32x4_t load_half(const std::uint16_t* p) noexcept { return vcvt_f32_f16(vreinterpret_f16_u16(vld1_u16(p))); }
 }  // namespace
 
+void half_to_float_neon(const std::uint16_t* in, float* out, std::size_t n) noexcept {
+  std::size_t i = 0;
+  for (; i + 4 <= n; i += 4) vst1q_f32(out + i, load_half(in + i));
+  for (; i < n; ++i) out[i] = half::to_float(in[i]);
+}
+
 float l2_half_neon(const float* a, const std::uint16_t* b, std::size_t dim) noexcept {
   float32x4_t acc0 = vdupq_n_f32(0.0f);
   float32x4_t acc1 = vdupq_n_f32(0.0f);
