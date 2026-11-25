@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <limits>
 #include <thread>
 #include <vector>
 
@@ -1026,6 +1027,18 @@ TEST(Hnsw, RequantizeRefitsCodesForVectorsOutsideTheirRanges) {
   HnswIndex plain(params_for(Metric::L2, 10));
   EXPECT_EQ(plain.code_error(), 0.0);
   EXPECT_THROW(plain.requantize(), std::logic_error);
+}
+
+TEST(Hnsw, NonFiniteVectorsAreRefused) {
+  HnswIndex index(params_for(Metric::L2, 10));
+  std::vector<float> v(kDim, 0.5f);
+  v[4] = std::numeric_limits<float>::quiet_NaN();
+  EXPECT_THROW(index.add(1, v.data()), std::invalid_argument);
+  v[4] = -std::numeric_limits<float>::infinity();
+  EXPECT_THROW(index.add(1, v.data()), std::invalid_argument);
+  v[4] = 0.5f;
+  index.add(1, v.data());  // the label was never taken
+  EXPECT_EQ(index.size(), 1u);
 }
 
 TEST(Hnsw, LoadRejectsGarbage) {
