@@ -55,6 +55,33 @@ std::int32_t sq8_int_dot_avxvnni(const std::int8_t* w, const std::uint8_t* codes
   return dot;
 }
 
+// 4-bit codes (src/sq4.h): the AVX2 kernel's unpacking, with one vpdpbusd per 32 codes.
+std::int32_t sq4_int_dot_avxvnni(const std::int8_t* w, const std::uint8_t* codes, std::size_t dim) noexcept {
+  const __m256i mask = _mm256_set1_epi8(0x0F);
+  __m256i acc0 = _mm256_setzero_si256();
+  __m256i acc1 = _mm256_setzero_si256();
+  const auto load = [](const void* p) { return _mm256_loadu_si256(static_cast<const __m256i*>(p)); };
+  std::size_t i = 0;
+  for (; i + 64 <= dim; i += 64, codes += 32) {
+    const __m256i v = load(codes);
+    acc0 = _mm256_dpbusd_avx_epi32(acc0, _mm256_and_si256(v, mask), load(w + i));
+    acc1 = _mm256_dpbusd_avx_epi32(acc1, _mm256_and_si256(_mm256_srli_epi16(v, 4), mask), load(w + i + 32));
+  }
+  __m128i tail = _mm_setzero_si128();
+  if (i < dim) {
+    const __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i*>(codes));
+    const __m128i m = _mm_set1_epi8(0x0F);
+    tail = _mm_dpbusd_avx_epi32(tail, _mm_and_si128(v, m), _mm_loadu_si128(reinterpret_cast<const __m128i*>(w + i)));
+    tail = _mm_dpbusd_avx_epi32(tail, _mm_and_si128(_mm_srli_epi16(v, 4), m),
+                                _mm_loadu_si128(reinterpret_cast<const __m128i*>(w + i + 16)));
+  }
+  const __m256i sum = _mm256_add_epi32(acc0, acc1);
+  __m128i s = _mm_add_epi32(_mm_add_epi32(_mm256_castsi256_si128(sum), _mm256_extracti128_si256(sum, 1)), tail);
+  s = _mm_add_epi32(s, _mm_shuffle_epi32(s, _MM_SHUFFLE(1, 0, 3, 2)));
+  s = _mm_add_epi32(s, _mm_shuffle_epi32(s, _MM_SHUFFLE(2, 3, 0, 1)));
+  return _mm_cvtsi128_si32(s);
+}
+
 }  // namespace epzero::kernels
 
 #endif
