@@ -4,6 +4,7 @@
 #include <random>
 #include <vector>
 
+#include "../src/sq4.h"
 #include "epzero/distance.h"
 
 namespace epzero {
@@ -82,6 +83,37 @@ TEST(Distance, Sq8IntKernelsMatchScalarExactly) {
   for (SimdLevel level : kAllLevels) {
     if (!simd_level_supported(level)) EXPECT_EQ(get_sq8_int_dot_fn(level), nullptr) << to_string(level);
   }
+}
+
+// 4-bit codes: the scalar kernel against a plain sum over the unpacked codes (which checks the packed
+// layout), and every compiled-in kernel against the scalar one, at every padded length from 32 to 1,056
+// (whole 128-, 64- and 32-code blocks in every combination) and at the extremes of codes and weights.
+TEST(Distance, Sq4IntKernelsMatchScalarExactly) {
+  std::mt19937 rng(17);
+  std::uniform_int_distribution<int> nibble(0, 15);
+  std::uniform_int_distribution<int> weight(-kSq4IntWeightMax, kSq4IntWeightMax);
+  const auto variants = sq4_int_dot_variants();
+  for (std::size_t dim = 1; dim <= 1056; dim += dim < 200 ? 1 : 31) {
+    const std::size_t padded = sq4::padded(dim);
+    std::vector<std::int8_t> w(padded, 0);  // padding weights are 0, as the scorer makes them
+    std::vector<std::uint8_t> values(dim), packed(sq4::bytes(dim));
+    for (std::size_t i = 0; i < dim; ++i) w[i] = static_cast<std::int8_t>(weight(rng));
+    for (auto& c : values) c = static_cast<std::uint8_t>(nibble(rng));
+    if (dim % 5 == 0) {
+      for (std::size_t i = 0; i < dim; ++i) {
+        w[i] = static_cast<std::int8_t>(i % 2 ? kSq4IntWeightMax : -kSq4IntWeightMax);
+        values[i] = 15;
+      }
+    }
+    sq4::pack(values.data(), dim, packed.data());
+    std::int32_t plain = 0;
+    for (std::size_t i = 0; i < dim; ++i) {
+      ASSERT_EQ(sq4::get(packed.data(), i, dim), values[i]) << "dim=" << dim << " i=" << i;
+      plain += static_cast<std::int32_t>(w[i]) * values[i];
+    }
+    for (const auto& [name, fn] : variants) EXPECT_EQ(fn(w.data(), packed.data(), padded), plain) << name << " dim=" << dim;
+  }
+  for (SimdLevel level : kAllLevels) EXPECT_NE(get_sq4_int_dot_fn(level, 256), nullptr) << to_string(level);
 }
 
 TEST(Distance, KnownValues) {
