@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cmath>
+#include <limits>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -36,6 +38,13 @@ constexpr std::size_t kTuneQueries = 300;
 constexpr std::size_t kTuneEf = 96;
 constexpr std::size_t kMinTuneQueries = 50;
 constexpr std::size_t kMaxEf = 4096;
+// 4-bit codes are tried only from this many codes per node: below it a record's codes are one or two
+// cache lines either way (100 dimensions: 236 bytes with links at 8 bits, 200 at 4, four lines each).
+constexpr std::size_t kCodeBitsMinCodes = 128;
+// 4-bit codes are kept only if their search at the recall target is this much faster than 8-bit's
+// (smaller differences are within the timing's noise, as for prefetch settings).
+constexpr double kCodeBitsMinGain = 0.03;
+constexpr double kTimingSeconds = 0.25;  // each timed setting runs at least this long, and three passes
 // Advice thresholds: tombstones still cost search time; growth makes a calibrated beam stale; a fall in
 // the variance the directions hold means the data moved away from what the walk was built for.
 constexpr double kCompactShare = 0.2;
@@ -129,6 +138,24 @@ std::pair<std::size_t, float> calibrate(const HnswIndex& index, const float* que
   return {ef, reached};
 }
 
+// Seconds per query of searching `queries` on one thread with `options` (the fastest of at least three
+// passes and kTimingSeconds), for comparing two settings of the same index.
+double time_search(const HnswIndex& index, const float* queries, std::size_t count, std::size_t k,
+                   const SearchOptions& options) {
+  const std::size_t dim = index.params().dim;
+  using clock = std::chrono::steady_clock;
+  double best = std::numeric_limits<double>::max();
+  double total = 0.0;
+  for (int pass = 0; (pass < 3 || total < kTimingSeconds) && pass < 50; ++pass) {
+    const auto start = clock::now();
+    for (std::size_t q = 0; q < count; ++q) (void)index.search(queries + q * dim, k, options);
+    const double seconds = std::chrono::duration<double>(clock::now() - start).count();
+    best = std::min(best, seconds);
+    total += seconds;
+  }
+  return best / static_cast<double>(std::max<std::size_t>(count, 1));
+}
+
 }  // namespace
 
 AutoPlan plan_auto(const float* data, std::size_t n, std::size_t dim, const AutoOptions& options) {
@@ -191,6 +218,27 @@ AutoPlan plan_auto(const float* data, std::size_t n, std::size_t dim, const Auto
                                 : "off: 16-bit vectors halve their memory but cost speed and some recall; set it to save memory");
   if (params.half_vectors && params.quantization != Quantization::SQ8) {
     throw std::invalid_argument("half_vectors needs 8-bit quantization");
+  }
+  // 4-bit codes: the graph is built on 8-bit ones either way, then walked on 4-bit codes if they are
+  // faster at the recall target (measured when built), so a dataset where 16 levels lose too much (Glass's
+  // 4-bit walk never reached recall 0.90 on LAION, in VIBE) keeps 8 bits.
+  if (fixed.code_bits) {
+    if (*fixed.code_bits != 8 && *fixed.code_bits != 4) throw std::invalid_argument("code_bits must be 8 or 4");
+    if (*fixed.code_bits == 4 && params.quantization != Quantization::SQ8) {
+      throw std::invalid_argument("4-bit codes need 8-bit quantization (their ranges)");
+    }
+    plan.code_bits = *fixed.code_bits;
+    note(profile, "code_bits", yours);
+  } else if (params.quantization != Quantization::SQ8) {
+    note(profile, "code_bits", "off: only for 8-bit quantization");
+  } else if ((nav != 0 ? nav : dim) < kCodeBitsMinCodes) {
+    note(profile, "code_bits", "8: below " + std::to_string(kCodeBitsMinCodes) +
+                                   " codes a node's record takes as many cache lines at 4 bits");
+  } else if (fixed.ef) {
+    note(profile, "code_bits", "8: choosing 4 bits needs the beam width calibrated");
+  } else {
+    plan.measure_code_bits = true;
+    note(profile, "code_bits", "8 or 4, whichever searches faster at the recall target (timed when built)");
   }
   params.fast_build = fixed.fast_build.value_or(params.quantization == Quantization::SQ8);
   note(profile, "fast_build", fixed.fast_build ? yours
@@ -260,6 +308,17 @@ std::unique_ptr<HnswIndex> build_auto(const float* data, const std::uint64_t* la
     index->refine_links(threads, ef);
   }
   if (profile.filled) index->fill_free_links(threads);
+  const auto four_bit_rerank = [&](IndexProfile& p) {
+    if (options.fixed.rerank_z || p.rerank_z != 0.0f) return;
+    p.rerank_z = kNavRerankZ;  // the 4-bit walk ranks less exactly: re-rank up to max(rerank, ef), stopping early
+    for (auto& [setting, text] : p.notes) {
+      if (setting == "rerank_z") text = "stops the re-rank once the rest are 3 standard deviations past the k-th best (4-bit walk)";
+    }
+  };
+  if (plan.code_bits == 4) {
+    index->set_code_bits(4, threads);
+    four_bit_rerank(profile);
+  }
 
   if (plan.calibrate) {
     const std::vector<float> rows = gather(data, dim, held);
@@ -271,6 +330,34 @@ std::unique_ptr<HnswIndex> build_auto(const float* data, const std::uint64_t* la
       profile.recall_measured = reached;
     } else {
       profile.ef = std::max<std::size_t>(64, options.k);  // too few rows to hold any out
+    }
+    if (count > 0 && plan.measure_code_bits) {
+      // The same graph walked on 4-bit codes, calibrated to the same target and timed against the
+      // 8-bit walk on one thread.
+      const double seconds8 = time_search(*index, queries, count, profile.k,
+                                          {.ef = profile.ef, .rerank = profile.rerank, .rerank_z = profile.rerank_z});
+      IndexProfile four = profile;
+      four_bit_rerank(four);
+      index->set_code_bits(4, threads);
+      const auto [ef4, reached4] = calibrate(*index, queries, count, four, options.recall, threads);
+      const bool reaches = reached4 >= options.recall;
+      const double seconds4 =
+          reaches ? time_search(*index, queries, count, four.k, {.ef = ef4, .rerank = four.rerank, .rerank_z = four.rerank_z}) : 0.0;
+      const bool keep = reaches && seconds4 < seconds8 * (1.0 - kCodeBitsMinGain);
+      const auto micros = [](double s) { return std::to_string(static_cast<int>(s * 1e6 + 0.5)) + " us"; };
+      const std::string why = !reaches ? "8: 4-bit codes reached only " + std::to_string(reached4).substr(0, 5) + " recall"
+                              : keep   ? "4: " + micros(seconds4) + " a query at the recall target, against " + micros(seconds8) + " with 8 bits"
+                                       : "8: " + micros(seconds8) + " a query at the recall target, against " + micros(seconds4) + " with 4 bits";
+      if (keep) {
+        four.ef = ef4;
+        four.recall_measured = reached4;
+        profile = std::move(four);
+      } else {
+        index->set_code_bits(8, threads);
+      }
+      for (auto& [setting, text] : profile.notes) {
+        if (setting == "code_bits") text = why;
+      }
     }
   }
   parallel_for(0, held.size(), threads, [&](std::size_t i) { index->add(label(held[i]), data + held[i] * dim); });
