@@ -108,7 +108,7 @@ def score(folder):
         lines.append(f"  half {ds}: P2 {'held' if p2 else 'FAILED'}, P3+P4 {'held' if half_ok[ds] else 'FAILED'}; "
                      + "; ".join(text for name, ok, text in checks if not ok or name == "P2"))
     verdict["P2"] = bool(memory_ok) and all(memory_ok.values())
-    verdict["half_vectors decision (P3+P4 on >= 12 of 14)"] = sum(half_ok.values()) >= 12
+    half_decision = sum(half_ok.values()) >= 12
     lines.append(f"P3+P4 held on {sum(half_ok.values())}/{len(half_ok)} datasets")
 
     # P5-P7
@@ -151,7 +151,20 @@ def score(folder):
                     regress.append((ds, k, tag, new / was))
                 break
     no_loss = all(0.95 <= r for *_, r in regress)
-    verdict["4-bit merge (P7 and no 8-bit loss)"] = verdict["P7"] and no_loss
+    # The addendum: build time within 10% and no more memory than epzero-auto-8bit, wherever both ran.
+    def costs(name):
+        out = []
+        for (ds, k), d in runs.items():
+            a, b = lib(d, name), lib(d, "epzero-auto-8bit")
+            if a and b and b["build_seconds"] and b["memory_mb"]:
+                out.append((ds, k, a["build_seconds"] / b["build_seconds"], a["memory_mb"] / b["memory_mb"]))
+        return out
+    trial_costs, half_costs = costs("epzero-auto"), costs("epzero-auto-half")
+    cheap = lambda c, memory=1.0: bool(c) and all(b <= 1.10 and m <= memory + 0.02 for *_, b, m in c)
+    lines.append("costs against epzero-auto-8bit (build, memory): trial " +
+                 ", ".join(f"{ds.split('-')[0]} k{k} {b:.2f}x/{m:.2f}x" for ds, k, b, m in sorted(trial_costs)) +
+                 " | half " + ", ".join(f"{ds.split('-')[0]} k{k} {b:.2f}x/{m:.2f}x" for ds, k, b, m in sorted(half_costs)))
+    verdict["4-bit merge (P7, no 8-bit loss, build within 10%, memory not higher)"] = verdict["P7"] and no_loss and cheap(trial_costs)
     lines.append("8-bit path against earlier rounds at 0.95: " + ", ".join(f"{ds.split('-')[0]} k{k} {r:.2f}x ({tag})" for ds, k, tag, r in sorted(regress)))
 
     # P8
@@ -176,6 +189,7 @@ def score(folder):
         p8.append((ds, k, ok, f"chose {t['choice']}, full-scale best {max(speed, key=lambda c: speed[c] or 0)}"
                               f" ({mine / best:.2f}x of it)" if best and mine else f"chose {t['choice']}"))
     verdict["P8"] = sum(ok for _, _, ok, _ in p8) >= 12
+    verdict["half_vectors decision (P3+P4 on >= 12 of 14, build within 10%)"] = half_decision and cheap(half_costs)
     lines.append(f"P8: {sum(ok for _, _, ok, _ in p8)}/{len(p8)}: " + "; ".join(f"{ds.split('-')[0]} k{k} {text}" for ds, k, _, text in p8))
 
     return lines, verdict, len(runs), len(trials)
