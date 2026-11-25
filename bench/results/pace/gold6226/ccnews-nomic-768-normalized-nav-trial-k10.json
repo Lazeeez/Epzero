@@ -1,0 +1,46 @@
+{
+  "dataset": "ccnews-nomic-768-normalized",
+  "n": 495328,
+  "dim": 768,
+  "metric": "normalized",
+  "k": 10,
+  "sample": 100000,
+  "held_out": 1000,
+  "trials": [
+    {
+      "nav_dim": 192,
+      "ef": 28,
+      "recall_at_calibration": 0.953,
+      "rerank": 300,
+      "rerank_z": 3.0,
+      "build_seconds": 12.1,
+      "us_per_query": 55.8
+    },
+    {
+      "nav_dim": 256,
+      "ef": 22,
+      "recall_at_calibration": 0.9542,
+      "rerank": 300,
+      "rerank_z": 3.0,
+      "build_seconds": 14.0,
+      "us_per_query": 52.3
+    }
+  ],
+  "choice": 256,
+  "environment": {
+    "commit": "66526e6fad6983646088b55d0e9b243aef897b01",
+    "versions": {
+      "epzero": "0.5.0",
+      "hnswlib": "0.8.0",
+      "faiss-cpu": "1.15.1",
+      "usearch": "2.26.5",
+      "pyvsag": "0.18.5",
+      "glass": "2.1.0",
+      "numpy": "2.5.4"
+    },
+    "cpu": "Intel(R) Xeon(R) Gold 6226 CPU @ 2.70GHz",
+    "kernel": "5.14.0-687.64.1.el9_8.x86_64",
+    "cores": 24,
+    "transparent_hugepage": "[always] madvise never"
+  }
+}
