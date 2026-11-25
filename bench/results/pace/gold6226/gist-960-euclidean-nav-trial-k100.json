@@ -1,0 +1,64 @@
+{
+  "dataset": "gist-960-euclidean",
+  "n": 1000000,
+  "dim": 960,
+  "metric": "euclidean",
+  "k": 100,
+  "sample": 100000,
+  "held_out": 1000,
+  "trials": [
+    {
+      "nav_dim": 96,
+      "ef": 275,
+      "recall_at_calibration": 0.9523,
+      "rerank": 300,
+      "rerank_z": 3.0,
+      "build_seconds": 11.9,
+      "us_per_query": 430.1
+    },
+    {
+      "nav_dim": 160,
+      "ef": 200,
+      "recall_at_calibration": 0.9527,
+      "rerank": 300,
+      "rerank_z": 3.0,
+      "build_seconds": 14.1,
+      "us_per_query": 344.1
+    },
+    {
+      "nav_dim": 240,
+      "ef": 168,
+      "recall_at_calibration": 0.9543,
+      "rerank": 300,
+      "rerank_z": 3.0,
+      "build_seconds": 16.0,
+      "us_per_query": 317.7
+    },
+    {
+      "nav_dim": 320,
+      "ef": 150,
+      "recall_at_calibration": 0.9511,
+      "rerank": 300,
+      "rerank_z": 3.0,
+      "build_seconds": 19.8,
+      "us_per_query": 291.5
+    }
+  ],
+  "choice": 320,
+  "environment": {
+    "commit": "66526e6fad6983646088b55d0e9b243aef897b01",
+    "versions": {
+      "epzero": "0.5.0",
+      "hnswlib": "0.8.0",
+      "faiss-cpu": "1.15.1",
+      "usearch": "2.26.5",
+      "pyvsag": "0.18.5",
+      "glass": "2.1.0",
+      "numpy": "2.5.4"
+    },
+    "cpu": "Intel(R) Xeon(R) Gold 6226 CPU @ 2.70GHz",
+    "kernel": "5.14.0-687.64.1.el9_8.x86_64",
+    "cores": 24,
+    "transparent_hugepage": "[always] madvise never"
+  }
+}
