@@ -1,0 +1,46 @@
+{
+  "dataset": "simplewiki-openai-3072-normalized",
+  "n": 260372,
+  "dim": 3072,
+  "metric": "normalized",
+  "k": 10,
+  "sample": 100000,
+  "held_out": 1000,
+  "trials": [
+    {
+      "nav_dim": 448,
+      "ef": 28,
+      "recall_at_calibration": 0.9512,
+      "rerank": 300,
+      "rerank_z": 3.0,
+      "build_seconds": 49.9,
+      "us_per_query": 165.8
+    },
+    {
+      "nav_dim": 864,
+      "ef": 24,
+      "recall_at_calibration": 0.9502,
+      "rerank": 300,
+      "rerank_z": 3.0,
+      "build_seconds": 84.6,
+      "us_per_query": 250.4
+    }
+  ],
+  "choice": 448,
+  "environment": {
+    "commit": "66526e6fad6983646088b55d0e9b243aef897b01",
+    "versions": {
+      "epzero": "0.5.0",
+      "hnswlib": "0.8.0",
+      "faiss-cpu": "1.15.1",
+      "usearch": "2.26.5",
+      "pyvsag": "0.18.5",
+      "glass": "2.1.0",
+      "numpy": "2.5.4"
+    },
+    "cpu": "Intel(R) Xeon(R) Gold 6226 CPU @ 2.70GHz",
+    "kernel": "5.14.0-687.64.1.el9_8.x86_64",
+    "cores": 24,
+    "transparent_hugepage": "[always] madvise never"
+  }
+}
