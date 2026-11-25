@@ -195,6 +195,8 @@ class EpzeroAuto(Library):
         self.note = (f"nav_dim {p.nav_dim}, rerank {p.rerank}, rerank_z {p.rerank_z}, refine {p.refine}, "
                      f"fill_after {p.fill_after}, prefetch {self.index.prefetch}, calibrated ef {p.ef} for recall "
                      f"{p.recall} ({p.measured.get('recall at calibration')} at calibration)")
+        if getattr(p, "code_bits", None) is not None:  # engines that can walk on 4-bit codes
+            self.note += f", code_bits {p.code_bits} ({p.reasons.get('code_bits')}), half_vectors {p.half_vectors}"
         print(f"{self.name:12s} {self.note}")
 
     def build(self, base):
@@ -272,16 +274,37 @@ class EpzeroAutoNav90(EpzeroAuto):
         self._describe()
 
 
+class EpzeroAutoBits8(EpzeroAuto):
+    """epzero.build with 8-bit codes fixed: how it searched before it could choose 4-bit codes."""
+
+    name = "epzero-auto-8bit"
+    code_bits = 8
+
+    def build(self, base):
+        self.index = self.mod.build(base, "l2", M=self.args.M, ef_construction=self.args.efc, threads=self.args.threads,
+                                    queries=self.calibration_queries(), code_bits=self.code_bits)
+        self._describe()
+
+
+class EpzeroAutoBits4(EpzeroAutoBits8):
+    """epzero.build with 4-bit codes fixed (the graph built on 8-bit ones, then walked on 4-bit codes with the
+    early-stopping re-rank): what the planner's trial weighs against 8 bits, on every dataset."""
+
+    name = "epzero-auto-4bit"
+    code_bits = 4
+
+
 class EpzeroAutoHalf(EpzeroAuto):
     """epzero.build with one setting fixed: the full vectors kept as 16-bit floats (half_vectors), which the
     build and the re-rank read. Half their memory; whether it costs speed or recall at k = 10 and 100 is what
-    round 14 measures before the planner may choose it."""
+    round 14 measures before the planner may choose it. With 8-bit codes fixed, so that it differs from
+    epzero-auto-8bit in the full vectors alone."""
 
     name = "epzero-auto-half"
 
     def build(self, base):
         self.index = self.mod.build(base, "l2", M=self.args.M, ef_construction=self.args.efc, threads=self.args.threads,
-                                    queries=self.calibration_queries(), half_vectors=True)
+                                    queries=self.calibration_queries(), half_vectors=True, code_bits=8)
         self._describe()
 
 
@@ -495,7 +518,7 @@ class EpzeroSq8Avx512(EpzeroSq8):
             del os.environ["EPZERO_SQ8_KERNEL"]
 
 
-LIBRARIES = {cls.name: cls for cls in (*COMPARED, EpzeroAuto, EpzeroAutoOod, EpzeroAutoDeep, EpzeroAutoNav90, EpzeroAutoHalf, EpzeroSq8Default, EpzeroSq8Adaptive, EpzeroSq8Avx512)}
+LIBRARIES = {cls.name: cls for cls in (*COMPARED, EpzeroAuto, EpzeroAutoOod, EpzeroAutoDeep, EpzeroAutoNav90, EpzeroAutoHalf, EpzeroAutoBits8, EpzeroAutoBits4, EpzeroSq8Default, EpzeroSq8Adaptive, EpzeroSq8Avx512)}
 
 
 def experiment(name):
