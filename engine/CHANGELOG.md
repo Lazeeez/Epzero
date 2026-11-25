@@ -45,6 +45,19 @@ node, on the same per-dimension ranges at 16 levels, with the full vectors re-ra
   Such a build took 2.6x as long as an 8-bit one on 300,000 AG News vectors (1.7x on GooAQ, 24 cores); now 1.01x.
 - A build that also times 4-bit codes computes its calibration queries' exact neighbours once, not twice.
 
+**Friendlier for a first-time user** (found by installing from PyPI and trying the usual mistakes):
+
+- Vectors or queries holding a NaN or an infinity are refused with the row and column (`ValueError: row 42
+  contains NaN (column 5)`). Before, such data built an index that calibrated to its widest beam and returned
+  noise. C++: `HnswIndex::add` throws `std::invalid_argument`, and `Database` refuses them before they reach
+  its log. A log written by an older version that holds such a vector still opens: the vector is skipped
+  and counted in `recovery()["skipped"]`, on a replica too.
+- Metric names other libraries use are accepted, in any case: `"euclidean"` and `"l2sq"` for `"l2"`, `"dot"`,
+  `"inner_product"` and `"mips"` for `"ip"`, `"angular"` and `"cos"` for `"cosine"`.
+- `save`, `load` and `Database.open` take any path-like object (`pathlib.Path`), not only strings.
+- A negative `k`, `ef` or `rerank` gets `ValueError: k must be 0 or more` instead of a pybind11 cast error.
+- `search` documents what fills a short result: label -1 and distance inf.
+
 ## 0.5.0
 
 An index that stays accurate as its data changes, fixed in place; metadata and keyword search in the

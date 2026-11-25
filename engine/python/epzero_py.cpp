@@ -4,8 +4,13 @@
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <pybind11/stl/filesystem.h>
 
 #include <atomic>
+#include <cctype>
+#include <cmath>
+#include <cstring>
+#include <filesystem>
 #include <limits>
 #include <shared_mutex>
 
@@ -23,11 +28,17 @@ using LabelArray = py::array_t<std::int64_t, py::array::c_style | py::array::for
 
 namespace {
 
-epzero::Metric parse_metric(const std::string& name) {
-  if (name == "l2") return epzero::Metric::L2;
-  if (name == "ip") return epzero::Metric::InnerProduct;
-  if (name == "cosine") return epzero::Metric::Cosine;
-  throw std::invalid_argument("metric must be 'l2', 'ip' or 'cosine', not '" + name + "'");
+// The names other vector libraries use are accepted too, in any case: "euclidean", "dot", "angular" and so on.
+epzero::Metric parse_metric(const std::string& given) {
+  std::string name;
+  for (const char c : given) name += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  if (name == "l2" || name == "euclidean" || name == "l2sq" || name == "sqeuclidean") return epzero::Metric::L2;
+  if (name == "ip" || name == "dot" || name == "inner_product" || name == "innerproduct" || name == "mips") {
+    return epzero::Metric::InnerProduct;
+  }
+  if (name == "cosine" || name == "cos" || name == "angular") return epzero::Metric::Cosine;
+  throw std::invalid_argument("metric must be 'l2' (or 'euclidean'), 'ip' (or 'dot') or 'cosine' (or 'angular'), not '" +
+                              given + "'");
 }
 
 epzero::Quantization parse_quantization(const std::string& name) {
@@ -73,7 +84,32 @@ const float* rows_of(const FloatArray& data, std::size_t dim, std::size_t& n) {
     throw std::invalid_argument("expected an array of shape (n, " + std::to_string(dim) + "), got " + got +
                                 (data.ndim() == 1 ? ",)" : ")"));
   }
-  return data.data();
+  // A NaN or an infinity gives every distance to that row (or query) no order, and an index built with one
+  // calibrated to its widest beam and still returned noise: refused here, with the row.
+  const float* values = data.data();
+  // Branch-free over the exponent bits, so it vectorizes: a search pays for it, not just a build. Only a
+  // NaN or an infinity has every exponent bit set.
+  std::uint32_t any = 0;
+  for (std::size_t i = 0; i < n * dim; ++i) {
+    std::uint32_t bits;
+    std::memcpy(&bits, values + i, sizeof bits);
+    any |= static_cast<std::uint32_t>((bits & 0x7f800000u) == 0x7f800000u);
+  }
+  if (any == 0) return values;
+  for (std::size_t i = 0; i < n * dim; ++i) {
+    if (!std::isfinite(values[i])) {
+      throw std::invalid_argument("row " + std::to_string(i / dim) + " contains " + (std::isnan(values[i]) ? "NaN" : "an infinity") +
+                                  " (column " + std::to_string(i % dim) + "): vectors must be finite");
+    }
+  }
+  return values;
+}
+
+// A count argument (k, ef, ...) from Python: a clear error for negative numbers instead of pybind11's cast error.
+std::size_t count_arg(const py::object& value, const char* name) {
+  const auto v = value.cast<long long>();
+  if (v < 0) throw std::invalid_argument(std::string(name) + " must be 0 or more, not " + std::to_string(v));
+  return static_cast<std::size_t>(v);
 }
 
 // Labels from Python (None = consecutive from `first`), validated against the row count.
@@ -287,10 +323,10 @@ class Index {
                    const py::object& rerank_arg, std::size_t threads, const py::object& filter,
                    const std::string& strategy, std::size_t patience, const py::object& rerank_z_arg) const {
     const epzero::IndexProfile& p = index_->profile();
-    const std::size_t k = k_arg.is_none() ? p.k : k_arg.cast<std::size_t>();
+    const std::size_t k = k_arg.is_none() ? p.k : count_arg(k_arg, "k");
     // The profile's beam was calibrated for its k; a larger k needs at least k candidates.
-    const std::size_t ef = ef_arg.is_none() ? std::max(p.ef, k) : ef_arg.cast<std::size_t>();
-    const std::size_t rerank = rerank_arg.is_none() ? p.rerank : rerank_arg.cast<std::size_t>();
+    const std::size_t ef = ef_arg.is_none() ? std::max(p.ef, k) : count_arg(ef_arg, "ef");
+    const std::size_t rerank = rerank_arg.is_none() ? p.rerank : count_arg(rerank_arg, "rerank");
     const float rerank_z = rerank_z_arg.is_none() ? p.rerank_z : rerank_z_arg.cast<float>();
     const epzero::FilterStrategy chosen = parse_strategy(strategy);
     epzero::SearchFilter compiled;
@@ -490,14 +526,14 @@ class Index {
     return Index(index_->compacted(threads));
   }
 
-  void save(const std::string& path) const {
+  void save(const std::filesystem::path& path) const {
     py::gil_scoped_release release;
-    index_->save(path);
+    index_->save(path.string());
   }
 
-  static Index load(const std::string& path) {
+  static Index load(const std::filesystem::path& path) {
     py::gil_scoped_release release;
-    return Index(epzero::HnswIndex::load(path));
+    return Index(epzero::HnswIndex::load(path.string()));
   }
 
   const epzero::HnswIndex& raw() const { return *index_; }
@@ -714,13 +750,13 @@ class Metadata {
   }
   std::size_t size() const { return index_.size(); }
   bool contains(std::uint64_t label) const { return index_.contains(label); }
-  void save(const std::string& path) const {
+  void save(const std::filesystem::path& path) const {
     py::gil_scoped_release release;
-    index_.save(path);
+    index_.save(path.string());
   }
-  static Metadata load(const std::string& path) {
+  static Metadata load(const std::filesystem::path& path) {
     py::gil_scoped_release release;
-    return Metadata(epzero::MetadataIndex::load(path));
+    return Metadata(epzero::MetadataIndex::load(path.string()));
   }
 
  private:
@@ -746,8 +782,8 @@ class TextIndex {
     }
     return ranked(results);
   }
-  void save(const std::string& path) const { index_.save(path); }
-  static TextIndex load(const std::string& path) { return TextIndex(epzero::TextIndex::load(path)); }
+  void save(const std::filesystem::path& path) const { index_.save(path.string()); }
+  static TextIndex load(const std::filesystem::path& path) { return TextIndex(epzero::TextIndex::load(path.string())); }
   const epzero::TextIndex& raw() const noexcept { return index_; }
   std::string stemmer() const { return index_.options().stemmer == epzero::TextIndex::Stemmer::Porter ? "porter" : "none"; }
 
@@ -764,7 +800,7 @@ class Database {
  public:
   explicit Database(std::unique_ptr<epzero::Database> db) : db_(std::move(db)) {}
 
-  static Database open(const std::string& path, std::size_t dim, const std::string& metric, std::size_t max_elements,
+  static Database open(const std::filesystem::path& path, std::size_t dim, const std::string& metric, std::size_t max_elements,
                        std::size_t M, std::size_t ef_construction, const std::string& quantization, bool keep_vectors,
                        const std::string& sync, double checkpoint_mb) {
     epzero::DatabaseOptions options;
@@ -772,7 +808,7 @@ class Database {
     options.checkpoint_bytes = static_cast<std::size_t>(checkpoint_mb * 1024 * 1024);
     const auto params = make_params(dim, metric, max_elements, M, ef_construction, 42, quantization, keep_vectors);
     py::gil_scoped_release release;
-    return Database(epzero::Database::open(path, params, options));
+    return Database(epzero::Database::open(path.string(), params, options));
   }
 
   void train(const FloatArray& data) {
@@ -824,6 +860,7 @@ class Database {
     out["snapshot_lsn"] = r.snapshot_lsn;
     out["replayed"] = r.replayed;
     out["truncated_bytes"] = r.truncated_bytes;
+    out["skipped"] = r.skipped;
     return out;
   }
 
@@ -850,6 +887,8 @@ PYBIND11_MODULE(_core, m) {
         if (data.ndim() != 2 || data.shape(0) == 0 || data.shape(1) == 0) {
           throw std::invalid_argument("data must be a non-empty 2-D array (rows of vectors)");
         }
+        std::size_t rows_n = 0;
+        const float* rows = rows_of(data, static_cast<std::size_t>(data.shape(1)), rows_n);  // finite, or a clear error
         auto options = auto_options(metric, M, ef_construction, k, recall, threads, capacity, seed, fixed);
         static const float marker = 0.0f;  // only whether queries were given changes the plan
         if (with_queries) {
@@ -859,8 +898,7 @@ PYBIND11_MODULE(_core, m) {
         epzero::AutoPlan plan;
         {
           py::gil_scoped_release release;
-          plan = epzero::plan_auto(data.data(), static_cast<std::size_t>(data.shape(0)),
-                                   static_cast<std::size_t>(data.shape(1)), options);
+          plan = epzero::plan_auto(rows, rows_n, static_cast<std::size_t>(data.shape(1)), options);
         }
         py::dict out;
         out["params"] = params_dict(plan.params);
@@ -881,6 +919,8 @@ PYBIND11_MODULE(_core, m) {
         }
         const auto n = static_cast<std::size_t>(data.shape(0));
         const auto dim = static_cast<std::size_t>(data.shape(1));
+        std::size_t rows_n = 0;
+        const float* rows = rows_of(data, dim, rows_n);  // finite, or a clear error naming the row
         const auto ids = labels_of(labels, n, 0);
         auto options = auto_options(metric, M, ef_construction, k, recall, threads, capacity, seed, fixed);
         FloatArray query_rows;
@@ -891,7 +931,7 @@ PYBIND11_MODULE(_core, m) {
         std::unique_ptr<epzero::HnswIndex> built;
         {
           py::gil_scoped_release release;
-          built = epzero::build_auto(data.data(), ids.data(), n, dim, options);
+          built = epzero::build_auto(rows, ids.data(), n, dim, options);
         }
         return Index(std::move(built));
       },
@@ -933,7 +973,8 @@ PYBIND11_MODULE(_core, m) {
            "allowed labels), only those labels are returned; `strategy` forces 'exact', 'inline' or\n"
            "'two-hop' instead of choosing by selectivity. With `patience`, each unfiltered query stops once\n"
            "its best k have gone that many steps unchanged (`ef` then caps the beam): easy queries finish\n"
-           "early, hard ones search further.")
+           "early, hard ones search further. Where fewer than k labels can be returned (a small index, a\n"
+           "narrow filter), the remaining places hold label -1 and distance inf.")
       .def_property_readonly("prefetch", &Index::prefetch, "(depth, lines): how far ahead the search prefetches.")
       .def_property_readonly("profile", &Index::profile,
                              "The search settings this index uses by default, how it was built, and why\n"

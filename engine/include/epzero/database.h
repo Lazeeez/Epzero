@@ -41,6 +41,7 @@ struct RecoveryInfo {
   std::uint64_t snapshot_lsn = 0;
   std::size_t replayed = 0;           // WAL records applied on top of the snapshot
   std::size_t truncated_bytes = 0;    // torn or corrupt tail removed from the WAL
+  std::size_t skipped = 0;            // logged vectors with a NaN or infinity (older versions accepted them), not applied
 };
 
 // A durable vector collection: an HnswIndex plus a write-ahead log in a directory.
@@ -107,9 +108,11 @@ class Database {
  private:
   Database(std::string dir, const HnswParams& params, const DatabaseOptions& options);
   void recover();
-  void check_upserts(const std::uint64_t* labels, std::size_t n) const;
+  void check_upserts(const std::uint64_t* labels, const float* vectors, std::size_t n) const;
   void append(const std::vector<std::uint8_t>& bytes, bool sync);
   void apply_upsert(std::uint64_t label, const float* vector);
+  // Applies a logged record; an upsert whose vector holds a NaN or an infinity (logged by an older version)
+  // is skipped and counted in recovery().skipped instead, so neither recovery nor a replica can fail on it.
   void apply_record(const LogRecord& record);
   void write_checkpoint_file(std::uint64_t lsn);
   void maybe_checkpoint();

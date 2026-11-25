@@ -9,6 +9,7 @@
 #endif
 
 #include <algorithm>
+#include <cmath>
 #include <array>
 #include <cerrno>
 #include <cstring>
@@ -252,8 +253,9 @@ void Database::recover() {
   const auto bytes = read_file(wal_fd_, static_cast<std::size_t>(fs::file_size(wal)), wal.string());
   const std::size_t good = parse_log(bytes, params_.dim, [&](LogRecord&& record) {
     if (record.lsn <= snapshot_lsn) return;  // already in the snapshot
+    const std::size_t skipped = recovery_.skipped;
     apply_record(record);
-    ++recovery_.replayed;
+    if (recovery_.skipped == skipped) ++recovery_.replayed;
     lsn_ = std::max(lsn_, record.lsn);
   });
 
@@ -269,7 +271,13 @@ void Database::recover() {
 
 // A write must be checked before it is logged: a logged record that then fails to apply would fail
 // again on every recovery, and the database could never be opened.
-void Database::check_upserts(const std::uint64_t* labels, std::size_t n) const {
+void Database::check_upserts(const std::uint64_t* labels, const float* vectors, std::size_t n) const {
+  // The index refuses a NaN or an infinity, so they are refused here, before the log.
+  for (std::size_t i = 0; i < n * params_.dim; ++i) {
+    if (!std::isfinite(vectors[i])) {
+      throw std::invalid_argument("vector for label " + std::to_string(labels[i / params_.dim]) + " is not finite");
+    }
+  }
   std::shared_lock lock(index_lock_);
   if (!index_->trained()) throw std::logic_error("a quantized database must be trained before the first upsert");
   std::size_t added = 0;
@@ -319,6 +327,11 @@ void Database::apply_upsert(std::uint64_t label, const float* vector) {
 
 void Database::apply_record(const LogRecord& record) {
   if (record.type == LogRecord::Type::Upsert) {
+    // Older versions logged vectors holding a NaN or an infinity, which the index now refuses.
+    if (!std::all_of(record.vector.begin(), record.vector.end(), [](float v) { return std::isfinite(v); })) {
+      ++recovery_.skipped;
+      return;
+    }
     apply_upsert(record.label, record.vector.data());
   } else {
     std::shared_lock lock(index_lock_);
@@ -328,7 +341,7 @@ void Database::apply_record(const LogRecord& record) {
 
 LogRecord Database::upsert(std::uint64_t label, const float* vector) {
   std::lock_guard lock(write_lock_);
-  check_upserts(&label, 1);
+  check_upserts(&label, vector, 1);
   LogRecord record{LogRecord::Type::Upsert, lsn_ + 1, label, std::vector<float>(vector, vector + params_.dim)};
   std::vector<std::uint8_t> bytes;
   frame(bytes, record);
@@ -342,7 +355,7 @@ LogRecord Database::upsert(std::uint64_t label, const float* vector) {
 std::vector<LogRecord> Database::upsert_batch(const std::uint64_t* labels, const float* vectors, std::size_t n,
                                               std::size_t threads) {
   std::lock_guard lock(write_lock_);
-  check_upserts(labels, n);
+  check_upserts(labels, vectors, n);
 
   std::vector<LogRecord> records(n);
   std::vector<std::uint8_t> bytes;
