@@ -52,6 +52,8 @@ constexpr std::size_t kTrialCounts[] = {128, 192, 256, 384, 512};
 constexpr std::size_t kTrialRows = 100'000;
 constexpr std::size_t kTrialHeld = 1000;
 constexpr std::size_t kTrialMinRows = 20'000;
+// check_walk decides between a walk and none, a far coarser choice (3-28x apart on COCO), so a smaller sample.
+constexpr std::size_t kWalkTrialRows = 50'000;
 // Advice thresholds: tombstones still cost search time; growth makes a calibrated beam stale; a fall in
 // the variance the directions hold means the data moved away from what the walk was built for.
 constexpr double kCompactShare = 0.2;
@@ -183,17 +185,14 @@ struct NavTrial {
 // AutoOptions::measure_nav). Each trial is build_auto on the sample with that count fixed, 8-bit codes and
 // the default prefetch, calibrated on the timing queries' first half (or all of them, if they are the
 // caller's), then timed on all of them on one thread.
-NavTrial nav_by_trial(const float* data, std::size_t n, std::size_t dim, const AutoOptions& options, std::size_t rule) {
-  std::vector<std::size_t> counts = {0};
-  for (const std::size_t c : kTrialCounts) {
-    if (c <= dim / 2) counts.push_back(c);
-  }
-  if (rule != 0 && std::find(counts.begin(), counts.end(), rule) == counts.end()) counts.push_back(rule);
+NavTrial nav_by_trial(const float* data, std::size_t n, std::size_t dim, const AutoOptions& options, std::size_t rule,
+                      std::vector<std::size_t> counts, std::size_t sample_rows_wanted) {
   std::sort(counts.begin(), counts.end());
+  counts.erase(std::unique(counts.begin(), counts.end()), counts.end());
 
   const bool own = options.queries != nullptr && options.query_count > 0;
   const std::size_t held_count = own ? 0 : std::min(kTrialHeld, n / 5);
-  const std::size_t rows = std::min(kTrialRows, n - held_count);
+  const std::size_t rows = std::min(sample_rows_wanted, n - held_count);
   std::vector<std::size_t> picked = sample_rows(n, rows + held_count, options.seed + 3);
   std::shuffle(picked.begin(), picked.end(), std::mt19937_64(options.seed + 4));
   std::vector<std::size_t> held(picked.begin(), picked.begin() + static_cast<std::ptrdiff_t>(held_count));
@@ -211,6 +210,7 @@ NavTrial nav_by_trial(const float* data, std::size_t n, std::size_t dim, const A
   for (const std::size_t c : counts) {
     AutoOptions o = options;
     o.measure_nav = false;
+    o.check_walk = false;
     o.capacity = 0;
     o.fixed.nav_dim = c;
     o.fixed.code_bits = 8;
@@ -362,11 +362,22 @@ AutoPlan plan_auto(const float* data, std::size_t n, std::size_t dim, const Auto
 
 std::unique_ptr<HnswIndex> build_auto(const float* data, const std::uint64_t* labels, std::size_t n, std::size_t dim,
                                       const AutoOptions& options) {
-  if (options.measure_nav && !options.fixed.nav_dim && dim >= kNavMinDim && n >= kTrialMinRows &&
-      options.fixed.quantization.value_or(Quantization::SQ8) == Quantization::SQ8) {
-    const NavTrial trial = nav_by_trial(data, n, dim, options, plan_auto(data, n, dim, options).params.nav_dim);
+  const bool own_queries_given = options.queries != nullptr && options.query_count > 0;
+  const bool trial_allowed = !options.fixed.nav_dim && dim >= kNavMinDim && n >= kTrialMinRows &&
+                             options.fixed.quantization.value_or(Quantization::SQ8) == Quantization::SQ8;
+  const std::size_t rule = trial_allowed && (options.measure_nav || (options.check_walk && own_queries_given))
+                               ? plan_auto(data, n, dim, options).params.nav_dim : 0;
+  if (trial_allowed && (options.measure_nav || (options.check_walk && own_queries_given && rule != 0))) {
+    std::vector<std::size_t> counts = {0, rule};
+    if (options.measure_nav) {
+      for (const std::size_t c : kTrialCounts) {
+        if (c <= dim / 2) counts.push_back(c);
+      }
+    }
+    const NavTrial trial = nav_by_trial(data, n, dim, options, rule, counts, options.measure_nav ? kTrialRows : kWalkTrialRows);
     AutoOptions o = options;
     o.measure_nav = false;
+    o.check_walk = false;
     o.fixed.nav_dim = trial.nav;
     auto index = build_auto(data, labels, n, dim, o);
     IndexProfile profile = index->profile();
