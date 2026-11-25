@@ -22,8 +22,8 @@ node, on the same per-dimension ranges at 16 levels, with the full vectors re-ra
   without trying. `code_bits=8` or `4` fixes the choice.
 - `index.set_code_bits(4)` (C++: `HnswIndex::set_code_bits`) converts a built index in place, keeping
   the graph, and back with `set_code_bits(8)`. 4-bit codes need the full vectors (the default).
-- Integer kernels for AVX2, AVX-VNNI and AVX-512 VNNI; other CPUs use a scalar kernel for 4-bit codes,
-  so there the planner's timing keeps 8 bits.
+- Integer kernels for AVX2, AVX-VNNI, AVX-512 VNNI and NEON (base ARMv8, no dot-product extension needed);
+  WebAssembly uses a scalar kernel for 4-bit codes, so there the planner's timing keeps 8 bits.
 - Saved with the index as a storage flag; builds before this one refuse such a file instead of misreading it.
 
 ## 0.5.0
