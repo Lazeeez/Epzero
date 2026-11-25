@@ -166,6 +166,36 @@ TEST(Auto, MeasuredDirectionCount) {
   EXPECT_EQ(why(few->profile(), "nav_dim").rfind("the fastest", 0), std::string::npos);
 }
 
+// check_walk: queries mostly outside the data's subspace (like text against images) don't walk on the data's
+// directions when no walk serves them faster; without queries of your own, or with the rule's walk off,
+// there is nothing to check.
+TEST(Auto, CheckWalkOnYourQueries) {
+  constexpr std::size_t n = 24000;
+  constexpr std::size_t dim = 256;
+  const auto data = low_rank(n, dim, 24, 43);
+  ASSERT_NE(plan_auto(data.data(), n, dim, AutoOptions{}).params.nav_dim, 0u);  // the rule walks
+  std::mt19937_64 rng(44);
+  std::normal_distribution<float> normal;
+  std::vector<float> queries(300 * dim);
+  for (std::size_t i = 0; i < 300; ++i) {  // a data row plus a large component the directions can't see
+    for (std::size_t d = 0; d < dim; ++d) queries[i * dim + d] = data[(i * 37) % n * dim + d] + 3.0f * normal(rng);
+  }
+  AutoOptions options;
+  options.check_walk = true;
+  options.queries = queries.data();
+  options.query_count = 300;
+  const auto index = build_auto(data.data(), nullptr, n, dim, options);
+  const std::string reason = why(index->profile(), "nav_dim");
+  EXPECT_NE(reason.find("timed on your queries"), std::string::npos) << reason;
+  EXPECT_NE(reason.find("0: "), std::string::npos) << reason;
+  EXPECT_GE(index->profile().recall_measured, 0.95f);
+
+  AutoOptions without;
+  without.check_walk = true;  // no queries of your own: the rule decides
+  const auto plain = build_auto(data.data(), nullptr, n, dim, without);
+  EXPECT_EQ(why(plain->profile(), "nav_dim").find("timed on"), std::string::npos);
+}
+
 TEST(Auto, RejectsBadInput) {
   const std::vector<float> one(8, 1.0f);
   EXPECT_THROW(plan_auto(nullptr, 0, 8), std::invalid_argument);
