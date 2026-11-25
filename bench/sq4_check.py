@@ -8,6 +8,7 @@ when an index is made) must give identical labels and distances. Lengths cover w
 a 64-code block and a 32-code tail, with and without principal directions.
 """
 import json
+import os
 import sys
 
 import numpy as np
@@ -17,7 +18,8 @@ def run(out):
     import epzero
 
     rng = np.random.default_rng(7)
-    result = {"simd": None, "cases": {}}
+    # The kernel is chosen by EPZERO_SQ8_KERNEL (read when an index is made); "simd" is only the SIMD level.
+    result = {"kernel": os.environ.get("EPZERO_SQ8_KERNEL", "default"), "simd": None, "cases": {}}
     for dim, nav in ((512, 0), (224, 0), (200, 0), (1024, 192), (768, 160)):
         centers = rng.standard_normal((20, dim)).astype(np.float32)
         data = (centers[rng.integers(0, 20, 6000)] + 0.3 * rng.standard_normal((6000, dim))).astype(np.float32)
@@ -29,13 +31,13 @@ def run(out):
         result["cases"][f"{dim}/{nav}"] = {"labels": labels.tolist(), "distances": np.round(distances, 5).tolist()}
     with open(out, "w") as f:
         json.dump(result, f)
-    print(out, result["simd"], "cases", len(result["cases"]))
+    print(out, "kernel", result["kernel"], "simd", result["simd"], "cases", len(result["cases"]))
 
 
 def compare(a, b):
     x, y = (json.load(open(p)) for p in (a, b))
     same = x["cases"] == y["cases"]
-    print("identical" if same else "DIFFERENT", f"({x['simd']} vs {y['simd']}, {len(x['cases'])} cases)")
+    print("identical" if same else "DIFFERENT", f"(kernel {x.get('kernel')} vs {y.get('kernel')}, simd {x['simd']}, {len(x['cases'])} cases)")
     sys.exit(0 if same else 1)
 
 
