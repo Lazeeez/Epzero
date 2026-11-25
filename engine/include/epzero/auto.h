@@ -39,6 +39,7 @@ struct AutoFixed {
   std::optional<std::pair<std::size_t, std::size_t>> prefetch;  // (depth, lines); skips timing
   std::optional<bool> half_vectors;  // 16-bit full vectors: half their memory (never chosen automatically)
   std::optional<std::size_t> extra_backlinks;  // HnswParams::extra_backlinks (0 unless set)
+  std::optional<std::size_t> code_bits;  // 8 or 4 (otherwise the faster of the two, measured when built)
 };
 
 struct AutoOptions {
@@ -62,6 +63,10 @@ struct AutoPlan {
   IndexProfile profile;  // ef is 0 while it still has to be calibrated
   bool calibrate = true;  // build_auto will calibrate ef
   bool tune = true;       // build_auto will time prefetch settings
+  // The graph is always built on 8-bit codes (params.code_bits stays 8); build_auto then walks it on
+  // `code_bits`, or, with measure_code_bits, on whichever of 8 and 4 bits is faster at the recall target.
+  std::size_t code_bits = 8;
+  bool measure_code_bits = false;
 };
 
 // What build_auto() would do with `data` (n rows of dim floats), without building.
