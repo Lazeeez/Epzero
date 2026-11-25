@@ -272,6 +272,19 @@ class EpzeroAutoNav90(EpzeroAuto):
         self._describe()
 
 
+class EpzeroAutoHalf(EpzeroAuto):
+    """epzero.build with one setting fixed: the full vectors kept as 16-bit floats (half_vectors), which the
+    build and the re-rank read. Half their memory; whether it costs speed or recall at k = 10 and 100 is what
+    round 14 measures before the planner may choose it."""
+
+    name = "epzero-auto-half"
+
+    def build(self, base):
+        self.index = self.mod.build(base, "l2", M=self.args.M, ef_construction=self.args.efc, threads=self.args.threads,
+                                    queries=self.calibration_queries(), half_vectors=True)
+        self._describe()
+
+
 class Hnswlib(Library):
     name = "hnswlib"
 
@@ -482,7 +495,7 @@ class EpzeroSq8Avx512(EpzeroSq8):
             del os.environ["EPZERO_SQ8_KERNEL"]
 
 
-LIBRARIES = {cls.name: cls for cls in (*COMPARED, EpzeroAuto, EpzeroAutoOod, EpzeroAutoDeep, EpzeroAutoNav90, EpzeroSq8Default, EpzeroSq8Adaptive, EpzeroSq8Avx512)}
+LIBRARIES = {cls.name: cls for cls in (*COMPARED, EpzeroAuto, EpzeroAutoOod, EpzeroAutoDeep, EpzeroAutoNav90, EpzeroAutoHalf, EpzeroSq8Default, EpzeroSq8Adaptive, EpzeroSq8Avx512)}
 
 
 def experiment(name):
