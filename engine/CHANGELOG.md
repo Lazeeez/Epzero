@@ -26,6 +26,13 @@ node, on the same per-dimension ranges at 16 levels, with the full vectors re-ra
   WebAssembly uses a scalar kernel for 4-bit codes, so there the planner's timing keeps 8 bits.
 - Saved with the index as a storage flag; builds before this one refuse such a file instead of misreading it.
 
+**Faster builds.**
+
+- Building with 16-bit full vectors (`half_vectors=True`) and no walk on principal directions widened each
+  stored vector to floats one value at a time for every pair the build compared; it now uses F16C or NEON.
+  Such a build took 2.6x as long as an 8-bit one on 300,000 AG News vectors (1.7x on GooAQ, 24 cores); now 1.01x.
+- A build that also times 4-bit codes computes its calibration queries' exact neighbours once, not twice.
+
 ## 0.5.0
 
 An index that stays accurate as its data changes, fixed in place; metadata and keyword search in the
