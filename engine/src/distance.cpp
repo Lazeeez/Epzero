@@ -245,6 +245,9 @@ std::vector<std::pair<std::string_view, Sq8IntDotFn>> sq4_int_dot_variants() {
   }
 #endif
 #endif
+#if defined(__aarch64__)
+  out.emplace_back("neon", kernels::sq4_int_dot_neon);
+#endif
   return out;
 }
 
@@ -271,6 +274,9 @@ Sq8IntDotFn get_sq4_int_dot_fn(SimdLevel level, [[maybe_unused]] std::size_t dim
       if (cpu_has_avx_vnni()) return kernels::sq4_int_dot_avxvnni;
 #endif
       return kernels::sq4_int_dot_avx2;
+#endif
+#if defined(__aarch64__)
+    case SimdLevel::NEON: return kernels::sq4_int_dot_neon;
 #endif
     default: return kernels::sq4_int_dot_scalar;
   }
