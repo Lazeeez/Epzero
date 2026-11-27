@@ -352,6 +352,8 @@ AutoPlan plan_auto(const float* data, std::size_t n, std::size_t dim, const Auto
   } else if ((nav != 0 ? nav : dim) < kCodeBitsMinCodes) {
     note(profile, "code_bits", "8: below " + std::to_string(kCodeBitsMinCodes) +
                                    " codes a node's record takes as many cache lines at 4 bits");
+  } else if (!options.measure_code_bits) {
+    note(profile, "code_bits", "8: set code_bits=4 to walk on 4-bit codes, or measure_code_bits to time both");
   } else if (fixed.ef) {
     note(profile, "code_bits", "8: choosing 4 bits needs the beam width calibrated");
   } else {
