@@ -214,6 +214,15 @@ def test_get_vector():
         index.get_vector(1000)
 
 
+def test_four_bit_codes_only_when_asked():
+    rng = np.random.default_rng(3)
+    base = rng.normal(size=(3000, 160)).astype(np.float32)  # 160 codes: enough for 4 bits to be worth trying
+    assert epzero.plan(base).reasons["code_bits"].startswith("8: set code_bits=4")
+    measured = epzero.plan(base, measure_code_bits=True)
+    assert measured.measure_code_bits and measured.reasons["code_bits"].startswith("8 or 4")
+    assert epzero.plan(base, code_bits=4).reasons["code_bits"] == "set by you"
+
+
 def test_half_vectors_only_when_asked():
     base = clustered(3000, 64, 12)
     assert not epzero.plan(base).half_vectors
