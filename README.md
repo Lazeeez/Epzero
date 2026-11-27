@@ -14,16 +14,17 @@ memory prefetching on your CPU (`pip install epzero`).
 On dedicated servers (Georgia Tech's PACE cluster), with the same code on an
 Intel Xeon Gold 6226, an AMD EPYC 7513 and an AMD Threadripper PRO 9985WX, it
 answers **1.3–4.2× as many queries per second as Glass**, the fastest of the five
-other libraries compared, at equal recall on GIST1M, OpenAI DBpedia embeddings and
-DEEP10M, and 1.1–1.5× on GloVe-100 at recall 0.90 and above (3% behind at 0.80 on
-one CPU). It builds those indexes up to 5× faster and, on the larger datasets, in
-less memory. On SIFT1M at full precision it serves 1.08× hnswlib's and 1.12×
-FAISS's queries per second at the same recall and scales to 10× on a 12-core
-socket. On modern embeddings from the VIBE benchmark it is 1.0–1.6× Glass on text
-embeddings (mxbai, Nomic) and 1.8–3.5× on LAION and ImageNet-ALIGN, where text
-queries search image vectors and Glass stops short of recall 0.91–0.94. On the
-older Intel Xeon it trails at recall 0.90: 0.87× on ImageNet-CLIP and 0.97–0.99×
-on Yandex. [The scoreboard lists every run, losses included →](docs/scoreboard.md)
+other libraries compared, at equal recall on GIST1M and DEEP10M, and 1.1–1.5× on
+GloVe-100 at recall 0.90 and above (3% behind at 0.80 on one CPU). It builds those
+indexes up to 5× faster and, on the larger datasets, in less memory. On SIFT1M at
+full precision it serves 1.08× hnswlib's and 1.12× FAISS's queries per second at the
+same recall and scales to 10× on a 12-core socket. Against Glass at its best (its
+4-bit walk where that is faster; Xeon Gold 6226, 10 neighbours) on modern embeddings
+from the VIBE benchmark, it is 1.8–2.4× on LAION and ImageNet-ALIGN at recall 0.90,
+where text queries search image vectors and Glass stops at 0.91–0.94, and 1.0–1.8×
+on most text embeddings at recall 0.98–0.99; Glass is faster on text embeddings at
+0.90–0.95 (Epzero 0.64–0.96×, except on DBpedia), and at 100 neighbours on most of
+them (0.5–0.9×). [The scoreboard lists every run, losses included →](docs/scoreboard.md)
 
 **It is built to be used.** `pip install epzero` on Linux, macOS and Windows; vector stores for
 LangChain, LlamaIndex and Haystack that pass each framework's own test suite; metadata filters,
@@ -104,13 +105,13 @@ The site works in Chrome, Edge, Firefox and Safari (16.4+), on desktop and
 mobile, and offline after one visit. Browsers without WebGL get everything but
 the 3D view; browsers too old for WebAssembly SIMD get a clear explanation.
 
-> **Status:** 0.5.0 is the current release (November 2026), on PyPI for Linux, macOS
-> and Windows. It adds health checks and in-place fixes after the build (recalibrate,
-> requantize, query-shift detection), indexes that grow in place, metadata stored in
-> the engine, LlamaIndex and Haystack integrations, Windows, English stemming, the
-> `epzero.ir` retrieval-evaluation toolkit and 16-bit full vectors (opt-in). Next:
-> 0.5.1 with round 9 (the older Xeon's low-recall gap), an ann-benchmarks and VIBE
-> submission. The cluster is
+> **Status:** 0.6.0 is the current release (November 2026), on PyPI for Linux, macOS
+> and Windows. It adds indexes that keep growing without leaving their newest vectors
+> behind (`extra_backlinks`, `refine_links(first=...)`), 4-bit codes (opt-in), walks on principal
+> directions chosen by measurement (opt-in), a deeper re-rank at 100 neighbours, faster
+> 16-bit builds and clear errors for the usual first-time mistakes
+> ([changelog](engine/CHANGELOG.md)). Next: text embeddings at 100 neighbours, where
+> Glass's 4-bit walk is faster, and a VIBE submission. The cluster is
 > built and tested in CI on every push; its cloud deployment is on hold. See the
 > [roadmap](#roadmap).
 
@@ -150,14 +151,19 @@ project was called Oryx until October 2026.)
   2.8-4.2× on GIST1M (recall 0.90-0.95), 1.6-2.7× on OpenAI DBpedia and 1.4-1.5× on DEEP10M
   (0.90-0.98), and 1.0-1.3× on GloVe-100 (0.80-0.93), on a Xeon Gold 6226 and an AMD EPYC 7513 with the
   same code. Builds are faster too, except on GloVe-100 and on DEEP10M on the Gold. These are each
-  dataset's best settings, chosen on the queries they are measured on; the
-  [scoreboard](docs/scoreboard.md) lists every run and every loss.
-- **Modern and out-of-distribution embeddings** (VIBE's datasets, round 8, `epzero.build` with no
-  settings): 1.2-1.6× Glass on AG News (mxbai, 1,024-d) and 1.0-1.2× on arXiv (Nomic, 768-d) at
-  recall 0.90-0.98; on text-to-image search (LAION, ImageNet-ALIGN) 1.8-3.5× at 0.90, where Glass
-  reaches at most 0.908 and 0.938 recall and Epzero 0.95-0.97 and 0.98. Builds 1.2-4.9× faster. It
-  trails on the Gold at recall 0.90 on ImageNet-CLIP (0.87×) and Yandex (0.97-0.99×); round 9
-  investigates ([table](#results)).
+  dataset's best settings, chosen on the queries they are measured on, against Glass's 8-bit walk.
+  Against its 4-bit walk as well (round 14, the Gold, `epzero.build` with no settings), GIST1M, DEEP10M
+  and GloVe-100 keep their lead (1.1-3.9× at 10 neighbours) and DBpedia's narrows to 1.0-1.6× (0.8-0.95×
+  at 100 neighbours). The [scoreboard](docs/scoreboard.md) lists every run and every loss.
+- **Modern and out-of-distribution embeddings** (VIBE's datasets, `epzero.build` with no settings,
+  against Glass at its best: its 8-bit or 4-bit walk, whichever is faster; round 14, Xeon Gold 6226):
+  on text-to-image search (LAION, ImageNet-ALIGN) 1.8-2.4× at recall 0.90 and alone above 0.91-0.94,
+  where Glass stops (Epzero reaches 0.96-0.99); 1.0-1.8× on AG News, CC-News, DBpedia, Simple
+  Wikipedia and Yahoo at recall 0.98-0.99 (10 neighbours). Glass's 4-bit walk is faster on text
+  embeddings at recall 0.90-0.95 (Epzero 0.64-0.96×, except DBpedia, and Simple Wikipedia at 0.95),
+  on GooAQ at every recall (0.63-0.68×), and at 100 neighbours on most text embeddings (0.51-0.87×
+  at 0.95): the gap the next rounds work on ([details](docs/performance.md)). In the VIBE benchmark's
+  own runs Epzero is first on LAION at every recall and fastest on ImageNet-CLIP at 0.99.
 - **Stays accurate after the build** (0.5): `index.health()` reports growth since
   calibration, deleted vectors, how much the 8-bit codes have drifted and whether the principal
   directions still fit the data, with plain advice; each fix runs in place.
