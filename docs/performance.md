@@ -1016,6 +1016,22 @@ walk and overstated Epzero's lead on text embeddings. Text embeddings at k = 100
 round 12b's wider direction walk (1.16-1.46× the 8-bit Glass on arXiv) and GooAQ's 4-bit codes (+25-43%)
 each closed part of it.
 
+**Round 15** (`*-speed-round15-k*.json`, 20 jobs on Gold 6226, 27-28 November, run on the 0.6.0 candidate;
+scored by [`bench/round15_score.py`](../bench/round15_score.py) against [`round15.sh`](../scripts/pace/round15.sh)'s
+predictions, written before any job ran). All three failed, so no default changes:
+
+| Prediction | Result |
+|---|---|
+| R1. 16-bit vectors after the build fix: build ≤ 1.10× the 8-bit one, memory 28-50% lower, recall within 0.002 (OpenAI 0.005), speed within the band, on every dataset | **Failed.** The build fix held everywhere (0.68-1.02×; GooAQ 0.82×, was 1.72×), and k = 100 passed every check except GloVe-100's memory. At k = 10 recall fell by up to 0.0063 (CC-News; 0.002-0.003 on AG News, arXiv, GIST1M), and GloVe-100 saved 26% |
+| R2. Refine at width 100 builds 15-35% faster and is 0.97-1.05× as fast at 0.95-0.99, on ≥ 5 of the 6 direction walks | **Failed:** held on arXiv only. Builds were 6-37% faster, k = 100 within 0.96-1.02×, but at k = 10 recall 0.99 was 0.92-0.94× on AG News, CC-News, DBpedia and Simple Wikipedia |
+| R3. `check_walk` on COCO: no walk, recall 0.95 at both k, ≥ 2× the speed at 0.90, ≤ 1.5× the build time | **Failed on build time only**: 1.52× and 1.55× (25 to 38 s). The rule's walk never reached 0.90 (highest 0.82 / 0.76); with the check, 0.996 / 0.997, 6,597 / 3,740 QPS at 0.90. Glass's 4-bit walk reached 0.43 / 0.59 |
+
+**Decisions, as recorded:** `half_vectors`, `refine_ef=100` and `check_walk` stay opt-in. The 16-bit build
+cost is fixed and k = 100 passed every other check, so 16-bit vectors are a sound choice to save memory at 100
+neighbours; at 10 they cost up to 0.006 recall on text embeddings. `check_walk` turns COCO from unusable into
+recall 0.996; making it the default needs a cheaper trial or a build-time limit argued before the next run, not
+a change after this one.
+
 **For developers, not only benchmarks.** Round 14's merge rules require, besides speed, a build time within
 10% of the 8-bit build and no more memory (decided before any result). A first-time-user audit (PyPI 0.5.0,
 the README as written, common mistakes; branch dev-ux) found NaN or infinite vectors accepted silently (the
