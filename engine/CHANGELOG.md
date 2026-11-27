@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
+
+Indexes that keep growing without leaving their newest vectors behind; 4-bit codes; walks on principal
+directions chosen by measurement (opt-in); faster builds; a deeper re-rank at k = 100; and a library that
+refuses the usual first-time mistakes with a clear message. Files written by 0.5 load unchanged.
 
 **Indexes that keep growing.** A vector inserted late has had no time to gain incoming links from
 later arrivals, so the newest vectors of a grown index are found less often than in a rebuild.
@@ -10,16 +14,22 @@ later arrivals, so the newest vectors of a grown index are found less often than
   candidates that it did not choose to link to it. Off by default; not saved with the index, so
   `index.set_extra_backlinks(n)` sets it again after `load()`.
 - `index.refine_links(ef=..., first=n)`: reconnects only the vectors inserted from position `n` on, for
-  a checkpoint after a batch of additions. It returns the number of vectors refined.
-- Both are opt-in. A one-off build doesn't change.
+  a checkpoint after a batch of additions. It returns the number of vectors refined. `around=True` also
+  refines the older vectors those link to, so that they can choose the new ones beside them.
+- Both are opt-in. A one-off build doesn't change. Together (8 extra links, each batch refined at a beam
+  of 100) they removed the newest vectors' extra misses on a growing collection for about 9% more
+  insertion work.
 
 **4-bit codes.** The graph walk can score 4-bit codes instead of 8-bit ones: half the bytes per scored
 node, on the same per-dimension ranges at 16 levels, with the full vectors re-ranking more of the beam.
 
-- `epzero.build` builds the graph on 8-bit codes as before, then calibrates and times the walk at 4 bits
-  on the same graph and keeps 4 bits only where they reach the recall target at least 3% faster
-  (`index.plan.reasons["code_bits"]` gives both timings). Below 128 codes per vector it keeps 8 bits
-  without trying. `code_bits=8` or `4` fixes the choice.
+- `epzero.build(..., code_bits=4)` builds the graph on 8-bit codes as before and walks it on 4-bit ones.
+  They were 25-43% faster on GooAQ and Yahoo (walks over every dimension) and slower on most walks on
+  principal directions and on CLIP and ALIGN image vectors (Xeon Gold 6226), so the default stays 8 bits.
+- `measure_code_bits=True` calibrates and times the walk at both widths on the same graph and keeps 4 bits
+  only where they reach the recall target at least 3% faster (`index.plan.reasons["code_bits"]` gives both
+  timings). Opt-in: its choice was within 3% of the better one on 9 of 12 datasets, but 24% slower on GooAQ
+  at k = 10, where the two tied at calibration. Below 128 codes per vector it keeps 8 bits without trying.
 - `index.set_code_bits(4)` (C++: `HnswIndex::set_code_bits`) converts a built index in place, keeping
   the graph, and back with `set_code_bits(8)`. 4-bit codes need the full vectors (the default).
 - Integer kernels for AVX2, AVX-VNNI, AVX-512 VNNI and NEON (base ARMv8, no dot-product extension needed);
@@ -38,12 +48,20 @@ node, on the same per-dimension ranges at 16 levels, with the full vectors re-ra
   the full data, or within 5% of it, 15 times out of 16 (Xeon Gold 6226, round 14), but it costs 2-3.5x the build
   time, so it stays opt-in.
 
+**Searching deeper at k = 100.** With the walk on principal directions, the early-stopping re-rank with
+full vectors now scores up to max(`rerank`, `ef`) candidates instead of `rerank`: at k = 100 a wide beam
+holds true neighbours past the first 300. Highest recall at k = 100 rose from 0.987 to 0.999 on AG News,
+0.970 to 0.999 on arXiv and 0.910 to 0.995 on GIST1M; at k = 10 the early stop ends the re-rank first,
+and speed is unchanged within 1-2%.
+
 **Faster builds.**
 
 - Building with 16-bit full vectors (`half_vectors=True`) and no walk on principal directions widened each
   stored vector to floats one value at a time for every pair the build compared; it now uses F16C or NEON.
   Such a build took 2.6x as long as an 8-bit one on 300,000 AG News vectors (1.7x on GooAQ, 24 cores); now 1.01x.
 - A build that also times 4-bit codes computes its calibration queries' exact neighbours once, not twice.
+- `refine_ef=` sets the refine pass's beam width (by default efConstruction with a walk on directions, half
+  of it without).
 
 **Friendlier for a first-time user** (found by installing from PyPI and trying the usual mistakes):
 
@@ -57,6 +75,11 @@ node, on the same per-dimension ranges at 16 levels, with the full vectors re-ra
 - `save`, `load` and `Database.open` take any path-like object (`pathlib.Path`), not only strings.
 - A negative `k`, `ef` or `rerank` gets `ValueError: k must be 0 or more` instead of a pybind11 cast error.
 - `search` documents what fills a short result: label -1 and distance inf.
+
+**Retrieval evaluation** (`epzero.ir`): run files keep full score precision; qrels with a non-integer or
+non-finite grade, or a duplicate judgment, are refused with the file and the offending value; `evaluate(...,
+population=...)` chooses which queries count (`"positive"`, the default and the earlier behaviour, `"judged"`,
+or `"explicit"` with `query_ids=`), and a query missing from the run scores 0.
 
 ## 0.5.0
 
