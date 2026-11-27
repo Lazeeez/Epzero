@@ -42,7 +42,8 @@ node, on the same per-dimension ranges at 16 levels, with the full vectors re-ra
   sample before the build), the build times the variance rule's walk on principal directions against no walk,
   on 50,000 rows, and keeps the faster. On COCO (text queries against image vectors) the rule's 128-direction
   walk never reached recall 0.95 (beam width 4096); with the check, no walk reached it at 128, for 26% more build
-  time. Queries like the data skip the trial (AG News: build time unchanged).
+  time on a laptop. On the full set on a Xeon Gold 6226 the highest recall rose from 0.76-0.82 to 0.996, for 1.5x
+  the build time (25 to 38 s). Queries like the data skip the trial (AG News: build time unchanged).
 - `measure_nav=True`: the number of directions itself by trial indexes on 100,000 rows (none, 128-512 and the
   rule's), timed on your queries or on held-out rows. On eight datasets it chose the count that was fastest on
   the full data, or within 5% of it, 15 times out of 16 (Xeon Gold 6226, round 14), but it costs 2-3.5x the build
@@ -58,7 +59,9 @@ and speed is unchanged within 1-2%.
 
 - Building with 16-bit full vectors (`half_vectors=True`) and no walk on principal directions widened each
   stored vector to floats one value at a time for every pair the build compared; it now uses F16C or NEON.
-  Such a build took 2.6x as long as an 8-bit one on 300,000 AG News vectors (1.7x on GooAQ, 24 cores); now 1.01x.
+  Such a build took 2.6x as long as an 8-bit one on 300,000 AG News vectors (1.7x on GooAQ, 24 cores); now 1.01x,
+  and 0.68-1.02x on nine datasets on a Xeon Gold 6226 (GooAQ 0.82x). 16-bit vectors stay opt-in: they cost up to
+  0.006 recall at 10 neighbours on some text embeddings.
 - A build that also times 4-bit codes computes its calibration queries' exact neighbours once, not twice.
 - `refine_ef=` sets the refine pass's beam width (by default efConstruction with a walk on directions, half
   of it without).
