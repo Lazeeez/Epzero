@@ -21,7 +21,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r bench/requirements.txt
 ```
 
-This installs Epzero 0.5.0 from PyPI and the libraries it is compared with, at the versions these
+This installs Epzero 0.6.0 from PyPI and the libraries it is compared with, at the versions these
 steps were checked with. Glass is published only as source. To include it:
 
 ```bash
