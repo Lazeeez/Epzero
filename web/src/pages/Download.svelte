@@ -4,8 +4,39 @@
   import { router } from "../lib/router.svelte";
   import { spotlight } from "../lib/spotlight";
 
-  // What 0.5 added, and what 0.4 already did. Each with the figure that backs it.
+  // What 0.6 added, and what 0.4 and 0.5 already did. Each with the figure that backs it.
+  const NEW = "0.6";
   const features = [
+    {
+      title: "Fair to new data",
+      since: "0.6",
+      text: "A graph grown by appending serves its newest vectors worst. extra_backlinks and refine_links(first=…) give each new batch the incoming links a rebuild would.",
+      figure: "The newest vectors' extra misses removed, for 9% more insertion work",
+    },
+    {
+      title: "Searches deeper at k = 100",
+      since: "0.6",
+      text: "With a walk on principal directions, the re-rank with full vectors now scores as many candidates as the beam holds, so wide searches find their last neighbours.",
+      figure: "Highest recall@100 on GIST1M: 0.910 → 0.995",
+    },
+    {
+      title: "4-bit codes",
+      since: "0.6",
+      text: "code_bits=4 walks the same graph on half the bytes per node, with kernels for AVX2, AVX-512, VNNI and NEON. Opt-in: it pays on some embeddings and not others.",
+      figure: "25–43% faster on GooAQ and Yahoo",
+    },
+    {
+      title: "The right walk for unlike queries",
+      since: "0.6",
+      text: "check_walk=True, with your queries: when they don't look like the data, the build times walking on the data's directions against not, and keeps the faster. Opt-in.",
+      figure: "COCO, text searching images: recall 0.82 → 0.996",
+    },
+    {
+      title: "Clear errors",
+      since: "0.6",
+      text: "NaN and infinite vectors are refused with their row; other libraries' metric names and pathlib paths are accepted; a negative k says so.",
+      figure: "ValueError: row 42 contains NaN (column 5)",
+    },
     {
       title: "Configures itself",
       since: "0.4",
@@ -90,6 +121,16 @@ print(index.check_queries(queries))   # do these queries look like the data?
 index.recalibrate(queries)            # re-measure the beam width on real queries
 index.requantize()                    # refit the 8-bit codes after drift, reconnect the graph
 index.add(new_vectors)                # grows in place past its capacity`,
+    },
+    {
+      id: "growing",
+      name: "Keep growing",
+      since: "0.6",
+      note: "A graph grown by appending finds its newest vectors less often than a rebuild would. Two options make batches behave like a rebuild.",
+      code: `index = epzero.build(vectors, extra_backlinks=8)    # each insertion is also linked from 8 nearby nodes
+first = len(index)                                  # before a batch (nothing removed since)
+index.add(batch, labels=batch_labels)
+index.refine_links(ef=100, first=first)             # at a checkpoint: reconnect the batch`,
     },
     {
       id: "filters",
@@ -213,7 +254,7 @@ pipeline.run({"retriever": {"query_embedding": embedding,
       </button>
     </div>
     <p class="release">
-      <span class="tag next">0.5.0</span> on PyPI now, for Linux, macOS and Windows. The <span class="tag next">0.5</span> tags mark what it added.
+      <span class="tag next">0.6.0</span> on PyPI now, for Linux, macOS and Windows. The <span class="tag next">0.6</span> tags mark what it added.
     </p>
   </header>
 
@@ -222,7 +263,7 @@ pipeline.run({"retriever": {"query_embedding": embedding,
     <ul class="features">
       {#each features as f, i (f.title)}
         <li class="card feature" use:reveal style:--reveal-delay="{(i % 3) * 0.06}s" use:spotlight>
-          <span class="tag" class:next={f.since === "0.5"} class:now={f.since !== "0.5"}>{f.since}</span>
+          <span class="tag" class:next={f.since === NEW} class:now={f.since !== NEW}>{f.since}</span>
           <h3>{f.title}</h3>
           <p>{f.text}</p>
           <p class="figure num">{f.figure}</p>
