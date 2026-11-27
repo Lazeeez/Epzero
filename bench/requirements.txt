@@ -1,7 +1,7 @@
 # Libraries for bench/compete.py and bench/compare_libs.py, at the versions the benchmarks were checked with
 # (Python 3.12, Linux x86-64). Each library is optional: compete.py skips one that fails to import.
 # Glass is source-only; see BENCHMARKS.md for its two-line build.
-epzero==0.5.0
+epzero==0.6.0
 numpy==2.5.5
 h5py==3.16.0
 hnswlib==0.8.0
