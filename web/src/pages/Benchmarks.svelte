@@ -227,7 +227,7 @@
     <h2 id="modern-title" class="block-title" use:reveal>Modern embeddings, configured automatically</h2>
     <p class="caption lead" use:reveal>
       Six datasets from the VIBE benchmark: text embeddings from current models, and text queries searching image vectors, where the
-      queries don't look like the data. <code>epzero.build()</code> with no settings against Glass, on two CPUs. Queries per second as a
+      queries don't look like the data. <code>epzero.build()</code> with no settings against Glass's 8-bit walk (round 8), on two CPUs. Queries per second as a
       multiple of Glass's at recall {MODERN_RECALLS.map((r) => r.toFixed(2)).join(" / ")}, one search thread; builds on every core.
     </p>
     <div class="card panel" use:reveal use:spotlight>
@@ -273,9 +273,10 @@
     </div>
     <p class="caption" use:reveal>
       Faster on text embeddings on both CPUs, and 1.8–3.5× where text searches images, which Glass's graph can't search past recall 0.91–0.94.
-      Builds were faster everywhere, by up to 4.9×. The losses are on the older Intel Xeon at recall 0.90, ImageNet-CLIP (0.87×) and Yandex:
-      at the same beam width Epzero finds more of the true neighbours there but takes longer per step, on that CPU only (on a laptop it is
-      1.6× Glass on Yandex at 0.90), and a run measuring each SIMD kernel on it is under way.
+      Builds were faster everywhere, by up to 4.9×. Glass also walks on 4-bit codes, and that mode is faster still on text embeddings: against
+      the faster of its two modes (round 14, the older Intel Xeon), Epzero keeps 1.8–2.4× where text searches images and 1.0–1.8× on most text
+      embeddings at recall 0.98–0.99, but is 0.64–0.96× at 0.90–0.95, and slower on most of them at 100 neighbours. That gap is what the next
+      rounds work on.
     </p>
 
     <div class="card panel calib" use:reveal use:spotlight>
