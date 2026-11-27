@@ -2,7 +2,8 @@
 
 Reads compete.py's JSON and writes a Markdown table per run and a summary of where Epzero wins and
 loses. Two kinds of run per dataset: every library at its shipped default (*-compete.json), and the
-latest round of Glass against Epzero's tuned settings (*-speed-roundN.json). A library is ranked only
+latest round of Glass against Epzero's tuned settings (*-speed-roundN.json, or *-speed-roundN-kK.json per number of
+neighbours). A library is ranked only
 against what ran in the same file, so figures from different runs are never mixed.
 
     python bench/scoreboard.py --results bench/results/pace --out docs/scoreboard.md
@@ -19,7 +20,10 @@ import re
 TARGETS = {"glove": (0.80, 0.90, 0.93)}
 DEFAULT_TARGETS = (0.90, 0.95, 0.98)
 SUFFIX = "-compete.json"
-ROUND = re.compile(r"(.+)-speed-round(\d+)\.json$")
+ROUND = re.compile(r"(.+)-speed-round(\d+)(?:-k\d+)?\.json$")
+# The configuration that stands for Epzero in a run: what epzero.build gives with no settings. In round 14
+# epzero-auto also timed 4-bit codes, which 0.6 left opt-in, so its 8-bit arm is the shipped default there.
+DEFAULT_ARMS = ("epzero-auto-8bit", "epzero-auto", "epzero-auto-ood")
 
 
 def qps_at(sweep, recall):
@@ -59,7 +63,7 @@ def table(run):
     # get, where the run has it; otherwise the one fastest at the middle target (so a configuration that
     # builds fast but searches slowly can't stand in for the one that wins on speed).
     others = [r for r in rows if not r["lib"].startswith("epzero")]
-    mine = next((r for r in rows if r["lib"] == "epzero-auto"), None) or next(r for r in rows if r["lib"].startswith("epzero"))
+    mine = next((r for arm in DEFAULT_ARMS for r in rows if r["lib"] == arm), None)         or next(r for r in rows if r["lib"].startswith("epzero"))
 
     def rank(score):
         return None if score(mine) is None else 1 + sum(1 for r in others if score(r) is not None and score(r) < score(mine))
@@ -75,12 +79,22 @@ def table(run):
 def runs(folder):
     """A machine's files: each dataset's all-library run, then its latest tuned round."""
     files = sorted(glob.glob(os.path.join(folder, f"*{SUFFIX}")))
+    # Per dataset (and number of neighbours), the latest round; from round 14 on, the latest that ran Glass in
+    # both modes, so that a round testing only Epzero's options doesn't stand in with Glass's slower mode.
     latest = {}
     for path in glob.glob(os.path.join(folder, "*-speed-round*.json")):
         match = ROUND.match(os.path.basename(path))
-        if match and int(match[2]) > latest.get(match[1], (0, ""))[0]:
-            latest[match[1]] = (int(match[2]), path)
-    tuned = [(path, f"round {number}, Glass against Epzero's automatic and tuned settings") for number, path in latest.values()]
+        if not match:
+            continue
+        with open(path, encoding="utf-8") as f:
+            run = json.load(f)
+        both = "glass" in run["libraries"] and "glass-sq4" in run["libraries"]
+        key = (match[1], run["k"])
+        rank = (both, int(match[2]))
+        if rank > latest.get(key, ((False, 0), ""))[0]:
+            latest[key] = (rank, path)
+    tuned = [(path, f"round {rank[1]}, k = {k}, Glass against Epzero's automatic and tuned settings")
+             for (_, k), (rank, path) in latest.items()]
     return sorted([(path, "every library, shipped defaults") for path in files] + tuned)
 
 
@@ -97,8 +111,10 @@ def main():
            "figures until a run on held-out queries. Memory is the growth in the process's resident memory",
            "while an index loads or builds, which is approximate; blank where a run didn't record it. Build",
            "time uses every core of the node. Rank 1 is best; Epzero counts as one library, ranked on every",
-           "measure by `epzero-auto` (automatic configuration, what `epzero.build` gives) where a run has it,",
-           "and otherwise by its configuration fastest at the middle recall target.", ""]
+           "measure by what `epzero.build` gives with no settings (`epzero-auto-8bit` in rounds that also tried",
+           "4-bit codes, otherwise `epzero-auto`, or `epzero-auto-ood` for queries unlike the data) where a run",
+           "has it, and otherwise by its configuration fastest at the middle recall target. Since round 14,",
+           "Glass runs in both of its modes, `glass` (8-bit walk) and `glass-sq4` (4-bit walk), each ranked.", ""]
     summary = []
     for machine in sorted(os.listdir(args.results)):
         files = runs(os.path.join(args.results, machine))
@@ -114,7 +130,8 @@ def main():
                     f"M = {run['M']}, efConstruction = {run['ef_construction']}, {run['rounds']} rounds, one search thread"
                     + (f", {cpu}." if cpu else "."), ""]
             out += lines + [""]
-            summary.append((machine, f"{run['dataset']} ({kind.split(',')[0]})", ranks, count))
+            label = kind.split(", Glass")[0] if ", Glass" in kind else kind.split(",")[0]
+            summary.append((machine, f"{run['dataset']} ({label})", ranks, count))
     if summary:
         out += ["## Where Epzero stands", "", "| Machine | Dataset | Measure | Epzero's rank |", "|---|---|---|---|"]
         for machine, dataset, ranks, count in summary:
