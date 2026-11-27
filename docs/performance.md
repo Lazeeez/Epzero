@@ -814,6 +814,25 @@ AG News. Its builds are 2-3× Glass's (948-1,408 s against 471-563 s single-thre
 calibrates and refines) and its indexes are larger (2.7-3.4 GB against 1.3-2.5 GB: it keeps full vectors
 for the re-rank). AG News at 0.99 and ImageNet-CLIP at low recall are what to work on.
 
+**GloVe-200 in VIBE** (jobs 7329056 and 7329057, 25-26 November, released 0.5.0, the same 11 methods run in
+two halves of one sweep on Gold 6226; 16 settings could not run on 200 dimensions, SVS LeanVec and LoRANN
+reductions to 200 or more). Best queries per second at recall ≥ 0.80 / 0.90 / 0.95 / 0.99:
+
+| Method | ≥ 0.80 | ≥ 0.90 | ≥ 0.95 | ≥ 0.99 | Highest recall |
+|---|---|---|---|---|---|
+| NGT-QG | 2,817 | 1,233 | 616 | 187 | 1.000 |
+| **Epzero** | **2,266 (2nd)** | **798 (3rd)** | **414 (3rd)** | — | 0.955 |
+| ScaNN | 1,958 | 979 | 567 | — | 0.954 |
+| Glass | 1,901 | 698 | — | — | 0.939 |
+| hnswlib | 759 | 328 | 183 | — | 0.986 |
+
+Epzero is ahead of Glass, hnswlib, SymphonyQG, SVS, RaBitQ and LoRANN at every recall it reaches, at 0.65× NGT-QG at
+0.90 and 0.67× at 0.95. It never reaches 0.99 because its VIBE grid stops at M 32 and `ef` 1000, where recall
+was still rising (0.942 at `ef` 800, 0.955 at 1000); hnswlib reaches 0.986 only at M 96. At equal M 24 and
+`ef` 1000, Epzero has 0.937 recall at 479 QPS against hnswlib's 0.920 at 231. NGT-QG's lead costs a
+7,606 s build and a 6.6 GB index (Epzero 979-4,323 s, 1.4-1.6 GB). Adding M 48 and 64 to Epzero's VIBE grid
+is the change to measure before quoting GloVe-200 at 0.99.
+
 **Round 11: the walk's re-rank depth** (`*-speed-round11-k*.json`, [`scripts/pace/round11.sh`](../scripts/pace/round11.sh)).
 On AG News at k = 100, recall stopped at 0.988 from `ef` 400 to 1000. With the walk on principal
 directions, `epzero.build` re-ranks up to 300 candidates with full vectors, stopping early once the rest
