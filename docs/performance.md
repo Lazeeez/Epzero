@@ -964,6 +964,58 @@ lifted COCO from 0.06 to 0.37 recall at `ef` 100, but on AG News it dropped reca
 0.715 (`ef` 24). For neighbours from the data's own distribution the residuals are correlated, and the
 projected distance ranks them better. Not kept.
 
+**Round 14, complete** (`*-speed-round14-k*.json`, all 28 speed jobs and 16 trials, Gold 6226; scored by
+[`bench/round14_score.py`](../bench/round14_score.py) against the predictions in
+[`round14.sh`](../scripts/pace/round14.sh), written before any job ran):
+
+| Prediction | Result |
+|---|---|
+| P1. Glass's 4-bit walk faster than its 8-bit one at 0.95, k = 10, on ≥ 9 of 14; below 0.90 on LAION; faster than Epzero's 8-bit path at 0.95, k = 100, on AG News and ImageNet-CLIP | **Failed**: faster on 7 of 14. The other two parts held (LAION top recall 0.22-0.29; faster than Epzero on both) |
+| P2. 16-bit vectors save 28-50% memory everywhere | **Failed** on the two 96-100-d datasets (DEEP −24%, GloVe −26%, where the graph is a larger share); −31 to −47% on the other 12 |
+| P3 + P4. 16-bit recall within 0.002 (OpenAI: 0.005) and speed within the stated band | **Failed**: held on 1 of 14 (12 needed) |
+| P5. 4-bit slower than 8-bit on direction walks, 0.95, both k | **Failed** on Simple Wikipedia only (both k) |
+| P6. 4-bit faster at 0.98, k = 100, on ≥ 3 of 5 full walks | **Failed**: GooAQ and Yahoo only |
+| P7. The 4-bit trial within 3% of the better choice on ≥ 10 of 12 | **Failed**: 9 of 12 (GooAQ 0.76×, ImageNet-ALIGN 0.95×, AG News and DBpedia 0.97×) |
+| P8. The sample's direction count is the full-scale best, or within 5%, on ≥ 12 of 16 | **Held**: 15 of 16 (GIST1M k = 100 0.88×) |
+
+**Decisions, as recorded:** `half_vectors` stays opt-in; the 4-bit trial is not merged (`code_bits=4` stays a
+setting); the direction-count trial goes forward to a full round (P8). Many of P3 and P4's failures were in
+16-bit's favour (higher recall, or more than 3% faster at k = 10). Counting only losses, after the fact, 8 of 14
+datasets pass, still short of 12: recall at k = 10 fell 0.013-0.015 on LAION and ImageNet-ALIGN, 0.003-0.004
+on arXiv and GIST1M, and Yandex was 0.88× at 0.99. The 16-bit builds ran the scalar conversion fixed after
+the round started (1.3-2.1× the 8-bit build on full walks); round 15 re-measures them. The 8-bit path matched
+the earlier rounds within 3% at 0.95 except GooAQ at k = 10 (0.94× round 13) and LAION at k = 10 (0.84× round
+8), where 0.95 lies on the flat top of the curve (0.952 at `ef` 800, round 8 0.958) and speed at equal `ef` is
+the same.
+
+**Against Glass at its best.** Epzero's 8-bit path against the faster of Glass's two modes (8-bit or 4-bit
+walk, * where the 4-bit one was faster), queries per second at recall 0.90 / 0.95 / 0.98 / 0.99:
+
+| Dataset | k = 10 | k = 100 |
+|---|---|---|
+| GIST1M, 960-d | 3.07 / 3.91 / only / only | 1.45* / 1.93 / only / only |
+| DEEP10M, 96-d | 1.45 / 1.38 / 1.40 / 1.57 | 1.22 / 1.18 / 1.18 / 1.19 |
+| GloVe-100 | 1.11 / 1.24 / — / — | 1.07 / only / — / — |
+| DBpedia, OpenAI, 1536-d | 1.04* / 1.17* / 1.37* / 1.64* | 0.90* / 0.82* / 0.88* / 0.95* |
+| Simple Wikipedia, OpenAI, 3072-d | 0.83* / 1.03* / 1.22* / 1.79* | 1.03* / 0.87* / 0.97* / 1.07* |
+| AG News, mxbai, 1024-d | 0.89* / 0.95* / 1.05* / 1.26* | 0.83* / 0.66* / 0.71* / 0.79* |
+| arXiv, Nomic, 768-d | 0.77* / 0.84* / 0.97* / 1.11 | 0.63* / 0.51* / 0.59* / 0.70* |
+| CC-News, Nomic, 768-d | 0.83* / 0.96* / 1.32* / 1.53 | 0.76* / 0.66* / 0.81* / 1.12* |
+| GooAQ, DistilRoBERTa, 768-d | 0.67* / 0.64* / 0.63* / 0.66* | 0.66* / 0.66* / 0.67* / 0.68* |
+| Yahoo, MiniLM, 384-d | 0.76* / 0.86* / 1.00 / 1.07 | 0.77* / 0.83* / 0.86* / 1.03 |
+| ImageNet-CLIP, 512-d | 0.78* / 0.98 / 1.14 / 1.48 | 0.76* / 0.81* / 1.01 / 1.04 |
+| LAION, CLIP, 512-d | 2.43 / only / — / — | 1.19 / only / — / — |
+| ImageNet-ALIGN, 640-d | 1.80 / only / only / — | 1.10 / 1.31 / only / — |
+| Yandex, 200-d | 1.06 / 1.22 / 1.39 / 1.61 | 1.01 / 1.03 / 1.14 / 1.11 |
+
+("only": Epzero reaches the recall and Glass does not; "—": neither does.) Epzero still leads on the classic
+benchmarks, Yandex and text-to-image search, and at recall 0.98-0.99 at k = 10 on most text embeddings. Glass's
+4-bit walk leads on most text embeddings at recall 0.90-0.95 (not DBpedia at k = 10), and at k = 100 at every
+recall except CC-News, Simple Wikipedia and Yahoo at 0.99, by up to 2× on arXiv. Every ratio against Glass before round 14 quoted its 8-bit
+walk and overstated Epzero's lead on text embeddings. Text embeddings at k = 100 are now the main gap:
+round 12b's wider direction walk (1.16-1.46× the 8-bit Glass on arXiv) and GooAQ's 4-bit codes (+25-43%)
+each closed part of it.
+
 **For developers, not only benchmarks.** Round 14's merge rules require, besides speed, a build time within
 10% of the 8-bit build and no more memory (decided before any result). A first-time-user audit (PyPI 0.5.0,
 the README as written, common mistakes; branch dev-ux) found NaN or infinite vectors accepted silently (the
