@@ -105,8 +105,9 @@ TEST(Auto, FixedSettingsWin) {
   EXPECT_THROW(plan_auto(base.data(), 2000, 512, options), std::invalid_argument);
 }
 
-// 4-bit codes: fixed, they are what the index walks, with the early-stopping re-rank; otherwise the build
-// times both and says which it kept and why; below 128 codes it doesn't try.
+// 4-bit codes: fixed, they are what the index walks, with the early-stopping re-rank; by default the build
+// keeps 8 bits; with measure_code_bits it times both and says which it kept and why; below 128 codes it
+// doesn't try.
 TEST(Auto, CodeBitsFixedOrMeasured) {
   constexpr std::size_t n = 4000;
   constexpr std::size_t dim = 160;
@@ -118,7 +119,13 @@ TEST(Auto, CodeBitsFixedOrMeasured) {
   EXPECT_GT(four->profile().rerank_z, 0.0f);
   EXPECT_EQ(why(four->profile(), "code_bits"), "set by you");
 
-  const auto measured = build_auto(data.base.data.data(), nullptr, n, dim, AutoOptions{});
+  const auto plain = build_auto(data.base.data.data(), nullptr, n, dim, AutoOptions{});
+  EXPECT_EQ(plain->params().code_bits, 8u);
+  EXPECT_EQ(why(plain->profile(), "code_bits").rfind("8: set code_bits=4", 0), 0u);
+
+  AutoOptions measure;
+  measure.measure_code_bits = true;
+  const auto measured = build_auto(data.base.data.data(), nullptr, n, dim, measure);
   const std::string reason = why(measured->profile(), "code_bits");
   ASSERT_FALSE(reason.empty());
   EXPECT_EQ(reason[0] == '4', measured->params().code_bits == 4u) << reason;
@@ -126,7 +133,7 @@ TEST(Auto, CodeBitsFixedOrMeasured) {
   EXPECT_GE(measured->profile().recall_measured, 0.95f);
 
   const auto short_data = make_clustered(2000, 10, 64, 10, 32);
-  const auto short_index = build_auto(short_data.base.data.data(), nullptr, 2000, 64, AutoOptions{});
+  const auto short_index = build_auto(short_data.base.data.data(), nullptr, 2000, 64, measure);
   EXPECT_EQ(short_index->params().code_bits, 8u);
   EXPECT_EQ(why(short_index->profile(), "code_bits").rfind("8: below 128", 0), 0u);
 
