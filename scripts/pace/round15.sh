@@ -25,6 +25,9 @@
 #    dataset. The refine width becomes 100 on walks over directions only if R2 holds on all six, or on five with
 #    the sixth at least 0.97x at every target. check_walk becomes the default whenever queries are given only
 #    if R3 holds.
+# Run note (27 November 2026, after round 14 was scored, predictions unchanged): run from release-0.6, the 0.6.0
+# candidate (nav-trial plus the 4-bit choice made opt-in). Every arm here fixes code_bits=8 or leaves it to the
+# planner, whose default is now 8 bits, as for both COCO arms alike.
 # Queued as ONE chain after whatever is already queued (the jobs share one Python environment):
 #
 #   AFTER=<last queued job id> bash scripts/pace/round15.sh     (from the checkout, on a login node)
