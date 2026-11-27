@@ -40,7 +40,7 @@ struct AutoFixed {
   std::optional<std::pair<std::size_t, std::size_t>> prefetch;  // (depth, lines); skips timing
   std::optional<bool> half_vectors;  // 16-bit full vectors: half their memory (never chosen automatically)
   std::optional<std::size_t> extra_backlinks;  // HnswParams::extra_backlinks (0 unless set)
-  std::optional<std::size_t> code_bits;  // 8 or 4 (otherwise the faster of the two, measured when built)
+  std::optional<std::size_t> code_bits;  // 8 or 4 (otherwise 8, or the faster of the two with measure_code_bits)
 };
 
 struct AutoOptions {
@@ -67,6 +67,10 @@ struct AutoOptions {
   // none, each built on a sample and timed on them, so that queries unlike the data (text against images)
   // don't walk on the data's directions when that is slower. Cheaper than measure_nav: two small trials.
   bool check_walk = false;
+  // Unless code_bits is fixed: time the walk on 8-bit and on 4-bit codes of the same graph and keep 4 bits
+  // only if at least 3% faster at the recall target. Opt-in: on the Gold 6226 the choice was within 3% of the
+  // better one on 9 of 12 datasets, and 24% slower on GooAQ (round 14, docs/performance.md).
+  bool measure_code_bits = false;
 };
 
 struct AutoPlan {
